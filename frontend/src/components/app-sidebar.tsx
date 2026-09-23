@@ -28,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { ThemeToggle } from "@/components/theme-toggle"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -539,26 +540,29 @@ export function AppSidebar({
         <span>
           {connections.length} connection{connections.length === 1 ? "" : "s"}
         </span>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => {
-            for (const connection of connections) {
-              if (connection.connected && expandedConns[connection.id]) {
-                void loadDatabases(connection.id)
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => {
+              for (const connection of connections) {
+                if (connection.connected && expandedConns[connection.id]) {
+                  void loadDatabases(connection.id)
+                }
               }
-            }
-            for (const [key, open] of Object.entries(expandedDbs)) {
-              if (!open) continue
-              const [connectionId, database] = key.split("::")
-              void loadCollections(connectionId, database)
-            }
-            onRefresh()
-          }}
-          title="Refresh"
-        >
-          <RefreshCw />
-        </Button>
+              for (const [key, open] of Object.entries(expandedDbs)) {
+                if (!open) continue
+                const [connectionId, database] = key.split("::")
+                void loadCollections(connectionId, database)
+              }
+              onRefresh()
+            }}
+            title="Refresh"
+          >
+            <RefreshCw />
+          </Button>
+        </div>
       </div>
 
       <CreateDatabaseDialog

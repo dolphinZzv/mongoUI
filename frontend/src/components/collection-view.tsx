@@ -48,7 +48,7 @@ export function CollectionView({
             <span className="truncate font-medium">{collection}</span>
           </div>
           <Button variant="ghost" size="icon-sm" onClick={copyPath} title="Copy path">
-            {copied ? <CheckIcon className="text-emerald-400" /> : <CopyIcon />}
+            {copied ? <CheckIcon className="text-emerald-600 dark:text-emerald-400" /> : <CopyIcon />}
           </Button>
           <TabsList className="ml-auto">
             <TabsTrigger value="documents">Documents</TabsTrigger>

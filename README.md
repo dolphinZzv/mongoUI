@@ -19,6 +19,8 @@
 | 统计信息 | `collStats` / `dbStats` 关键指标卡片 + 原始 JSON |
 | 服务器信息 | 版本、构建信息、运行时长、数据库总大小 |
 | 数据管理 | 创建 / 删除数据库、创建 / 删除集合（含 capped 选项） |
+| 主题 | 明亮 / 暗黑 / 跟随系统三种模式，偏好保存在浏览器 |
+| 运维 | 守护进程后台运行（`-daemon` / `-stop` / `-status`）、一键安装脚本、`mongoui update` 自更新 |
 
 所有 BSON 值均以 **MongoDB Extended JSON**（relaxed 模式）在前后端之间传输，因此 `ObjectId`、`Date`、`Decimal128`、`Long`、`Binary` 等类型都能无损保留：
 
@@ -103,6 +105,54 @@ make dev-frontend
 ```bash
 make docker-mongo   # docker run -p 27017:27017 mongo:8
 ```
+
+## 一键安装（从 GitHub Releases）
+
+无需 Go/Node 环境，直接下载对应平台的预编译二进制（已内嵌前端）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dolphinZzv/mongoUI/main/scripts/install.sh | sh
+```
+
+指定版本 / 目录 / 顺便装 systemd 服务：
+
+```bash
+# 安装到 ~/.local/bin
+INSTALL_DIR=$HOME/.local/bin sh -s -- --version v0.2.0 < install.sh
+# 或先下载脚本再执行
+curl -fsSL -O https://raw.githubusercontent.com/dolphinZzv/mongoUI/main/scripts/install.sh
+sh install.sh --version latest --dir /usr/local/bin --service
+```
+
+脚本会自动识别 `linux/darwin` × `amd64/arm64`，下载归档并用 `checksums.txt` 校验 SHA-256。
+
+## 后台运行（守护进程）
+
+Unix 上可以让服务在后台常驻（脱离终端，写 pid 与日志文件）：
+
+```bash
+mongoui -addr :8080 -daemon                 # 后台启动
+mongoui -status                             # 查看运行状态
+mongoui -stop                               # 停止
+```
+
+- pid 文件默认 `<data>/mongoui.pid`，日志默认 `<data>/mongoui.log`，可用 `-pidfile` / `-logfile` 覆盖
+- `-addr`、`-data` 等参数会被传递给后台子进程
+
+Windows 不支持 `-daemon`，请使用 NSSM、任务计划程序或 Windows 服务。
+
+## 自动更新
+
+二进制内置自更新命令，会查询 GitHub Releases、校验 SHA-256 并原子替换自身：
+
+```bash
+mongoui update            # 更新到最新版本
+mongoui update -check     # 只检查是否有新版本
+mongoui update -force     # 已是新版也重新安装
+mongoui update -version v0.2.0
+```
+
+仓库地址可用 `-repo owner/name` 或 `MONGOUI_REPO` 覆盖；设置 `GITHUB_TOKEN` 可提高 API 速率限制。更新后需重启进程（`mongoui -stop && mongoui -daemon`）。
 
 ## 配置
 

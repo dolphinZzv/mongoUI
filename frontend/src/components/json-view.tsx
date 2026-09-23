@@ -38,7 +38,7 @@ export function JsonView({ value, className, maxHeight = "28rem" }: JsonViewProp
         className="absolute top-2 right-2 z-10"
         title="Copy JSON"
       >
-        {copied ? <CheckIcon className="text-emerald-400" /> : <CopyIcon />}
+        {copied ? <CheckIcon className="text-emerald-600 dark:text-emerald-400" /> : <CopyIcon />}
       </Button>
       <pre
         className="scrollbar-thin overflow-auto p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap"

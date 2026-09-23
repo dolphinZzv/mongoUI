@@ -141,23 +141,23 @@ export function formatBytes(bytes: number): string {
 export function classForType(type: string): string {
   switch (type) {
     case "string":
-      return "text-emerald-400"
+      return "text-emerald-600 dark:text-emerald-400"
     case "int":
     case "double":
     case "long":
     case "decimal":
-      return "text-sky-400"
+      return "text-sky-600 dark:text-sky-400"
     case "bool":
-      return "text-violet-400"
+      return "text-violet-600 dark:text-violet-400"
     case "null":
       return "text-muted-foreground"
     case "objectId":
-      return "text-amber-400"
+      return "text-amber-600 dark:text-amber-400"
     case "date":
     case "timestamp":
-      return "text-rose-400"
+      return "text-rose-600 dark:text-rose-400"
     case "array":
-      return "text-cyan-400"
+      return "text-cyan-600 dark:text-cyan-400"
     default:
       return "text-foreground"
   }

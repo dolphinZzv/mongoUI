@@ -9,7 +9,9 @@ import { ConnectionOverview } from "@/components/connection-overview"
 import { Button } from "@/components/ui/button"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { ThemeToggle } from "@/components/theme-toggle"
 import { api } from "@/lib/api"
+import { ThemeProvider } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 import type { Connection, Selection } from "@/lib/types"
 
@@ -136,8 +138,9 @@ export default function App() {
   }
 
   return (
-    <TooltipProvider delayDuration={200}>
-      <div className="bg-background flex h-screen overflow-hidden">
+    <ThemeProvider>
+      <TooltipProvider delayDuration={200}>
+        <div className="bg-background flex h-screen overflow-hidden">
         {sidebarOpen ? (
           <div
             className="fixed inset-0 z-30 bg-black/50 md:hidden"
@@ -168,22 +171,26 @@ export default function App() {
               {sidebarOpen ? <X /> : <Menu />}
             </Button>
             <span className="font-medium">MongoUI</span>
+            <div className="ml-auto">
+              <ThemeToggle />
+            </div>
           </header>
           <main className="min-h-0 flex-1">{renderContent()}</main>
         </div>
       </div>
 
       <ConnectionDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        connection={editingConnection}
-        onSaved={(saved) => {
-          void refreshConnections()
-          setSelection({ kind: "connection", connectionId: saved.id })
-        }}
-      />
-      <Toaster />
-    </TooltipProvider>
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          connection={editingConnection}
+          onSaved={(saved) => {
+            void refreshConnections()
+            setSelection({ kind: "connection", connectionId: saved.id })
+          }}
+        />
+        <Toaster />
+      </TooltipProvider>
+    </ThemeProvider>
   )
 }
 

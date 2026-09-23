@@ -17,7 +17,9 @@ import (
 
 	"mongoui/internal/api"
 	"mongoui/internal/config"
+	"mongoui/internal/daemon"
 	"mongoui/internal/mongoclient"
+	"mongoui/internal/update"
 	"mongoui/web"
 )
 
@@ -29,17 +31,68 @@ var (
 )
 
 func main() {
+	// `mongoui update` is a subcommand and must be handled before flag parsing.
+	if len(os.Args) > 1 && os.Args[1] == "update" {
+		os.Exit(runUpdate(os.Args[2:]))
+	}
+
 	var (
-		addr        = flag.String("addr", envOr("MONGOUI_ADDR", ":8080"), "HTTP listen address")
-		dataDir     = flag.String("data", envOr("MONGOUI_DATA", "data"), "directory used to store connection profiles")
-		webDir      = flag.String("web", "", "serve front-end assets from this directory instead of the embedded build")
-		showVersion = flag.Bool("version", false, "print version information and exit")
+		addr         = flag.String("addr", envOr("MONGOUI_ADDR", ":8080"), "HTTP listen address")
+		dataDir      = flag.String("data", envOr("MONGOUI_DATA", "data"), "directory used to store connection profiles")
+		webDir       = flag.String("web", "", "serve front-end assets from this directory instead of the embedded build")
+		showVersion  = flag.Bool("version", false, "print version information and exit")
+		daemonize    = flag.Bool("daemon", false, "run in the background as a daemon (Unix)")
+		stopDaemon   = flag.Bool("stop", false, "stop the background process started with -daemon")
+		statusDaemon = flag.Bool("status", false, "report whether the background process is running")
+		pidFile      = flag.String("pidfile", "", "pid file path (default <data>/mongoui.pid)")
+		logFile      = flag.String("logfile", "", "log file path used by -daemon (default <data>/mongoui.log)")
 	)
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Printf("mongoui %s (commit %s, built %s)\n", version, commit, date)
 		return
+	}
+
+	pidPath := *pidFile
+	if pidPath == "" {
+		pidPath = filepath.Join(*dataDir, "mongoui.pid")
+	}
+	logPath := *logFile
+	if logPath == "" {
+		logPath = filepath.Join(*dataDir, "mongoui.log")
+	}
+	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
+		log.Fatalf("cannot create data directory: %v", err)
+	}
+
+	switch {
+	case *statusDaemon:
+		pid, running, err := daemon.Status(pidPath)
+		switch {
+		case err != nil:
+			fmt.Println("mongoui is not running")
+		case running:
+			fmt.Printf("mongoui is running (pid %d)\n", pid)
+		default:
+			fmt.Printf("mongoui is not running (stale pid %d)\n", pid)
+		}
+		return
+	case *stopDaemon:
+		if err := daemon.Stop(pidPath); err != nil {
+			log.Fatalf("stop failed: %v", err)
+		}
+		return
+	case *daemonize && !daemon.IsChild():
+		if err := daemon.Start(daemon.Config{PidFile: pidPath, LogFile: logPath}); err != nil {
+			log.Fatalf("cannot start daemon: %v", err)
+		}
+		return
+	case *daemonize && daemon.IsChild():
+		if err := daemon.WritePid(pidPath); err != nil {
+			log.Fatalf("cannot write pid file: %v", err)
+		}
+		defer daemon.RemovePid(pidPath)
 	}
 
 	storePath := filepath.Join(*dataDir, "connections.json")
@@ -70,7 +123,7 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("mongoui listening on %s", *addr)
+		log.Printf("mongoui %s listening on %s", version, *addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("server error: %v", err)
 		}
@@ -87,6 +140,32 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Printf("shutdown error: %v", err)
 	}
+}
+
+// runUpdate implements the `mongoui update` subcommand.
+func runUpdate(args []string) int {
+	flags := flag.NewFlagSet("update", flag.ContinueOnError)
+	check := flags.Bool("check", false, "only check whether a newer version exists")
+	force := flags.Bool("force", false, "reinstall even if already up to date")
+	repo := flags.String("repo", envOr("MONGOUI_REPO", update.DefaultRepo), "GitHub repository (owner/name)")
+	target := flags.String("version", "", "install a specific version (default: latest)")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+
+	err := update.Run(update.Options{
+		Repo:           *repo,
+		CurrentVersion: version,
+		TargetVersion:  *target,
+		CheckOnly:      *check,
+		Force:          *force,
+		Out:            os.Stdout,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "update failed: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 // resolveWebHandler prefers an explicit directory, then the embedded build.

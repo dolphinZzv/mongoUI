@@ -1,0 +1,100 @@
+import * as React from "react"
+import { Loader2, Save, Wand2 } from "lucide-react"
+import { toast } from "sonner"
+
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { JsonEditor, formatJSONString, validateJSON } from "@/components/json-editor"
+
+interface DocumentDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  title: string
+  description?: string
+  initialValue: string
+  submitLabel?: string
+  onSubmit: (value: unknown) => Promise<void>
+}
+
+export function DocumentDialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  initialValue,
+  submitLabel = "Save",
+  onSubmit,
+}: DocumentDialogProps) {
+  const [value, setValue] = React.useState(initialValue)
+  const [busy, setBusy] = React.useState(false)
+
+  React.useEffect(() => {
+    if (open) setValue(initialValue)
+  }, [open, initialValue])
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const error = validateJSON(value, { allowEmpty: false })
+    if (error) {
+      toast.error(error)
+      return
+    }
+    setBusy(true)
+    try {
+      await onSubmit(JSON.parse(value))
+      onOpenChange(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Operation failed")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl">
+        <form onSubmit={handleSubmit}>
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+            {description ? <DialogDescription>{description}</DialogDescription> : null}
+          </DialogHeader>
+          <div className="py-4">
+            <JsonEditor
+              value={value}
+              onChange={setValue}
+              allowEmpty={false}
+              rows={14}
+              className="min-h-[18rem]"
+              placeholder='{ "name": "Alice" }'
+            />
+          </div>
+          <DialogFooter className="sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setValue((prev) => formatJSONString(prev))}
+            >
+              <Wand2 /> Format
+            </Button>
+            <div className="flex gap-2">
+              <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={busy}>
+                {busy ? <Loader2 className="animate-spin" /> : <Save />}
+                {submitLabel}
+              </Button>
+            </div>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}

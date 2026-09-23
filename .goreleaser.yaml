@@ -1,0 +1,104 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+#
+# GoReleaser configuration.
+# Docs: https://goreleaser.com
+#
+# The release workflow builds the React front-end first, stages it into
+# backend/web/dist (which is embedded via go:embed) and only then compiles the
+# Go binary, so every release artifact is a fully self-contained server.
+version: 2
+
+project_name: mongoui
+
+before:
+  hooks:
+    - sh -c "cd frontend && npm ci"
+    - sh -c "cd frontend && npm run build"
+    - sh -c "find backend/web/dist -mindepth 1 ! -name .gitkeep -delete && cp -r frontend/dist/. backend/web/dist/"
+
+builds:
+  - id: mongoui
+    dir: backend
+    main: .
+    binary: mongoui
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .Commit }}
+      - -X main.date={{ .Date }}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: mongoui
+    ids:
+      - mongoui
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - "merge conflict"
+      - Merge pull request
+      - Merge remote-tracking branch
+      - Merge branch
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Performance
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: Others
+      order: 999
+
+release:
+  draft: false
+  prerelease: auto
+  name_template: "{{ .ProjectName }} {{ .Tag }}"
+  footer: |
+    ## Docker / binary
+
+    Download the archive for your platform, then run:
+
+    ```bash
+    tar -xzf mongoui_{{ .Version }}_linux_amd64.tar.gz
+    ./mongoui -addr :8080
+    ```
+
+    The React front-end is embedded in the binary — no extra files required.

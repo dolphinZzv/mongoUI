@@ -1,0 +1,2 @@
+This file keeps backend/web/dist tracked.
+Run `make frontend` to generate the real front-end assets here.

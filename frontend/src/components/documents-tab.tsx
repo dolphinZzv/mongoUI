@@ -1,0 +1,522 @@
+import * as React from "react"
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Loader2,
+  Pencil,
+  Play,
+  Plus,
+  RefreshCw,
+  Rows3,
+  Trash2,
+} from "lucide-react"
+import { toast } from "sonner"
+
+import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import { ConfirmDialog } from "@/components/confirm-dialog"
+import { DocumentDialog } from "@/components/document-dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { JsonEditor } from "@/components/json-editor"
+import { api } from "@/lib/api"
+import { copyToClipboard } from "@/lib/clipboard"
+import { classForType, collectColumns, documentId, formatValue, prettyJSON, valueType } from "@/lib/mongo"
+import { cn } from "@/lib/utils"
+import type { FindResult, MongoDocument } from "@/lib/types"
+
+interface DocumentsTabProps {
+  connectionId: string
+  database: string
+  collection: string
+  readOnly: boolean
+}
+
+interface EditingState {
+  mode: "insert" | "edit"
+  document?: MongoDocument
+}
+
+function CellValue({ value }: { value: unknown }) {
+  const type = valueType(value)
+  const text = formatValue(value)
+  if (value === null || value === undefined) {
+    return <span className="text-muted-foreground font-mono text-xs italic">null</span>
+  }
+  const display = text.length > 90 ? `${text.slice(0, 90)}…` : text
+  return (
+    <span className={cn("font-mono text-xs", classForType(type))} title={text}>
+      {display}
+    </span>
+  )
+}
+
+export function DocumentsTab({
+  connectionId,
+  database,
+  collection,
+  readOnly,
+}: DocumentsTabProps) {
+  const [filter, setFilter] = React.useState("{}")
+  const [sort, setSort] = React.useState("")
+  const [projection, setProjection] = React.useState("")
+  const [limit, setLimit] = React.useState(50)
+  const [skip, setSkip] = React.useState(0)
+  const [showOptions, setShowOptions] = React.useState(false)
+  const [result, setResult] = React.useState<FindResult | null>(null)
+  const [loading, setLoading] = React.useState(false)
+  const [selected, setSelected] = React.useState<Set<string>>(new Set())
+  const [editing, setEditing] = React.useState<EditingState | null>(null)
+  const [confirm, setConfirm] = React.useState<
+    | { type: "one"; document: MongoDocument }
+    | { type: "bulk" }
+    | { type: "filter" }
+    | null
+  >(null)
+
+  const load = React.useCallback(
+    async (opts?: {
+      skip?: number
+      limit?: number
+      filter?: string
+      sort?: string
+      projection?: string
+    }) => {
+      const filterText = opts?.filter ?? filter
+      const sortText = opts?.sort ?? sort
+      const projectionText = opts?.projection ?? projection
+      const nextSkip = opts?.skip ?? skip
+      const nextLimit = opts?.limit ?? limit
+
+      let filterObj: unknown
+      let sortObj: unknown
+      let projectionObj: unknown
+      try {
+        filterObj = JSON.parse(filterText.trim() || "{}")
+        sortObj = sortText.trim() ? JSON.parse(sortText) : undefined
+        projectionObj = projectionText.trim() ? JSON.parse(projectionText) : undefined
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Invalid JSON in query")
+        return
+      }
+
+      setLoading(true)
+      try {
+        const res = await api.find(connectionId, database, collection, {
+          filter: filterObj,
+          sort: sortObj,
+          projection: projectionObj,
+          skip: nextSkip,
+          limit: nextLimit,
+        })
+        setResult(res)
+        setSkip(res.skip)
+        setSelected(new Set())
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Query failed")
+      } finally {
+        setLoading(false)
+      }
+    },
+    [connectionId, database, collection, filter, sort, projection, skip, limit],
+  )
+
+  React.useEffect(() => {
+    setFilter("{}")
+    setSort("")
+    setProjection("")
+    setSkip(0)
+    setResult(null)
+    void load({ skip: 0, limit: 50, filter: "{}", sort: "", projection: "" })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionId, database, collection])
+
+  const documents = result?.documents ?? []
+  const columns = React.useMemo(() => collectColumns(documents), [documents])
+  const total = result?.total ?? 0
+  const page = Math.floor(skip / limit) + 1
+  const pages = Math.max(1, Math.ceil(total / limit))
+
+  const toggleAll = (checked: boolean) => {
+    if (!checked) {
+      setSelected(new Set())
+      return
+    }
+    const next = new Set<string>()
+    for (const doc of documents) {
+      const id = documentId(doc)
+      if (id) next.add(id)
+    }
+    setSelected(next)
+  }
+
+  const toggleOne = (id: string, checked: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (checked) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
+  const handleInsert = async (value: unknown) => {
+    const docs = Array.isArray(value) ? value : [value]
+    const res = await api.insert(connectionId, database, collection, docs as MongoDocument[])
+    toast.success(`Inserted ${res.insertedCount} document${res.insertedCount === 1 ? "" : "s"}`)
+    await load({ skip: 0 })
+  }
+
+  const handleUpdate = async (value: unknown) => {
+    const doc = value as MongoDocument
+    if (!editing?.document || !("_id" in editing.document)) {
+      throw new Error("Cannot update a document without an _id")
+    }
+    await api.update(connectionId, database, collection, {
+      filter: { _id: editing.document._id },
+      update: doc,
+    })
+    toast.success("Document updated")
+    await load({})
+  }
+
+  const runConfirm = async () => {
+    if (!confirm) return
+    if (confirm.type === "one") {
+      await api.remove(connectionId, database, collection, {
+        filter: { _id: confirm.document._id },
+      })
+      toast.success("Document deleted")
+    } else if (confirm.type === "bulk") {
+      const ids = Array.from(selected).map((raw) => JSON.parse(raw))
+      await api.remove(connectionId, database, collection, {
+        filter: { _id: { $in: ids } },
+        many: true,
+      })
+      toast.success(`Deleted ${ids.length} document${ids.length === 1 ? "" : "s"}`)
+    } else {
+      const parsed = JSON.parse(filter.trim() || "{}")
+      const res = await api.remove(connectionId, database, collection, {
+        filter: parsed,
+        many: true,
+      })
+      toast.success(`Deleted ${res.deletedCount} document${res.deletedCount === 1 ? "" : "s"}`)
+    }
+    await load({ skip: 0 })
+  }
+
+  const allSelected = documents.length > 0 && documents.every((doc) => {
+    const id = documentId(doc)
+    return id !== null && selected.has(id)
+  })
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Toolbar */}
+      <div className="shrink-0 space-y-2 border-b p-3">
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void load({ skip: 0 })
+              }}
+              placeholder='Filter, e.g. { "age": { "$gt": 18 } }'
+              className="pr-14 font-mono text-xs"
+            />
+            <span className="text-muted-foreground pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-[10px] tracking-wide uppercase">
+              filter
+            </span>
+          </div>
+          <Button onClick={() => void load({ skip: 0 })} disabled={loading}>
+            {loading ? <Loader2 className="animate-spin" /> : <Play />}
+            Run
+          </Button>
+          <Button variant="outline" size="icon" onClick={() => void load({})} title="Refresh">
+            <RefreshCw className={cn(loading && "animate-spin")} />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setShowOptions((prev) => !prev)}
+            title="Sort & projection"
+          >
+            <Rows3 />
+            <ChevronDown className={cn("transition-transform", showOptions && "rotate-180")} />
+          </Button>
+          <Button
+            onClick={() => setEditing({ mode: "insert" })}
+            disabled={readOnly}
+            title={readOnly ? "Connection is read-only" : "Insert document"}
+          >
+            <Plus /> Insert
+          </Button>
+        </div>
+
+        {showOptions ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Sort</Label>
+              <JsonEditor
+                value={sort}
+                onChange={setSort}
+                placeholder='{ "createdAt": -1 }'
+                className="min-h-[4rem]"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Projection</Label>
+              <JsonEditor
+                value={projection}
+                onChange={setProjection}
+                placeholder='{ "name": 1, "email": 1 }'
+                className="min-h-[4rem]"
+              />
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Selection actions */}
+      {selected.size > 0 ? (
+        <div className="bg-muted/50 flex shrink-0 items-center gap-3 border-b px-3 py-2 text-sm">
+          <span>{selected.size} selected</span>
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={readOnly}
+            onClick={() => setConfirm({ type: "bulk" })}
+          >
+            <Trash2 /> Delete selected
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+            Clear
+          </Button>
+        </div>
+      ) : null}
+
+      {/* Table */}
+      <div className="scrollbar-thin min-h-0 flex-1 overflow-auto">
+        <Table>
+          <TableHeader className="bg-background sticky top-0 z-10">
+            <TableRow className="hover:bg-transparent">
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={allSelected}
+                  onCheckedChange={(checked) => toggleAll(checked === true)}
+                  aria-label="Select all"
+                />
+              </TableHead>
+              {columns.map((column) => (
+                <TableHead key={column} className="font-mono text-xs">
+                  {column}
+                </TableHead>
+              ))}
+              <TableHead className="w-12" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading && documents.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={columns.length + 2} className="h-32 text-center">
+                  <Loader2 className="text-muted-foreground mx-auto size-5 animate-spin" />
+                </TableCell>
+              </TableRow>
+            ) : null}
+            {!loading && documents.length === 0 ? (
+              <TableRow>
+                <TableCell
+                  colSpan={columns.length + 2}
+                  className="text-muted-foreground h-32 text-center text-sm"
+                >
+                  No documents match this query.
+                </TableCell>
+              </TableRow>
+            ) : null}
+            {documents.map((doc, index) => {
+              const id = documentId(doc)
+              const isSelected = id !== null && selected.has(id)
+              return (
+                <TableRow
+                  key={id ?? index}
+                  data-state={isSelected ? "selected" : undefined}
+                  onDoubleClick={() => !readOnly && setEditing({ mode: "edit", document: doc })}
+                >
+                  <TableCell>
+                    <Checkbox
+                      checked={isSelected}
+                      disabled={id === null}
+                      onCheckedChange={(checked) => id && toggleOne(id, checked === true)}
+                      aria-label="Select row"
+                    />
+                  </TableCell>
+                  {columns.map((column) => (
+                    <TableCell key={column} className="max-w-[320px] truncate">
+                      <CellValue value={doc[column]} />
+                    </TableCell>
+                  ))}
+                  <TableCell>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon-sm">
+                          <Rows3 />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuItem
+                          disabled={readOnly}
+                          onSelect={() => setEditing({ mode: "edit", document: doc })}
+                        >
+                          <Pencil /> Edit document
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            void copyToClipboard(prettyJSON(doc)).then((ok) =>
+                              ok
+                                ? toast.success("Copied JSON to clipboard")
+                                : toast.error("Copy failed — select the text and copy manually"),
+                            )
+                          }}
+                        >
+                          <Copy /> Copy JSON
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          variant="destructive"
+                          disabled={readOnly || !id}
+                          onSelect={() => setConfirm({ type: "one", document: doc })}
+                        >
+                          <Trash2 /> Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Pagination */}
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-t px-3 py-2 text-sm">
+        <span className="text-muted-foreground">
+          {total === 0 ? "0" : `${skip + 1}–${Math.min(skip + limit, total)}`} of {total}
+        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-muted-foreground text-xs">Rows</span>
+          <Select
+            value={String(limit)}
+            onValueChange={(value) => {
+              const nextLimit = Number(value)
+              setLimit(nextLimit)
+              void load({ skip: 0, limit: nextLimit })
+            }}
+          >
+            <SelectTrigger size="sm" className="w-[72px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[25, 50, 100, 250].map((size) => (
+                <SelectItem key={size} value={String(size)}>
+                  {size}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="ml-auto flex items-center gap-1">
+          <Button
+            variant="outline"
+            size="icon-sm"
+            disabled={skip <= 0 || loading}
+            onClick={() => void load({ skip: Math.max(0, skip - limit) })}
+          >
+            <ChevronLeft />
+          </Button>
+          <span className="text-muted-foreground px-2 text-xs">
+            Page {page} / {pages}
+          </span>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            disabled={skip + limit >= total || loading}
+            onClick={() => void load({ skip: skip + limit })}
+          >
+            <ChevronRight />
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm" disabled={readOnly}>
+                <Trash2 />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={() => setConfirm({ type: "filter" })}
+              >
+                <Trash2 /> Delete matching filter…
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      <DocumentDialog
+        open={editing !== null}
+        onOpenChange={(open) => !open && setEditing(null)}
+        title={editing?.mode === "edit" ? "Edit document" : "Insert document"}
+        description={
+          editing?.mode === "edit"
+            ? "Save replaces the whole document. Keep the _id field intact."
+            : "Provide one document, or an array of documents for a bulk insert."
+        }
+        initialValue={
+          editing?.mode === "edit" && editing.document ? prettyJSON(editing.document) : "{\n  \n}"
+        }
+        submitLabel={editing?.mode === "edit" ? "Save changes" : "Insert"}
+        onSubmit={editing?.mode === "edit" ? handleUpdate : handleInsert}
+      />
+
+      <ConfirmDialog
+        open={confirm !== null}
+        onOpenChange={(open) => !open && setConfirm(null)}
+        title={
+          confirm?.type === "filter"
+            ? "Delete all documents matching the filter?"
+            : confirm?.type === "bulk"
+              ? `Delete ${selected.size} selected document(s)?`
+              : "Delete this document?"
+        }
+        description="This action cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={runConfirm}
+      />
+    </div>
+  )
+}

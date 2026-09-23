@@ -117,11 +117,13 @@ curl -fsSL https://raw.githubusercontent.com/dolphinZzv/mongoUI/main/scripts/ins
 指定版本 / 目录 / 顺便装 systemd 服务：
 
 ```bash
-# 安装到 ~/.local/bin
-INSTALL_DIR=$HOME/.local/bin sh -s -- --version v0.2.0 < install.sh
-# 或先下载脚本再执行
-curl -fsSL -O https://raw.githubusercontent.com/dolphinZzv/mongoUI/main/scripts/install.sh
-sh install.sh --version latest --dir /usr/local/bin --service
+# 指定版本与安装目录
+curl -fsSL https://raw.githubusercontent.com/dolphinZzv/mongoUI/main/scripts/install.sh \
+  | sh -s -- --version v0.2.0 --dir "$HOME/.local/bin"
+
+# 或先下载脚本再执行（避免管道问题）
+curl -fsSL -o install.sh https://raw.githubusercontent.com/dolphinZzv/mongoUI/main/scripts/install.sh
+sh install.sh --dir /usr/local/bin --service
 ```
 
 脚本会自动识别 `linux/darwin` × `amd64/arm64`，下载归档并用 `checksums.txt` 校验 SHA-256。

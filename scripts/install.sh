@@ -96,25 +96,37 @@ fi
 
 release_json=$(fetch "$api_url")
 
-asset_url=$(printf '%s' "$release_json" \
-  | tr ',' '\n' \
-  | grep '"browser_download_url"' \
-  | grep "_${os}_${arch}\.tar\.gz" \
-  | sed -e 's/.*"browser_download_url":"//' -e 's/".*//' \
-  | head -n1)
+# GitHub returns pretty-printed JSON, so extract URLs regardless of whitespace.
+# Prefer jq / python3 when available, otherwise fall back to grep + sed.
+extract_urls() {
+  if command -v jq >/dev/null 2>&1; then
+    printf '%s' "$1" | jq -r '.assets[].browser_download_url' 2>/dev/null
+    return
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    printf '%s' "$1" | python3 -c 'import json,sys
+for a in json.load(sys.stdin).get("assets", []):
+    print(a.get("browser_download_url", ""))' 2>/dev/null
+    return
+  fi
+  printf '%s' "$1" \
+    | grep -o '"browser_download_url"[[:space:]]*:[[:space:]]*"[^"]*"' \
+    | sed -e 's/.*"browser_download_url"[[:space:]]*:[[:space:]]*"//' -e 's/"$//'
+}
 
-if [ -z "$asset_url" ]; then
-  echo "error: no release asset found for ${os}/${arch}" >&2
-  echo "       see https://github.com/${REPO}/releases" >&2
-  exit 1
-fi
+all_urls=$(extract_urls "$release_json")
 
-checksums_url=$(printf '%s' "$release_json" \
-  | tr ',' '\n' \
-  | grep '"browser_download_url"' \
-  | grep 'checksums\.txt' \
-  | sed -e 's/.*"browser_download_url":"//' -e 's/".*//' \
-  | head -n1)
+asset_url=$(printf '%s\n' "$all_urls" | grep "_${os}_${arch}\.tar\.gz$" | head -n1 | tr -d '[:space:]')
+checksums_url=$(printf '%s\n' "$all_urls" | grep 'checksums\.txt$' | head -n1 | tr -d '[:space:]')
+
+case "$asset_url" in
+  https://*) ;;
+  *)
+    echo "error: no release asset found for ${os}/${arch}" >&2
+    echo "       see https://github.com/${REPO}/releases" >&2
+    exit 1
+    ;;
+esac
 
 asset_name=$(basename "$asset_url")
 

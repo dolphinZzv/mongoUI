@@ -122,6 +122,15 @@ jobs:
           done
           curl -fsS http://127.0.0.1:18099/api/health | grep -q '"uiEmbedded":true'
           curl -fsS http://127.0.0.1:18099/ | grep -q 'MongoUI'
+          # The embedded build must be the freshly built one: this bootstrap
+          # script only exists in the current front-end build.
+          curl -fsS http://127.0.0.1:18099/ | grep -q 'mongoui-theme'
+          # Every asset referenced by the shell must resolve.
+          for asset in $(curl -fsS http://127.0.0.1:18099/ | grep -oE '/assets/[^"]+'); do
+            curl -fsS -o /dev/null "http://127.0.0.1:18099${asset}"
+          done
+          # The shell must be revalidated so upgrades are picked up at once.
+          curl -fsSI http://127.0.0.1:18099/ | grep -qi 'cache-control: no-cache'
 
       - name: Upload binary
         uses: actions/upload-artifact@v4

@@ -28,7 +28,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { ThemeToggle } from "@/components/theme-toggle"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -541,7 +540,6 @@ export function AppSidebar({
           {connections.length} connection{connections.length === 1 ? "" : "s"}
         </span>
         <div className="flex items-center gap-1">
-          <ThemeToggle />
           <Button
             variant="ghost"
             size="icon-sm"

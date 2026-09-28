@@ -192,10 +192,24 @@ func spaHandler(fsys fs.FS) http.Handler {
 			p = "index.html"
 		}
 		if _, err := fs.Stat(fsys, p); err != nil {
+			// Unknown path: serve the SPA shell. Never cache it so the browser
+			// always picks up the latest hashed asset references.
+			w.Header().Set("Cache-Control", "no-cache")
 			clone := r.Clone(r.Context())
 			clone.URL.Path = "/"
 			fileServer.ServeHTTP(w, clone)
 			return
+		}
+		switch {
+		case p == "index.html":
+			// The shell references content-hashed assets, so it must be
+			// revalidated on every load to avoid serving a stale UI after an
+			// upgrade.
+			w.Header().Set("Cache-Control", "no-cache")
+		case strings.HasPrefix(p, "assets/"):
+			// Vite output filenames contain a content hash: safe to cache
+			// aggressively.
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		}
 		fileServer.ServeHTTP(w, r)
 	})

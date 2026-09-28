@@ -166,12 +166,28 @@ export default function App() {
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-11 shrink-0 items-center gap-2 border-b px-3 md:hidden">
-            <Button variant="ghost" size="icon-sm" onClick={() => setSidebarOpen((prev) => !prev)}>
+          <header className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="md:hidden"
+              onClick={() => setSidebarOpen((prev) => !prev)}
+            >
               {sidebarOpen ? <X /> : <Menu />}
             </Button>
-            <span className="font-medium">MongoUI</span>
-            <div className="ml-auto">
+            <div className="min-w-0 truncate text-sm">
+              {selection.kind === "collection" ? (
+                <span className="text-muted-foreground">
+                  {selection.database} <span className="px-1">/</span>
+                  <span className="text-foreground font-medium">{selection.collection}</span>
+                </span>
+              ) : selection.kind === "connection" && selectedConnection ? (
+                <span className="font-medium">{selectedConnection.name}</span>
+              ) : (
+                <span className="font-medium md:hidden">MongoUI</span>
+              )}
+            </div>
+            <div className="ml-auto flex items-center gap-2">
               <ThemeToggle />
             </div>
           </header>

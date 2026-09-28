@@ -6,6 +6,16 @@
 - **前端**：React 19 + TypeScript + Vite + Tailwind CSS v4 + [shadcn/ui](https://ui.shadcn.com/)（Radix UI）
 - 前端构建产物通过 `go:embed` 嵌入 Go 二进制，**单文件部署**，无需额外静态服务器
 
+## 界面预览
+
+| 明亮主题 | 暗黑主题 |
+| --- | --- |
+| ![明亮主题首页](docs/home-light.png) | ![暗黑主题首页](docs/home-dark.png) |
+
+右上角的主题切换器支持 **Light / Dark / System** 三种模式，选择会保存在浏览器（`localStorage`），跟随系统模式会随操作系统实时变化：
+
+![主题切换菜单](docs/theme-menu.png)
+
 ## 功能
 
 | 模块 | 能力 |

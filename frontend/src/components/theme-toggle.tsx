@@ -1,4 +1,5 @@
-import { CheckIcon, MonitorIcon, MoonIcon, SunIcon } from "lucide-react"
+import * as React from "react"
+import { CheckIcon, ChevronDownIcon, MonitorIcon, MoonIcon, SunIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -7,7 +8,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useTheme, type Theme } from "@/lib/theme"
 
 const OPTIONS: { value: Theme; label: string; icon: React.ReactNode }[] = [
@@ -16,21 +16,30 @@ const OPTIONS: { value: Theme; label: string; icon: React.ReactNode }[] = [
   { value: "system", label: "System", icon: <MonitorIcon /> },
 ]
 
-export function ThemeToggle() {
+/**
+ * A labelled theme switcher. It intentionally shows the current mode as text so
+ * the control is easy to find (an icon-only button was too subtle).
+ */
+export function ThemeToggle({ className }: { className?: string }) {
   const { theme, resolvedTheme, setTheme } = useTheme()
+  const current = OPTIONS.find((option) => option.value === theme) ?? OPTIONS[2]
+  const ResolvedIcon = resolvedTheme === "dark" ? MoonIcon : SunIcon
 
   return (
     <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" aria-label="Toggle theme">
-              {resolvedTheme === "dark" ? <MoonIcon /> : <SunIcon />}
-            </Button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent>Theme</TooltipContent>
-      </Tooltip>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className={className}
+          aria-label={`Theme: ${current.label}. Switch light, dark or system theme.`}
+          title="Switch light / dark theme"
+        >
+          <ResolvedIcon />
+          <span>{current.label}</span>
+          <ChevronDownIcon className="size-3.5 opacity-60" />
+        </Button>
+      </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-36">
         {OPTIONS.map((option) => (
           <DropdownMenuItem

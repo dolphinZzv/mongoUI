@@ -152,7 +152,7 @@ export function IndexesTab({
                 <TableRow key={name}>
                   <TableCell className="font-mono text-xs">
                     <span className="flex items-center gap-2">
-                      {isDefault ? <KeyRound className="text-amber-400 size-3.5" /> : null}
+                      {isDefault ? <KeyRound className="text-amber-500 dark:text-amber-400 size-3.5" /> : null}
                       {name}
                     </span>
                   </TableCell>

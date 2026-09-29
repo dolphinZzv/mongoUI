@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/table"
 import { JsonEditor } from "@/components/json-editor"
 import { api } from "@/lib/api"
+import { useI18n } from "@/lib/i18n"
 import { copyToClipboard } from "@/lib/clipboard"
 import { classForType, collectColumns, documentId, formatValue, prettyJSON, valueType } from "@/lib/mongo"
 import { cn } from "@/lib/utils"
@@ -84,6 +85,7 @@ export function DocumentsTab({
   collection,
   readOnly,
 }: DocumentsTabProps) {
+  const { t } = useI18n()
   const [filter, setFilter] = React.useState("{}")
   const [sort, setSort] = React.useState("")
   const [projection, setProjection] = React.useState("")
@@ -123,7 +125,7 @@ export function DocumentsTab({
         sortObj = sortText.trim() ? JSON.parse(sortText) : undefined
         projectionObj = projectionText.trim() ? JSON.parse(projectionText) : undefined
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Invalid JSON in query")
+        toast.error(err instanceof Error ? err.message : t("docs.invalidJson"))
         return
       }
 
@@ -140,7 +142,7 @@ export function DocumentsTab({
         setSkip(res.skip)
         setSelected(new Set())
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Query failed")
+        toast.error(err instanceof Error ? err.message : t("docs.queryFailed"))
       } finally {
         setLoading(false)
       }
@@ -216,20 +218,24 @@ export function DocumentsTab({
   const handleInsert = async (value: unknown) => {
     const docs = Array.isArray(value) ? value : [value]
     const res = await api.insert(connectionId, database, collection, docs as MongoDocument[])
-    toast.success(`Inserted ${res.insertedCount} document${res.insertedCount === 1 ? "" : "s"}`)
+    toast.success(
+      t(res.insertedCount === 1 ? "docs.insertedOne" : "docs.insertedMany", {
+        count: res.insertedCount,
+      }),
+    )
     await load({ skip: 0 })
   }
 
   const handleUpdate = async (value: unknown) => {
     const doc = value as MongoDocument
     if (!editing?.document || !("_id" in editing.document)) {
-      throw new Error("Cannot update a document without an _id")
+      throw new Error(t("docs.noId"))
     }
     await api.update(connectionId, database, collection, {
       filter: { _id: editing.document._id },
       update: doc,
     })
-    toast.success("Document updated")
+    toast.success(t("docs.updated"))
     await load({})
   }
 
@@ -239,21 +245,21 @@ export function DocumentsTab({
       await api.remove(connectionId, database, collection, {
         filter: { _id: confirm.document._id },
       })
-      toast.success("Document deleted")
+      toast.success(t("docs.deleted"))
     } else if (confirm.type === "bulk") {
       const ids = Array.from(selected).map((raw) => JSON.parse(raw))
       await api.remove(connectionId, database, collection, {
         filter: { _id: { $in: ids } },
         many: true,
       })
-      toast.success(`Deleted ${ids.length} document${ids.length === 1 ? "" : "s"}`)
+      toast.success(t("docs.deletedMany", { count: ids.length }))
     } else {
       const parsed = JSON.parse(filter.trim() || "{}")
       const res = await api.remove(connectionId, database, collection, {
         filter: parsed,
         many: true,
       })
-      toast.success(`Deleted ${res.deletedCount} document${res.deletedCount === 1 ? "" : "s"}`)
+      toast.success(t("docs.deletedMany", { count: res.deletedCount }))
     }
     await load({ skip: 0 })
   }
@@ -275,25 +281,25 @@ export function DocumentsTab({
               onKeyDown={(e) => {
                 if (e.key === "Enter") void load({ skip: 0 })
               }}
-              placeholder='Filter, e.g. { "age": { "$gt": 18 } }'
+              placeholder={t("docs.filterPlaceholder")}
               className="pr-14 font-mono text-xs"
             />
             <span className="text-muted-foreground pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-[10px] tracking-wide uppercase">
-              filter
+              {t("docs.filter")}
             </span>
           </div>
           <Button onClick={() => void load({ skip: 0 })} disabled={loading}>
             {loading ? <Loader2 className="animate-spin" /> : <Play />}
-            Run
+            {t("common.run")}
           </Button>
-          <Button variant="outline" size="icon" onClick={() => void load({})} title="Refresh">
+          <Button variant="outline" size="icon" onClick={() => void load({})} title={t("common.refresh")}>
             <RefreshCw className={cn(loading && "animate-spin")} />
           </Button>
           <Button
             variant="outline"
             size="icon"
             onClick={() => setShowOptions((prev) => !prev)}
-            title="Sort & projection"
+            title={t("docs.sortProjection")}
           >
             <Rows3 />
             <ChevronDown className={cn("transition-transform", showOptions && "rotate-180")} />
@@ -301,16 +307,16 @@ export function DocumentsTab({
           <Button
             onClick={() => setEditing({ mode: "insert" })}
             disabled={readOnly}
-            title={readOnly ? "Connection is read-only" : "Insert document"}
+            title={readOnly ? t("docs.readonlyTip") : t("docs.insertTitle")}
           >
-            <Plus /> Insert
+            <Plus /> {t("docs.insert")}
           </Button>
         </div>
 
         {showOptions ? (
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-1">
-              <Label className="text-xs">Sort</Label>
+              <Label className="text-xs">{t("docs.sort")}</Label>
               <JsonEditor
                 value={sort}
                 onChange={setSort}
@@ -319,7 +325,7 @@ export function DocumentsTab({
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Projection</Label>
+              <Label className="text-xs">{t("docs.projection")}</Label>
               <JsonEditor
                 value={projection}
                 onChange={setProjection}
@@ -334,17 +340,17 @@ export function DocumentsTab({
       {/* Selection actions */}
       {selected.size > 0 ? (
         <div className="bg-muted/50 flex shrink-0 items-center gap-3 border-b px-3 py-2 text-sm">
-          <span>{selected.size} selected</span>
+          <span>{t("docs.selected", { count: selected.size })}</span>
           <Button
             variant="destructive"
             size="sm"
             disabled={readOnly}
             onClick={() => setConfirm({ type: "bulk" })}
           >
-            <Trash2 /> Delete selected
+            <Trash2 /> {t("docs.deleteSelected")}
           </Button>
           <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
-            Clear
+            {t("docs.clear")}
           </Button>
         </div>
       ) : null}
@@ -370,8 +376,10 @@ export function DocumentsTab({
                       onClick={() => toggleSort(column)}
                       title={
                         direction
-                          ? `Sorted ${direction === 1 ? "ascending" : "descending"} — click to change`
-                          : `Sort by ${column}`
+                          ? direction === 1
+                            ? t("docs.sortedAsc")
+                            : t("docs.sortedDesc")
+                          : t("docs.sortBy", { column })
                       }
                       className="hover:text-foreground -mx-1 flex items-center gap-1 rounded px-1"
                     >
@@ -448,8 +456,8 @@ export function DocumentsTab({
                           onSelect={() => {
                             void copyToClipboard(prettyJSON(doc)).then((ok) =>
                               ok
-                                ? toast.success("Copied JSON to clipboard")
-                                : toast.error("Copy failed — select the text and copy manually"),
+                                ? toast.success(t("docs.copyOk"))
+                                : toast.error(t("common.copyFailed")),
                             )
                           }}
                         >
@@ -510,7 +518,7 @@ export function DocumentsTab({
             <ChevronLeft />
           </Button>
           <span className="text-muted-foreground px-2 text-xs">
-            Page {page} / {pages}
+            {t("docs.page", { page, pages })}
           </span>
           <Button
             variant="outline"
@@ -531,7 +539,7 @@ export function DocumentsTab({
                 variant="destructive"
                 onSelect={() => setConfirm({ type: "filter" })}
               >
-                <Trash2 /> Delete matching filter…
+                <Trash2 /> {t("docs.deleteMatching")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -541,16 +549,12 @@ export function DocumentsTab({
       <DocumentDialog
         open={editing !== null}
         onOpenChange={(open) => !open && setEditing(null)}
-        title={editing?.mode === "edit" ? "Edit document" : "Insert document"}
-        description={
-          editing?.mode === "edit"
-            ? "Save replaces the whole document. Keep the _id field intact."
-            : "Provide one document, or an array of documents for a bulk insert."
-        }
+        title={editing?.mode === "edit" ? t("docs.editTitle") : t("docs.insertTitle")}
+        description={editing?.mode === "edit" ? t("docs.editDesc") : t("docs.insertDesc")}
         initialValue={
           editing?.mode === "edit" && editing.document ? prettyJSON(editing.document) : "{\n  \n}"
         }
-        submitLabel={editing?.mode === "edit" ? "Save changes" : "Insert"}
+        submitLabel={editing?.mode === "edit" ? t("docs.saveChanges") : t("docs.insertAction")}
         onSubmit={editing?.mode === "edit" ? handleUpdate : handleInsert}
       />
 
@@ -559,13 +563,13 @@ export function DocumentsTab({
         onOpenChange={(open) => !open && setConfirm(null)}
         title={
           confirm?.type === "filter"
-            ? "Delete all documents matching the filter?"
+            ? t("docs.deleteFilter")
             : confirm?.type === "bulk"
-              ? `Delete ${selected.size} selected document(s)?`
-              : "Delete this document?"
+              ? t("docs.deleteSelectedMany", { count: selected.size })
+              : t("docs.deleteOne")
         }
-        description="This action cannot be undone."
-        confirmLabel="Delete"
+        description={t("docs.deleteDesc")}
+        confirmLabel={t("common.delete")}
         onConfirm={runConfirm}
       />
     </div>

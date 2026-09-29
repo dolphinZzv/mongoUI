@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { copyToClipboard } from "@/lib/clipboard"
+import { useI18n } from "@/lib/i18n"
 import { AggregationTab } from "@/components/aggregation-tab"
 import { DocumentsTab } from "@/components/documents-tab"
 import { IndexesTab } from "@/components/indexes-tab"
@@ -30,17 +31,18 @@ export function CollectionView({
   onTabChange,
 }: CollectionViewProps) {
   const [copied, setCopied] = React.useState(false)
+  const { t } = useI18n()
   const activeTab = tab ?? "documents"
 
   const copyPath = async () => {
     const ok = await copyToClipboard(`${database}.${collection}`)
     if (!ok) {
-      toast.error("Copy failed — select the text and copy manually")
+      toast.error(t("common.copyFailed"))
       return
     }
     setCopied(true)
     window.setTimeout(() => setCopied(false), 1500)
-    toast.success("Collection path copied")
+    toast.success(t("collection.pathCopied"))
   }
 
   return (
@@ -57,16 +59,16 @@ export function CollectionView({
             <span className="text-muted-foreground">/</span>
             <span className="truncate font-medium">{collection}</span>
           </div>
-          <Button variant="ghost" size="icon-sm" onClick={copyPath} title="Copy path">
+          <Button variant="ghost" size="icon-sm" onClick={copyPath} title={t("collection.copyPath")}>
             {copied ? <CheckIcon className="text-emerald-600 dark:text-emerald-400" /> : <CopyIcon />}
           </Button>
           <TabsList className="ml-auto">
-            <TabsTrigger value="documents">Documents</TabsTrigger>
-            <TabsTrigger value="sql">SQL</TabsTrigger>
-            <TabsTrigger value="aggregation">Aggregation</TabsTrigger>
-            <TabsTrigger value="indexes">Indexes</TabsTrigger>
-            <TabsTrigger value="schema">Schema</TabsTrigger>
-            <TabsTrigger value="stats">Stats</TabsTrigger>
+            <TabsTrigger value="documents">{t("collection.tab.documents")}</TabsTrigger>
+            <TabsTrigger value="sql">{t("collection.tab.sql")}</TabsTrigger>
+            <TabsTrigger value="aggregation">{t("collection.tab.aggregation")}</TabsTrigger>
+            <TabsTrigger value="indexes">{t("collection.tab.indexes")}</TabsTrigger>
+            <TabsTrigger value="schema">{t("collection.tab.schema")}</TabsTrigger>
+            <TabsTrigger value="stats">{t("collection.tab.stats")}</TabsTrigger>
           </TabsList>
         </div>
 

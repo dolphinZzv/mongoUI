@@ -14,6 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { api } from "@/lib/api"
+import { useI18n } from "@/lib/i18n"
 import { formatBytes } from "@/lib/mongo"
 import type { Connection, DatabaseInfo } from "@/lib/types"
 
@@ -39,6 +40,7 @@ function display(value: unknown): string {
 }
 
 export function ConnectionOverview({ connection }: ConnectionOverviewProps) {
+  const { t } = useI18n()
   const [databases, setDatabases] = React.useState<DatabaseInfo[]>([])
   const [totalSize, setTotalSize] = React.useState(0)
   const [server, setServer] = React.useState<Record<string, unknown> | null>(null)
@@ -60,7 +62,7 @@ export function ConnectionOverview({ connection }: ConnectionOverviewProps) {
       setTotalSize(dbResult.totalSize)
       setServer(serverResult)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load databases")
+      toast.error(err instanceof Error ? err.message : t("overview.loadDbFailed"))
     } finally {
       setLoading(false)
     }
@@ -85,7 +87,7 @@ export function ConnectionOverview({ connection }: ConnectionOverviewProps) {
           />
           <h1 className="text-lg font-semibold">{connection.name}</h1>
           <Badge variant={connection.connected ? "default" : "secondary"}>
-            {connection.connected ? "Connected" : "Disconnected"}
+            {connection.connected ? t("overview.connected") : t("overview.disconnected")}
           </Badge>
           {connection.readOnly ? (
             <Badge variant="outline">
@@ -159,7 +161,7 @@ export function ConnectionOverview({ connection }: ConnectionOverviewProps) {
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
-                    <TableHead>Name</TableHead>
+                    <TableHead>{t("overview.name")}</TableHead>
                     <TableHead className="text-right">Size on disk</TableHead>
                     <TableHead className="w-24" />
                   </TableRow>

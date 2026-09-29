@@ -8,13 +8,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { useI18n } from "@/lib/i18n"
 import { useTheme, type Theme } from "@/lib/theme"
-
-const OPTIONS: { value: Theme; label: string; icon: React.ReactNode }[] = [
-  { value: "light", label: "Light", icon: <SunIcon /> },
-  { value: "dark", label: "Dark", icon: <MoonIcon /> },
-  { value: "system", label: "System", icon: <MonitorIcon /> },
-]
 
 /**
  * A labelled theme switcher. It intentionally shows the current mode as text so
@@ -22,7 +17,14 @@ const OPTIONS: { value: Theme; label: string; icon: React.ReactNode }[] = [
  */
 export function ThemeToggle({ className }: { className?: string }) {
   const { theme, resolvedTheme, setTheme } = useTheme()
-  const current = OPTIONS.find((option) => option.value === theme) ?? OPTIONS[2]
+  const { t } = useI18n()
+
+  const options: { value: Theme; label: string; icon: React.ReactNode }[] = [
+    { value: "light", label: t("theme.light"), icon: <SunIcon /> },
+    { value: "dark", label: t("theme.dark"), icon: <MoonIcon /> },
+    { value: "system", label: t("theme.system"), icon: <MonitorIcon /> },
+  ]
+  const current = options.find((option) => option.value === theme) ?? options[2]
   const ResolvedIcon = resolvedTheme === "dark" ? MoonIcon : SunIcon
 
   return (
@@ -32,8 +34,8 @@ export function ThemeToggle({ className }: { className?: string }) {
           variant="outline"
           size="sm"
           className={className}
-          aria-label={`Theme: ${current.label}. Switch light, dark or system theme.`}
-          title="Switch light / dark theme"
+          aria-label={t("theme.aria", { label: current.label })}
+          title={t("theme.title")}
         >
           <ResolvedIcon />
           <span>{current.label}</span>
@@ -41,7 +43,7 @@ export function ThemeToggle({ className }: { className?: string }) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-36">
-        {OPTIONS.map((option) => (
+        {options.map((option) => (
           <DropdownMenuItem
             key={option.value}
             onSelect={() => setTheme(option.value)}

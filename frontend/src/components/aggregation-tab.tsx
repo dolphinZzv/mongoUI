@@ -16,6 +16,7 @@ import {
 import { JsonEditor } from "@/components/json-editor"
 import { JsonView } from "@/components/json-view"
 import { api } from "@/lib/api"
+import { useI18n } from "@/lib/i18n"
 import { classForType, collectColumns, formatValue, valueType } from "@/lib/mongo"
 import { cn } from "@/lib/utils"
 import type { MongoDocument } from "@/lib/types"
@@ -26,26 +27,27 @@ interface AggregationTabProps {
   collection: string
 }
 
-const EXAMPLES: { label: string; pipeline: string }[] = [
+const EXAMPLES: { labelKey: string; pipeline: string }[] = [
   {
-    label: "Limit 10",
+    labelKey: "agg.example.limit",
     pipeline: `[\n  { "$limit": 10 }\n]`,
   },
   {
-    label: "Sort newest",
+    labelKey: "agg.example.sort",
     pipeline: `[\n  { "$sort": { "_id": -1 } },\n  { "$limit": 20 }\n]`,
   },
   {
-    label: "Group & count",
+    labelKey: "agg.example.group",
     pipeline: `[\n  { "$group": { "_id": "$status", "count": { "$sum": 1 } } },\n  { "$sort": { "count": -1 } }\n]`,
   },
   {
-    label: "Field stats",
+    labelKey: "agg.example.sample",
     pipeline: `[\n  { "$sample": { "size": 100 } },\n  { "$project": { "name": 1 } }\n]`,
   },
 ]
 
 export function AggregationTab({ connectionId, database, collection }: AggregationTabProps) {
+  const { t } = useI18n()
   const [pipeline, setPipeline] = React.useState("[\n  { \"$limit\": 20 }\n]")
   const [limit, setLimit] = React.useState("")
   const [documents, setDocuments] = React.useState<MongoDocument[]>([])
@@ -58,11 +60,11 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
     try {
       parsed = JSON.parse(pipeline.trim() || "[]")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Pipeline is not valid JSON")
+      toast.error(err instanceof Error ? err.message : t("agg.notJson"))
       return
     }
     if (!Array.isArray(parsed)) {
-      toast.error("Pipeline must be an array of stages")
+      toast.error(t("agg.mustBeArray"))
       return
     }
     setLoading(true)
@@ -77,7 +79,7 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
       setDocuments(res.documents)
       setRan(true)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Aggregation failed")
+      toast.error(err instanceof Error ? err.message : t("agg.failed"))
     } finally {
       setLoading(false)
     }
@@ -89,22 +91,22 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
     <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 space-y-3 border-b p-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium">Pipeline</span>
+          <span className="text-sm font-medium">{t("agg.pipeline")}</span>
           <div className="flex flex-wrap gap-1.5">
             {EXAMPLES.map((example) => (
               <button
-                key={example.label}
+                key={example.labelKey}
                 type="button"
                 onClick={() => setPipeline(example.pipeline)}
                 className="text-muted-foreground hover:text-foreground hover:bg-accent rounded-full border px-2.5 py-0.5 text-xs transition-colors"
               >
-                {example.label}
+                {t(example.labelKey)}
               </button>
             ))}
           </div>
           <div className="ml-auto flex items-center gap-2">
             <Label htmlFor="agg-limit" className="text-muted-foreground text-xs">
-              Post-limit
+              {t("agg.postLimit")}
             </Label>
             <Input
               id="agg-limit"
@@ -116,7 +118,7 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
             />
             <Button onClick={() => void run()} disabled={loading} size="sm">
               {loading ? <Loader2 className="animate-spin" /> : <Play />}
-              Run
+              {t("common.run")}
             </Button>
           </div>
         </div>
@@ -135,30 +137,34 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
           size="sm"
           onClick={() => setView("table")}
         >
-          <Table2 /> Table
+          <Table2 /> {t("result.table")}
         </Button>
         <Button
           variant={view === "json" ? "secondary" : "ghost"}
           size="sm"
           onClick={() => setView("json")}
         >
-          <Braces /> JSON
+          <Braces /> {t("result.json")}
         </Button>
         <span className="text-muted-foreground ml-auto text-xs">
-          {ran ? `${documents.length} result${documents.length === 1 ? "" : "s"}` : "Not run yet"}
+          {ran
+            ? t(documents.length === 1 ? "sql.rows" : "sql.rows_plural", {
+                count: documents.length,
+              })
+            : t("agg.notRun")}
         </span>
       </div>
 
       <div className="scrollbar-thin min-h-0 flex-1 overflow-auto p-3">
         {!ran ? (
           <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
-            Write a pipeline and press Run.
+            {t("agg.placeholder")}
           </div>
         ) : view === "json" ? (
           <JsonView value={documents} maxHeight="none" />
         ) : documents.length === 0 ? (
           <div className="text-muted-foreground flex h-32 items-center justify-center text-sm">
-            No results.
+            {t("agg.empty")}
           </div>
         ) : (
           <Table>

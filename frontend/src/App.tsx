@@ -7,18 +7,21 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { CollectionView } from "@/components/collection-view"
 import { ConnectionDialog } from "@/components/connection-dialog"
 import { ConnectionOverview } from "@/components/connection-overview"
+import { LanguageToggle } from "@/components/language-toggle"
 import { Button } from "@/components/ui/button"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useAgentTools } from "@/hooks/useAgentTools"
 import { api } from "@/lib/api"
+import { useI18n } from "@/lib/i18n"
 import { useRouter } from "@/lib/router"
 import { ThemeProvider } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 import type { Connection, Selection } from "@/lib/types"
 
 export default function App() {
+  const { t } = useI18n()
   const [connections, setConnections] = React.useState<Connection[]>([])
   const [loading, setLoading] = React.useState(true)
   const { selection, tab, navigate } = useRouter()
@@ -94,7 +97,7 @@ export default function App() {
       if (!selectedConnection) {
         return (
           <div className="text-muted-foreground flex h-full items-center justify-center gap-2 text-sm">
-            <Loader2 className="size-4 animate-spin" /> Loading connection…
+            <Loader2 className="size-4 animate-spin" /> {t("app.loadingConnection")}
           </div>
         )
       }
@@ -103,7 +106,7 @@ export default function App() {
           <div className="flex h-full flex-col items-center justify-center gap-3">
             <Loader2 className="text-muted-foreground size-5 animate-spin" />
             <p className="text-muted-foreground text-sm">
-              Connecting to {selectedConnection.name}…
+              {t("app.connecting", { name: selectedConnection.name })}
             </p>
             <Button
               variant="outline"
@@ -112,7 +115,7 @@ export default function App() {
                 void api.connect(selectedConnection.id).then(() => refreshConnections())
               }}
             >
-              Connect now
+              {t("app.connectNow")}
             </Button>
           </div>
         )
@@ -140,26 +143,34 @@ export default function App() {
             <Leaf className="size-7 text-white" />
           </div>
           <h1 className="text-3xl font-semibold tracking-tight">MongoUI</h1>
-          <p className="text-muted-foreground mt-3 max-w-xl text-sm">
-            A lightweight MongoDB administration console. Connect to a deployment, browse
-            databases and collections, query documents, run aggregation pipelines and manage
-            indexes — all in one place.
-          </p>
+          <p className="text-muted-foreground mt-3 max-w-xl text-sm">{t("app.tagline")}</p>
 
           <div className="mt-8 grid w-full gap-3 sm:grid-cols-3">
-            <Feature icon={<Database className="size-4" />} title="Browse" text="Databases, collections and live stats." />
-            <Feature icon={<Table2 className="size-4" />} title="Query" text="Filters, projections, sorting and aggregation." />
-            <Feature icon={<Server className="size-4" />} title="Admin" text="Indexes, schema analysis and server info." />
+            <Feature
+              icon={<Database className="size-4" />}
+              title={t("app.feature.browse")}
+              text={t("app.feature.browseText")}
+            />
+            <Feature
+              icon={<Table2 className="size-4" />}
+              title={t("app.feature.query")}
+              text={t("app.feature.queryText")}
+            />
+            <Feature
+              icon={<Server className="size-4" />}
+              title={t("app.feature.admin")}
+              text={t("app.feature.adminText")}
+            />
           </div>
 
           {connections.length === 0 ? (
             <Button className="mt-8" onClick={openNewConnection}>
-              <Plus /> New connection
+              <Plus /> {t("app.newConnection")}
             </Button>
           ) : (
             <div className="mt-8 w-full">
               <p className="text-muted-foreground mb-3 text-xs tracking-wide uppercase">
-                Recent connections
+                {t("app.recent")}
               </p>
               <div className="flex flex-wrap justify-center gap-2">
                 {connections.map((connection) => (
@@ -238,6 +249,7 @@ export default function App() {
               )}
             </div>
             <div className="ml-auto flex items-center gap-2">
+              <LanguageToggle />
               <AgentToggle />
               <ThemeToggle />
             </div>

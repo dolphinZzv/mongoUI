@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { JsonEditor, formatJSONString, validateJSON } from "@/components/json-editor"
+import { useI18n } from "@/lib/i18n"
 
 interface DocumentDialogProps {
   open: boolean
@@ -34,6 +35,7 @@ export function DocumentDialog({
 }: DocumentDialogProps) {
   const [value, setValue] = React.useState(initialValue)
   const [busy, setBusy] = React.useState(false)
+  const { t } = useI18n()
 
   React.useEffect(() => {
     if (open) setValue(initialValue)
@@ -81,11 +83,11 @@ export function DocumentDialog({
               variant="outline"
               onClick={() => setValue((prev) => formatJSONString(prev))}
             >
-              <Wand2 /> Format
+              <Wand2 /> {t("common.format")}
             </Button>
             <div className="flex gap-2">
               <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button type="submit" disabled={busy}>
                 {busy ? <Loader2 className="animate-spin" /> : <Save />}

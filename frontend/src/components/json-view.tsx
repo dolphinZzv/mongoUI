@@ -4,6 +4,7 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { copyToClipboard } from "@/lib/clipboard"
+import { useI18n } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 import { prettyJSON } from "@/lib/mongo"
 
@@ -14,17 +15,18 @@ interface JsonViewProps {
 }
 
 export function JsonView({ value, className, maxHeight = "28rem" }: JsonViewProps) {
+  const { t } = useI18n()
   const [copied, setCopied] = React.useState(false)
   const text = React.useMemo(() => (typeof value === "string" ? value : prettyJSON(value)), [value])
 
   const copy = async () => {
     const ok = await copyToClipboard(text)
     if (!ok) {
-      toast.error("Copy failed — select the text and copy manually")
+      toast.error(t("common.copyFailed"))
       return
     }
     setCopied(true)
-    toast.success("Copied JSON to clipboard")
+    toast.success(t("common.copied"))
     window.setTimeout(() => setCopied(false), 1500)
   }
 
@@ -36,7 +38,7 @@ export function JsonView({ value, className, maxHeight = "28rem" }: JsonViewProp
         size="icon-sm"
         onClick={copy}
         className="absolute top-2 right-2 z-10"
-        title="Copy JSON"
+        title={t("common.copyJson")}
       >
         {copied ? <CheckIcon className="text-emerald-600 dark:text-emerald-400" /> : <CopyIcon />}
       </Button>

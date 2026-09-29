@@ -13,6 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { api } from "@/lib/api"
+import { useI18n } from "@/lib/i18n"
 import type { SchemaResult } from "@/lib/types"
 
 interface SchemaTabProps {
@@ -22,6 +23,7 @@ interface SchemaTabProps {
 }
 
 export function SchemaTab({ connectionId, database, collection }: SchemaTabProps) {
+  const { t } = useI18n()
   const [schema, setSchema] = React.useState<SchemaResult | null>(null)
   const [loading, setLoading] = React.useState(false)
 
@@ -31,7 +33,7 @@ export function SchemaTab({ connectionId, database, collection }: SchemaTabProps
       const res = await api.collectionSchema(connectionId, database, collection)
       setSchema(res)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to analyse schema")
+      toast.error(err instanceof Error ? err.message : t("schema.failed"))
     } finally {
       setLoading(false)
     }
@@ -60,9 +62,9 @@ export function SchemaTab({ connectionId, database, collection }: SchemaTabProps
         <Table>
           <TableHeader className="bg-background sticky top-0 z-10">
             <TableRow className="hover:bg-transparent">
-              <TableHead>Field</TableHead>
+              <TableHead>{t("schema.field")}</TableHead>
               <TableHead className="w-48">Coverage</TableHead>
-              <TableHead>Types</TableHead>
+              <TableHead>{t("schema.types")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { api } from "@/lib/api"
+import { useI18n } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 import type { Connection, SSHConfig } from "@/lib/types"
 
@@ -97,6 +98,7 @@ export function ConnectionDialog({
   connection,
   onSaved,
 }: ConnectionDialogProps) {
+  const { t } = useI18n()
   const [form, setForm] = React.useState<FormState>(EMPTY)
   const [saving, setSaving] = React.useState(false)
   const [testing, setTesting] = React.useState(false)
@@ -140,11 +142,11 @@ export function ConnectionDialog({
   /** Returns an error message when the SSH section is incomplete. */
   const sshError = (): string | null => {
     if (!form.sshEnabled) return null
-    if (!form.sshHost.trim()) return "SSH host is required"
-    if (!form.sshUser.trim()) return "SSH user is required"
-    if (form.sshAuth === "password" && !form.sshPassword) return "SSH password is required"
+    if (!form.sshHost.trim()) return t("connection.sshHostRequired")
+    if (!form.sshUser.trim()) return t("connection.sshUserRequired")
+    if (form.sshAuth === "password" && !form.sshPassword) return t("connection.sshPasswordRequired")
     if (form.sshAuth === "privateKey" && !form.sshPrivateKey.trim())
-      return "SSH private key is required"
+      return t("connection.sshKeyRequired")
     return null
   }
 
@@ -158,7 +160,7 @@ export function ConnectionDialog({
 
   const handleTest = async () => {
     if (!form.uri.trim()) {
-      toast.error("Please enter a connection string first")
+      toast.error(t("connection.enterUri"))
       return
     }
     const err = sshError()
@@ -169,9 +171,9 @@ export function ConnectionDialog({
     setTesting(true)
     try {
       const res = await api.testConnection(buildPayload(form.name || "test"))
-      toast.success(res.message || "Connection successful")
+      toast.success(res.message || t("connection.testOk"))
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Connection failed")
+      toast.error(e instanceof Error ? e.message : t("connection.testFailed"))
     } finally {
       setTesting(false)
     }
@@ -180,7 +182,7 @@ export function ConnectionDialog({
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!form.name.trim() || !form.uri.trim()) {
-      toast.error("Name and connection string are required")
+      toast.error(t("connection.nameUriRequired"))
       return
     }
     const err = sshError()
@@ -194,11 +196,11 @@ export function ConnectionDialog({
       const saved = connection
         ? await api.updateConnection(connection.id, payload)
         : await api.createConnection(payload)
-      toast.success(connection ? "Connection updated" : "Connection created")
+      toast.success(connection ? t("connection.updated") : t("connection.created"))
       onSaved(saved)
       onOpenChange(false)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to save connection")
+      toast.error(e instanceof Error ? e.message : t("connection.saveFailed"))
     } finally {
       setSaving(false)
     }
@@ -209,26 +211,24 @@ export function ConnectionDialog({
       <DialogContent className="sm:max-w-xl">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>{connection ? "Edit connection" : "New connection"}</DialogTitle>
-            <DialogDescription>
-              Store a MongoDB connection string. Credentials are kept locally on the server.
-            </DialogDescription>
+            <DialogTitle>{connection ? t("connection.edit") : t("connection.new")}</DialogTitle>
+            <DialogDescription>{t("connection.desc")}</DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="conn-name">Name</Label>
+              <Label htmlFor="conn-name">{t("common.name")}</Label>
               <Input
                 id="conn-name"
                 value={form.name}
                 onChange={(e) => update("name", e.target.value)}
-                placeholder="Local development"
+                placeholder={t("connection.namePlaceholder")}
                 autoFocus
               />
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="conn-uri">Connection string</Label>
+              <Label htmlFor="conn-uri">{t("connection.uri")}</Label>
               <Input
                 id="conn-uri"
                 value={form.uri}
@@ -251,7 +251,7 @@ export function ConnectionDialog({
             </div>
 
             <div className="grid gap-2">
-              <Label>Color</Label>
+              <Label>{t("connection.color")}</Label>
               <div className="flex flex-wrap items-center gap-2">
                 {COLORS.map((color) => (
                   <button
@@ -273,9 +273,9 @@ export function ConnectionDialog({
 
             <div className="flex items-center justify-between rounded-lg border p-3">
               <div className="space-y-0.5">
-                <Label htmlFor="conn-readonly">Read-only mode</Label>
+                <Label htmlFor="conn-readonly">{t("connection.readOnly")}</Label>
                 <p className="text-muted-foreground text-xs">
-                  Disable all write operations for this connection.
+                  {t("connection.readOnlyHint")}
                 </p>
               </div>
               <Switch
@@ -288,10 +288,8 @@ export function ConnectionDialog({
             <div className="rounded-lg border">
               <div className="flex items-center justify-between p-3">
                 <div className="space-y-0.5">
-                  <Label htmlFor="conn-ssh">SSH tunnel</Label>
-                  <p className="text-muted-foreground text-xs">
-                    Reach MongoDB through a bastion / jump host.
-                  </p>
+                  <Label htmlFor="conn-ssh">{t("connection.ssh")}</Label>
+                  <p className="text-muted-foreground text-xs">{t("connection.sshHint")}</p>
                 </div>
                 <Switch
                   id="conn-ssh"
@@ -304,7 +302,7 @@ export function ConnectionDialog({
                 <div className="grid gap-3 border-t p-3">
                   <div className="grid grid-cols-3 gap-2">
                     <div className="col-span-2 grid gap-2">
-                      <Label htmlFor="ssh-host">SSH host</Label>
+                      <Label htmlFor="ssh-host">{t("connection.sshHost")}</Label>
                       <Input
                         id="ssh-host"
                         value={form.sshHost}
@@ -314,7 +312,7 @@ export function ConnectionDialog({
                       />
                     </div>
                     <div className="grid gap-2">
-                      <Label htmlFor="ssh-port">Port</Label>
+                      <Label htmlFor="ssh-port">{t("connection.sshPort")}</Label>
                       <Input
                         id="ssh-port"
                         type="number"
@@ -327,7 +325,7 @@ export function ConnectionDialog({
                   </div>
 
                   <div className="grid gap-2">
-                    <Label htmlFor="ssh-user">SSH user</Label>
+                    <Label htmlFor="ssh-user">{t("connection.sshUser")}</Label>
                     <Input
                       id="ssh-user"
                       value={form.sshUser}
@@ -338,7 +336,7 @@ export function ConnectionDialog({
                   </div>
 
                   <div className="grid gap-2">
-                    <Label>Authentication</Label>
+                    <Label>{t("connection.sshAuth")}</Label>
                     <div className="inline-flex w-fit rounded-md border p-0.5">
                       {(["password", "privateKey"] as const).map((method) => (
                         <button
@@ -352,7 +350,9 @@ export function ConnectionDialog({
                               : "text-muted-foreground hover:text-foreground",
                           )}
                         >
-                          {method === "password" ? "Password" : "Private key"}
+                          {method === "password"
+                            ? t("connection.authPassword")
+                            : t("connection.authPrivateKey")}
                         </button>
                       ))}
                     </div>
@@ -360,7 +360,7 @@ export function ConnectionDialog({
 
                   {form.sshAuth === "password" ? (
                     <div className="grid gap-2">
-                      <Label htmlFor="ssh-password">SSH password</Label>
+                      <Label htmlFor="ssh-password">{t("connection.sshPassword")}</Label>
                       <Input
                         id="ssh-password"
                         type="password"
@@ -372,7 +372,7 @@ export function ConnectionDialog({
                   ) : (
                     <>
                       <div className="grid gap-2">
-                        <Label htmlFor="ssh-key">Private key (PEM / OpenSSH)</Label>
+                        <Label htmlFor="ssh-key">{t("connection.sshPrivateKey")}</Label>
                         <Textarea
                           id="ssh-key"
                           value={form.sshPrivateKey}
@@ -384,7 +384,7 @@ export function ConnectionDialog({
                         />
                       </div>
                       <div className="grid gap-2">
-                        <Label htmlFor="ssh-passphrase">Key passphrase (optional)</Label>
+                        <Label htmlFor="ssh-passphrase">{t("connection.sshPassphrase")}</Label>
                         <Input
                           id="ssh-passphrase"
                           type="password"
@@ -397,7 +397,7 @@ export function ConnectionDialog({
                   )}
 
                   <div className="grid gap-2">
-                    <Label htmlFor="ssh-known-hosts">known_hosts file (optional)</Label>
+                    <Label htmlFor="ssh-known-hosts">{t("connection.sshKnownHosts")}</Label>
                     <Input
                       id="ssh-known-hosts"
                       value={form.sshKnownHosts}
@@ -406,8 +406,7 @@ export function ConnectionDialog({
                       className="font-mono text-xs"
                     />
                     <p className="text-muted-foreground text-xs">
-                      When empty the host key is not verified (traffic is still encrypted). Set a
-                      known_hosts path on the server to enable strict checking.
+                      {t("connection.sshKnownHostsHint")}
                     </p>
                   </div>
                 </div>
@@ -418,15 +417,15 @@ export function ConnectionDialog({
           <DialogFooter className="gap-2 sm:justify-between">
             <Button type="button" variant="outline" onClick={handleTest} disabled={testing}>
               {testing ? <Loader2 className="animate-spin" /> : <PlugZap />}
-              Test connection
+              {t("connection.test")}
             </Button>
             <div className="flex gap-2">
               <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button type="submit" disabled={saving}>
                 {saving ? <Loader2 className="animate-spin" /> : <Save />}
-                {connection ? "Save changes" : "Create"}
+                {connection ? t("connection.saveChanges") : t("common.create")}
               </Button>
             </div>
           </DialogFooter>

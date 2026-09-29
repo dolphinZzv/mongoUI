@@ -33,6 +33,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { api } from "@/lib/api"
+import { useI18n } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 import type { CollectionInfo, Connection, DatabaseInfo, Selection } from "@/lib/types"
 
@@ -82,6 +83,7 @@ export function AppSidebar({
   onEditConnection,
   onRefresh,
 }: AppSidebarProps) {
+  const { t } = useI18n()
   const [expandedConns, setExpandedConns] = React.useState<Record<string, boolean>>(
     () => readExpanded().conns,
   )
@@ -105,7 +107,7 @@ export function AppSidebar({
       const res = await api.listDatabases(connectionId)
       setDatabases((prev) => ({ ...prev, [connectionId]: res.databases }))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to list databases")
+      toast.error(err instanceof Error ? err.message : t("sidebar.listDatabasesFailed"))
     } finally {
       setLoadingDbs((prev) => ({ ...prev, [connectionId]: false }))
     }
@@ -118,7 +120,7 @@ export function AppSidebar({
       const res = await api.listCollections(connectionId, database)
       setCollections((prev) => ({ ...prev, [key]: res }))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to list collections")
+      toast.error(err instanceof Error ? err.message : t("sidebar.listCollectionsFailed"))
     } finally {
       setLoadingCols((prev) => ({ ...prev, [key]: false }))
     }
@@ -206,10 +208,10 @@ export function AppSidebar({
     try {
       await api.connect(connection.id)
       setExpandedConns((prev) => ({ ...prev, [connection.id]: true }))
-      toast.success(`Connected to ${connection.name}`)
+      toast.success(t("sidebar.connected", { name: connection.name }))
       onRefresh()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to connect")
+      toast.error(err instanceof Error ? err.message : t("sidebar.connectFailed"))
       setExpandedConns((prev) => ({ ...prev, [connection.id]: false }))
     } finally {
       setBusyConn((prev) => ({ ...prev, [connection.id]: false }))
@@ -242,10 +244,10 @@ export function AppSidebar({
     try {
       await api.disconnect(connection.id)
       setExpandedConns((prev) => ({ ...prev, [connection.id]: false }))
-      toast.success(`Disconnected from ${connection.name}`)
+      toast.success(t("sidebar.disconnected", { name: connection.name }))
       onRefresh()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to disconnect")
+      toast.error(err instanceof Error ? err.message : t("sidebar.disconnectFailed"))
     } finally {
       setBusyConn((prev) => ({ ...prev, [connection.id]: false }))
     }
@@ -312,24 +314,24 @@ export function AppSidebar({
     if (!confirm) return null
     if (confirm.type === "drop-database") {
       return {
-        title: `Drop database "${confirm.database}"?`,
-        description: `This permanently deletes the database and every collection inside it.`,
-        confirmLabel: "Drop database",
+        title: t("sidebar.confirmDropDatabase", { name: confirm.database }),
+        description: t("sidebar.confirmDropDatabaseDesc"),
+        confirmLabel: t("sidebar.dropDatabase"),
       }
     }
     if (confirm.type === "drop-collection") {
       return {
-        title: `Drop collection "${confirm.collection}"?`,
-        description: "This permanently deletes the collection and all of its documents.",
-        confirmLabel: "Drop collection",
+        title: t("sidebar.confirmDropCollection", { name: confirm.collection }),
+        description: t("sidebar.confirmDropCollectionDesc"),
+        confirmLabel: t("sidebar.dropCollection"),
       }
     }
     return {
-      title: `Delete connection "${confirm.connection.name}"?`,
-      description: "Only the saved profile is removed; the database itself is untouched.",
-      confirmLabel: "Delete",
+      title: t("sidebar.confirmDeleteConnection", { name: confirm.connection.name }),
+      description: t("sidebar.confirmDeleteConnectionDesc"),
+      confirmLabel: t("common.delete"),
     }
-  }, [confirm])
+  }, [confirm, t])
 
   const noMatches =
     filtering &&
@@ -353,11 +355,11 @@ export function AppSidebar({
         <div className="ml-auto flex items-center gap-1">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" onClick={onNewConnection} aria-label="New connection">
+              <Button variant="ghost" size="icon-sm" onClick={onNewConnection} aria-label={t("app.newConnection")}>
                 <Plus />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>New connection</TooltipContent>
+            <TooltipContent>{t("app.newConnection")}</TooltipContent>
           </Tooltip>
         </div>
       </div>
@@ -368,8 +370,8 @@ export function AppSidebar({
           <Input
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
-            placeholder="Filter connections, databases, collections…"
-            aria-label="Filter connections, databases and collections"
+            placeholder={t("sidebar.filter")}
+            aria-label={t("sidebar.filterAria")}
             spellCheck={false}
             autoComplete="off"
             className="h-8 pr-7 pl-8 text-xs"
@@ -378,7 +380,7 @@ export function AppSidebar({
             <button
               type="button"
               onClick={() => setFilter("")}
-              aria-label="Clear filter"
+              aria-label={t("sidebar.clearFilter")}
               className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 rounded-sm p-0.5"
             >
               <X className="size-3.5" />
@@ -391,26 +393,26 @@ export function AppSidebar({
         <div className="space-y-0.5 p-2">
           {loading && connections.length === 0 ? (
             <div className="flex items-center gap-2 px-2 py-6 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" /> Loading connections…
+              <Loader2 className="size-4 animate-spin" /> {t("sidebar.loadingConnections")}
             </div>
           ) : null}
 
           {!loading && connections.length === 0 ? (
             <div className="px-3 py-8 text-center">
               <Database className="text-muted-foreground mx-auto mb-3 size-8" />
-              <p className="text-sm font-medium">No connections yet</p>
+              <p className="text-sm font-medium">{t("sidebar.noConnections")}</p>
               <p className="text-muted-foreground mt-1 text-xs">
-                Add a MongoDB connection to get started.
+                {t("sidebar.emptyHint")}
               </p>
               <Button size="sm" className="mt-4" onClick={onNewConnection}>
-                <Plus /> New connection
+                <Plus /> {t("app.newConnection")}
               </Button>
             </div>
           ) : null}
 
           {noMatches ? (
             <div className="text-muted-foreground px-3 py-8 text-center text-xs">
-              Nothing matches “{filter.trim()}”.
+              {t("sidebar.nothingMatches", { query: filter.trim() })}
             </div>
           ) : null}
 
@@ -439,7 +441,7 @@ export function AppSidebar({
                   <button
                     type="button"
                     onClick={() => toggleConnection(connection)}
-                    aria-label={`Toggle connection ${connection.name}`}
+                    aria-label={t("sidebar.toggleConnection", { name: connection.name })}
                     className="text-muted-foreground hover:text-foreground flex size-5 shrink-0 items-center justify-center"
                   >
                     {busyConn[connection.id] ? (
@@ -481,28 +483,28 @@ export function AppSidebar({
                     <DropdownMenuContent align="start" className="w-52">
                       {connection.connected ? (
                         <DropdownMenuItem onSelect={() => void handleDisconnect(connection)}>
-                          <Unplug /> Disconnect
+                          <Unplug /> {t("sidebar.disconnect")}
                         </DropdownMenuItem>
                       ) : (
                         <DropdownMenuItem onSelect={() => void handleConnect(connection)}>
-                          <Plug /> Connect
+                          <Plug /> {t("sidebar.connect")}
                         </DropdownMenuItem>
                       )}
                       <DropdownMenuItem
                         onSelect={() => setDbDialogFor(connection.id)}
                         disabled={!connection.connected || connection.readOnly}
                       >
-                        <Plus /> Create database
+                        <Plus /> {t("sidebar.createDatabase")}
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onSelect={() => onEditConnection(connection)}>
-                        <Pencil /> Edit connection
+                        <Pencil /> {t("sidebar.editConnection")}
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         variant="destructive"
                         onSelect={() => setConfirm({ type: "delete-connection", connection })}
                       >
-                        <Trash2 /> Delete connection
+                        <Trash2 /> {t("sidebar.deleteConnection")}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -512,11 +514,11 @@ export function AppSidebar({
                   <div className="mt-0.5 ml-4 space-y-0.5 border-l pl-2">
                     {loadingDbs[connection.id] && visibleDbs.length === 0 ? (
                       <div className="text-muted-foreground flex items-center gap-2 px-2 py-1 text-xs">
-                        <Loader2 className="size-3 animate-spin" /> Loading databases…
+                        <Loader2 className="size-3 animate-spin" /> {t("sidebar.loadingDatabases")}
                       </div>
                     ) : null}
                     {visibleDbs.length === 0 && !loadingDbs[connection.id] ? (
-                      <div className="text-muted-foreground px-2 py-1 text-xs">No databases</div>
+                      <div className="text-muted-foreground px-2 py-1 text-xs">{t("sidebar.noDatabases")}</div>
                     ) : null}
                     {visibleDbs.map((database) => {
                       const key = dbKey(connection.id, database.name)
@@ -533,7 +535,7 @@ export function AppSidebar({
                             <button
                               type="button"
                               onClick={() => toggleDatabase(connection.id, database.name)}
-                              aria-label={`Toggle database ${database.name}`}
+                              aria-label={t("sidebar.toggleDatabase", { name: database.name })}
                               className="text-muted-foreground hover:text-foreground flex size-5 shrink-0 items-center justify-center"
                             >
                               <ChevronRight
@@ -573,7 +575,7 @@ export function AppSidebar({
                                     })
                                   }
                                 >
-                                  <Plus /> Create collection
+                                  <Plus /> {t("sidebar.createCollection")}
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
@@ -587,7 +589,7 @@ export function AppSidebar({
                                     })
                                   }
                                 >
-                                  <Trash2 /> Drop database
+                                  <Trash2 /> {t("sidebar.dropDatabase")}
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
@@ -597,12 +599,12 @@ export function AppSidebar({
                             <div className="mt-0.5 ml-5 space-y-0.5 border-l pl-2">
                               {loadingCols[key] && cols.length === 0 ? (
                                 <div className="text-muted-foreground flex items-center gap-2 px-2 py-1 text-xs">
-                                  <Loader2 className="size-3 animate-spin" /> Loading…
+                                  <Loader2 className="size-3 animate-spin" /> {t("common.loading")}
                                 </div>
                               ) : null}
                               {cols.length === 0 && !loadingCols[key] ? (
                                 <div className="text-muted-foreground px-2 py-1 text-xs">
-                                  No collections
+                                  {t("sidebar.noCollections")}
                                 </div>
                               ) : null}
                               {cols.map((collection) => {
@@ -660,7 +662,7 @@ export function AppSidebar({
                                             })
                                           }
                                         >
-                                          <Trash2 /> Drop collection
+                                          <Trash2 /> {t("sidebar.dropCollection")}
                                         </DropdownMenuItem>
                                       </DropdownMenuContent>
                                     </DropdownMenu>
@@ -682,7 +684,9 @@ export function AppSidebar({
 
       <div className="text-muted-foreground flex shrink-0 items-center justify-between border-t px-3 py-2 text-xs">
         <span className="flex items-center gap-1.5">
-          {connections.length} connection{connections.length === 1 ? "" : "s"}
+          {t(connections.length === 1 ? "sidebar.connections" : "sidebar.connections_plural", {
+            count: connections.length,
+          })}
           <span className="text-muted-foreground/60">·</span>
           <span title="Embedded front-end version">v{__APP_VERSION__}</span>
         </span>
@@ -703,7 +707,7 @@ export function AppSidebar({
               }
               onRefresh()
             }}
-            title="Refresh"
+            title={t("common.refresh")}
           >
             <RefreshCw />
           </Button>

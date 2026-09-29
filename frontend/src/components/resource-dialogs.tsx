@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { api } from "@/lib/api"
+import { useI18n } from "@/lib/i18n"
 
 interface CreateDatabaseDialogProps {
   open: boolean
@@ -32,6 +33,7 @@ export function CreateDatabaseDialog({
   const [name, setName] = React.useState("")
   const [collection, setCollection] = React.useState("default")
   const [busy, setBusy] = React.useState(false)
+  const { t } = useI18n()
 
   React.useEffect(() => {
     if (open) {
@@ -43,17 +45,17 @@ export function CreateDatabaseDialog({
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!name.trim()) {
-      toast.error("Database name is required")
+      toast.error(t("resource.dbNameRequired"))
       return
     }
     setBusy(true)
     try {
       await api.createDatabase(connectionId, name.trim(), collection.trim() || "default")
-      toast.success(`Database "${name.trim()}" created`)
+      toast.success(t("resource.dbCreated", { name: name.trim() }))
       onCreated()
       onOpenChange(false)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create database")
+      toast.error(err instanceof Error ? err.message : t("resource.createDbFailed"))
     } finally {
       setBusy(false)
     }
@@ -64,14 +66,14 @@ export function CreateDatabaseDialog({
       <DialogContent className="sm:max-w-md">
         <form onSubmit={submit}>
           <DialogHeader>
-            <DialogTitle>Create database</DialogTitle>
+            <DialogTitle>{t("resource.createDatabase")}</DialogTitle>
             <DialogDescription>
               MongoDB creates databases lazily, so an initial collection is required.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="db-name">Database name</Label>
+              <Label htmlFor="db-name">{t("resource.databaseName")}</Label>
               <Input
                 id="db-name"
                 value={name}
@@ -81,7 +83,7 @@ export function CreateDatabaseDialog({
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="db-collection">Initial collection</Label>
+              <Label htmlFor="db-collection">{t("resource.initialCollection")}</Label>
               <Input
                 id="db-collection"
                 value={collection}
@@ -92,11 +94,11 @@ export function CreateDatabaseDialog({
           </div>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={busy}>
               {busy ? <Loader2 className="animate-spin" /> : <Plus />}
-              Create
+              {t("common.create")}
             </Button>
           </DialogFooter>
         </form>
@@ -125,6 +127,7 @@ export function CreateCollectionDialog({
   const [size, setSize] = React.useState("1048576")
   const [max, setMax] = React.useState("")
   const [busy, setBusy] = React.useState(false)
+  const { t } = useI18n()
 
   React.useEffect(() => {
     if (open) {
@@ -138,7 +141,7 @@ export function CreateCollectionDialog({
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!name.trim()) {
-      toast.error("Collection name is required")
+      toast.error(t("resource.colNameRequired"))
       return
     }
     setBusy(true)
@@ -149,11 +152,11 @@ export function CreateCollectionDialog({
         size: capped ? Number(size) || 0 : undefined,
         max: capped && max ? Number(max) || 0 : undefined,
       })
-      toast.success(`Collection "${name.trim()}" created`)
+      toast.success(t("resource.colCreated", { name: name.trim() }))
       onCreated()
       onOpenChange(false)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create collection")
+      toast.error(err instanceof Error ? err.message : t("resource.createColFailed"))
     } finally {
       setBusy(false)
     }
@@ -164,14 +167,14 @@ export function CreateCollectionDialog({
       <DialogContent className="sm:max-w-md">
         <form onSubmit={submit}>
           <DialogHeader>
-            <DialogTitle>Create collection</DialogTitle>
+            <DialogTitle>{t("resource.createCollection")}</DialogTitle>
             <DialogDescription>
               Add a new collection to <span className="font-mono">{database}</span>.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="col-name">Collection name</Label>
+              <Label htmlFor="col-name">{t("resource.collectionName")}</Label>
               <Input
                 id="col-name"
                 value={name}
@@ -182,7 +185,7 @@ export function CreateCollectionDialog({
             </div>
             <div className="flex items-center justify-between rounded-lg border p-3">
               <div className="space-y-0.5">
-                <Label htmlFor="col-capped">Capped collection</Label>
+                <Label htmlFor="col-capped">{t("resource.capped")}</Label>
                 <p className="text-muted-foreground text-xs">
                   Fixed-size collection that overwrites oldest entries.
                 </p>
@@ -201,7 +204,7 @@ export function CreateCollectionDialog({
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="col-max">Max documents</Label>
+                  <Label htmlFor="col-max">{t("resource.maxDocuments")}</Label>
                   <Input
                     id="col-max"
                     value={max}
@@ -215,11 +218,11 @@ export function CreateCollectionDialog({
           </div>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={busy}>
               {busy ? <Loader2 className="animate-spin" /> : <Plus />}
-              Create
+              {t("common.create")}
             </Button>
           </DialogFooter>
         </form>

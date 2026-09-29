@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { JsonView } from "@/components/json-view"
 import { api } from "@/lib/api"
+import { useI18n } from "@/lib/i18n"
 import { formatBytes } from "@/lib/mongo"
 
 interface StatsTabProps {
@@ -43,6 +44,7 @@ function StatCard({ title, value, hint }: { title: string; value: string; hint?:
 }
 
 export function StatsTab({ connectionId, database, collection }: StatsTabProps) {
+  const { t } = useI18n()
   const [collectionStats, setCollectionStats] = React.useState<Record<string, unknown> | null>(null)
   const [databaseStats, setDatabaseStats] = React.useState<Record<string, unknown> | null>(null)
   const [loading, setLoading] = React.useState(false)
@@ -57,7 +59,7 @@ export function StatsTab({ connectionId, database, collection }: StatsTabProps) 
       setCollectionStats(colStats)
       setDatabaseStats(dbStats)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load statistics")
+      toast.error(err instanceof Error ? err.message : t("stats.failed"))
     } finally {
       setLoading(false)
     }
@@ -86,13 +88,13 @@ export function StatsTab({ connectionId, database, collection }: StatsTabProps) 
       </div>
 
       <div className="grid gap-3 p-3 sm:grid-cols-2 lg:grid-cols-3">
-        <StatCard title="Documents" value={count.toLocaleString()} />
-        <StatCard title="Logical size" value={formatBytes(size)} hint={`${size.toLocaleString()} bytes`} />
-        <StatCard title="Storage size" value={formatBytes(storageSize)} />
+        <StatCard title={t("stats.documents")} value={count.toLocaleString()} />
+        <StatCard title={t("stats.logicalSize")} value={formatBytes(size)} hint={`${size.toLocaleString()} bytes`} />
+        <StatCard title={t("stats.storageSize")} value={formatBytes(storageSize)} />
         <StatCard title="Avg. document" value={formatBytes(avgObjSize)} />
-        <StatCard title="Indexes" value={String(nindexes)} hint={formatBytes(totalIndexSize)} />
+        <StatCard title={t("stats.indexes")} value={String(nindexes)} hint={formatBytes(totalIndexSize)} />
         <StatCard
-          title="Capped"
+          title={t("stats.capped")}
           value={stats.capped ? "Yes" : "No"}
           hint={typeof stats.ns === "string" ? stats.ns : undefined}
         />

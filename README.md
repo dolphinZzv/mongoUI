@@ -31,7 +31,7 @@
 | 统计信息 | `collStats` / `dbStats` 关键指标卡片 + 原始 JSON |
 | 服务器信息 | 版本、构建信息、运行时长、数据库总大小 |
 | 数据管理 | 创建 / 删除数据库、创建 / 删除集合（含 capped 选项） |
-| 主题 | 明亮 / 暗黑 / 跟随系统三种模式，偏好保存在浏览器 |
+| 主题 / i18n | 明亮 / 暗黑 / 跟随系统三种模式；中文 / English 双语，顶栏切换并自动跟随浏览器语言，偏好保存在浏览器 |
 | 运维 | 守护进程后台运行（`-daemon` / `-stop` / `-status`）、一键安装脚本、`mongoui update` 自更新 |
 | 浏览器 Agent | WebMCP（`navigator.modelContext`）+ `window.mongouiAgent`，把连接 / 查询 / 聚合 / 索引等操作暴露给浏览器内 agent，**默认关闭**、需显式开启 |
 | MCP | 内置 Model Context Protocol server（stdio / HTTP），把连接、查询、聚合、SQL、增删改、索引等暴露给外部 Agent；支持整体只读模式 |

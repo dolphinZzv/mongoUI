@@ -12,6 +12,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { buttonVariants } from "@/components/ui/button"
+import { useI18n } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 
 interface ConfirmDialogProps {
@@ -29,10 +30,11 @@ export function ConfirmDialog({
   onOpenChange,
   title,
   description,
-  confirmLabel = "Confirm",
+  confirmLabel,
   destructive = true,
   onConfirm,
 }: ConfirmDialogProps) {
+  const { t } = useI18n()
   const [busy, setBusy] = React.useState(false)
 
   const handleConfirm = async (event: React.MouseEvent) => {
@@ -58,14 +60,14 @@ export function ConfirmDialog({
           ) : null}
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={busy}>{t("common.cancel")}</AlertDialogCancel>
           <AlertDialogAction
             onClick={handleConfirm}
             disabled={busy}
             className={cn(destructive && buttonVariants({ variant: "destructive" }))}
           >
             {busy ? <Loader2 className="animate-spin" /> : null}
-            {confirmLabel}
+            {confirmLabel ?? t("common.confirm")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

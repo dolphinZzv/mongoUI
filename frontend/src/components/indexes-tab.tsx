@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/table"
 import { JsonEditor } from "@/components/json-editor"
 import { api } from "@/lib/api"
+import { useI18n } from "@/lib/i18n"
 import { isPlainObject, formatValue } from "@/lib/mongo"
 import type { MongoDocument } from "@/lib/types"
 
@@ -57,6 +58,7 @@ export function IndexesTab({
   collection,
   readOnly,
 }: IndexesTabProps) {
+  const { t } = useI18n()
   const [indexes, setIndexes] = React.useState<MongoDocument[]>([])
   const [loading, setLoading] = React.useState(false)
   const [createOpen, setCreateOpen] = React.useState(false)
@@ -71,7 +73,7 @@ export function IndexesTab({
       const res = await api.listIndexes(connectionId, database, collection)
       setIndexes(res)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load indexes")
+      toast.error(err instanceof Error ? err.message : t("indexes.loadFailed"))
     } finally {
       setLoading(false)
     }
@@ -89,19 +91,19 @@ export function IndexesTab({
       parsedKeys = JSON.parse(keys)
       parsedOptions = JSON.parse(options || "{}")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Invalid JSON")
+      toast.error(err instanceof Error ? err.message : t("indexes.invalidJson"))
       return
     }
     setBusy(true)
     try {
       await api.createIndex(connectionId, database, collection, parsedKeys, parsedOptions)
-      toast.success("Index created")
+      toast.success(t("indexes.created"))
       setCreateOpen(false)
       setKeys('{\n  "field": 1\n}')
       setOptions("{}")
       await load()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create index")
+      toast.error(err instanceof Error ? err.message : t("indexes.createFailed"))
     } finally {
       setBusy(false)
     }
@@ -113,7 +115,7 @@ export function IndexesTab({
         <span className="text-sm font-medium">
           {indexes.length} index{indexes.length === 1 ? "" : "es"}
         </span>
-        <Button variant="outline" size="icon-sm" onClick={() => void load()} title="Refresh">
+        <Button variant="outline" size="icon-sm" onClick={() => void load()} title={t("common.refresh")}>
           <RefreshCw className={loading ? "animate-spin" : undefined} />
         </Button>
         <Button
@@ -130,9 +132,9 @@ export function IndexesTab({
         <Table>
           <TableHeader className="bg-background sticky top-0 z-10">
             <TableRow className="hover:bg-transparent">
-              <TableHead>Name</TableHead>
-              <TableHead>Keys</TableHead>
-              <TableHead>Properties</TableHead>
+              <TableHead>{t("indexes.name")}</TableHead>
+              <TableHead>{t("indexes.keys")}</TableHead>
+              <TableHead>{t("indexes.properties")}</TableHead>
               <TableHead className="w-12" />
             </TableRow>
           </TableHeader>
@@ -175,7 +177,7 @@ export function IndexesTab({
                       variant="ghost"
                       size="icon-sm"
                       disabled={readOnly || isDefault}
-                      title={isDefault ? "The default index cannot be dropped" : "Drop index"}
+                      title={isDefault ? t("indexes.cannotDrop") : t("indexes.drop")}
                       onClick={() => setDropTarget(name)}
                     >
                       <Trash2 />
@@ -192,18 +194,18 @@ export function IndexesTab({
         <DialogContent className="sm:max-w-xl">
           <form onSubmit={handleCreate}>
             <DialogHeader>
-              <DialogTitle>Create index</DialogTitle>
+              <DialogTitle>{t("indexes.createTitle")}</DialogTitle>
               <DialogDescription>
                 Specify the index keys and any options using Extended JSON.
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="space-y-1">
-                <Label>Keys</Label>
+                <Label>{t("indexes.keys")}</Label>
                 <JsonEditor value={keys} onChange={setKeys} allowEmpty={false} rows={4} />
               </div>
               <div className="space-y-1">
-                <Label>Options</Label>
+                <Label>{t("indexes.options")}</Label>
                 <JsonEditor
                   value={options}
                   onChange={setOptions}
@@ -228,13 +230,13 @@ export function IndexesTab({
       <ConfirmDialog
         open={dropTarget !== null}
         onOpenChange={(open) => !open && setDropTarget(null)}
-        title={`Drop index "${dropTarget ?? ""}"?`}
+        title={t("indexes.dropTitle", { name: dropTarget ?? "" })}
         description="The index will be removed from the collection."
-        confirmLabel="Drop index"
+        confirmLabel={t("indexes.dropLabel")}
         onConfirm={async () => {
           if (!dropTarget) return
           await api.dropIndex(connectionId, database, collection, dropTarget)
-          toast.success("Index dropped")
+          toast.success(t("indexes.dropped"))
           await load()
         }}
       />

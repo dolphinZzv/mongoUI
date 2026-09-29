@@ -16,6 +16,7 @@ import {
 import { JsonView } from "@/components/json-view"
 import { SqlEditor } from "@/components/sql-editor"
 import { api } from "@/lib/api"
+import { useI18n } from "@/lib/i18n"
 import { classForType, collectColumns, formatValue, valueType } from "@/lib/mongo"
 import { cn } from "@/lib/utils"
 import type { SQLResult } from "@/lib/types"
@@ -31,24 +32,25 @@ function quoteIdent(name: string): string {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : "`" + name.replace(/`/g, "``") + "`"
 }
 
-function templates(collection: string): { label: string; sql: string }[] {
+function templates(collection: string): { labelKey: string; sql: string }[] {
   const c = quoteIdent(collection)
   return [
-    { label: "All", sql: `SELECT * FROM ${c} LIMIT 50` },
-    { label: "Count", sql: `SELECT COUNT(*) AS count FROM ${c}` },
-    { label: "Distinct", sql: `SELECT DISTINCT status FROM ${c} LIMIT 100` },
+    { labelKey: "sql.template.all", sql: `SELECT * FROM ${c} LIMIT 50` },
+    { labelKey: "sql.template.count", sql: `SELECT COUNT(*) AS count FROM ${c}` },
+    { labelKey: "sql.template.distinct", sql: `SELECT DISTINCT status FROM ${c} LIMIT 100` },
     {
-      label: "Group & count",
+      labelKey: "sql.template.group",
       sql: `SELECT status, COUNT(*) AS count\nFROM ${c}\nGROUP BY status\nORDER BY count DESC`,
     },
     {
-      label: "Filter",
+      labelKey: "sql.template.filter",
       sql: `SELECT * FROM ${c}\nWHERE status = 'active'\nORDER BY _id DESC\nLIMIT 20`,
     },
   ]
 }
 
 export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
+  const { t } = useI18n()
   const [query, setQuery] = React.useState(`SELECT * FROM ${quoteIdent(collection)} LIMIT 50`)
   const [limit, setLimit] = React.useState("")
   const [result, setResult] = React.useState<SQLResult | null>(null)
@@ -90,7 +92,7 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
 
   const run = React.useCallback(async () => {
     if (!query.trim()) {
-      toast.error("Write a SQL query first")
+      toast.error(t("sql.writeFirst"))
       return
     }
     setLoading(true)
@@ -104,11 +106,11 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
       setResult(res)
       setRan(true)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "SQL query failed")
+      toast.error(err instanceof Error ? err.message : t("sql.failed"))
     } finally {
       setLoading(false)
     }
-  }, [connectionId, database, query, limit])
+  }, [connectionId, database, query, limit, t])
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
@@ -131,18 +133,18 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
           <div className="flex flex-wrap gap-1.5">
             {templates(collection).map((template) => (
               <button
-                key={template.label}
+                key={template.labelKey}
                 type="button"
                 onClick={() => setQuery(template.sql)}
                 className="text-muted-foreground hover:text-foreground hover:bg-accent rounded-full border px-2.5 py-0.5 text-xs transition-colors"
               >
-                {template.label}
+                {t(template.labelKey)}
               </button>
             ))}
           </div>
           <div className="ml-auto flex items-center gap-2">
             <Label htmlFor="sql-limit" className="text-muted-foreground text-xs">
-              Limit
+              {t("sql.limit")}
             </Label>
             <Input
               id="sql-limit"
@@ -154,7 +156,7 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
             />
             <Button onClick={() => void run()} disabled={loading} size="sm">
               {loading ? <Loader2 className="animate-spin" /> : <Play />}
-              Run
+              {t("sql.run")}
             </Button>
           </div>
         </div>
@@ -166,16 +168,12 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
           suggestions={suggestions}
           placeholder={`SELECT * FROM ${quoteIdent(collection)} LIMIT 20`}
         />
-        <p className="text-muted-foreground text-xs">
-          SELECT with WHERE / IN / LIKE / IS NULL, ORDER BY, LIMIT, GROUP BY, HAVING,
-          DISTINCT and COUNT / SUM / AVG / MIN / MAX. Autocomplete covers keywords and
-          collection / field names. Press Ctrl/⌘ + Enter to run.
-        </p>
+        <p className="text-muted-foreground text-xs">{t("sql.help")}</p>
 
         {ran && result ? (
           <details className="rounded-md border">
             <summary className="text-muted-foreground hover:text-foreground cursor-pointer px-3 py-2 text-xs select-none">
-              Generated MongoDB query
+              {t("sql.generated")}
             </summary>
             <div className="border-t p-2">
               <JsonView value={result.mql} maxHeight="16rem" />
@@ -190,33 +188,33 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
           size="sm"
           onClick={() => setView("table")}
         >
-          <Table2 /> Table
+          <Table2 /> {t("result.table")}
         </Button>
         <Button
           variant={view === "json" ? "secondary" : "ghost"}
           size="sm"
           onClick={() => setView("json")}
         >
-          <Braces /> JSON
+          <Braces /> {t("result.json")}
         </Button>
         <span className="text-muted-foreground ml-auto text-xs">
           {ran && result
-            ? `${result.count} row${result.count === 1 ? "" : "s"}` +
-              (result.total > result.count ? ` of ${result.total} matching` : "")
-            : "Not run yet"}
+            ? t(result.count === 1 ? "sql.rows" : "sql.rows_plural", { count: result.count }) +
+              (result.total > result.count ? t("sql.ofMatching", { total: result.total }) : "")
+            : t("sql.notRun")}
         </span>
       </div>
 
       <div className="scrollbar-thin min-h-0 flex-1 overflow-auto p-3">
         {!ran ? (
           <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
-            Write a SQL query and press Run.
+            {t("sql.placeholder")}
           </div>
         ) : view === "json" ? (
           <JsonView value={documents} maxHeight="none" />
         ) : documents.length === 0 ? (
           <div className="text-muted-foreground flex h-32 items-center justify-center text-sm">
-            No rows returned.
+            {t("sql.empty")}
           </div>
         ) : (
           <Table>

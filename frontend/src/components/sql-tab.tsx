@@ -13,8 +13,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Textarea } from "@/components/ui/textarea"
 import { JsonView } from "@/components/json-view"
+import { SqlEditor } from "@/components/sql-editor"
 import { api } from "@/lib/api"
 import { classForType, collectColumns, formatValue, valueType } from "@/lib/mongo"
 import { cn } from "@/lib/utils"
@@ -55,6 +55,31 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
   const [loading, setLoading] = React.useState(false)
   const [ran, setRan] = React.useState(false)
   const [view, setView] = React.useState<"table" | "json">("table")
+  const [suggestions, setSuggestions] = React.useState<string[]>([])
+
+  // Complete collection and field names alongside the SQL keywords.
+  React.useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const words = new Set<string>()
+      try {
+        const collections = await api.listCollections(connectionId, database)
+        for (const c of collections) words.add(c.name)
+      } catch {
+        /* ignore: completion is best-effort */
+      }
+      try {
+        const schema = await api.collectionSchema(connectionId, database, collection)
+        for (const field of schema.fields) words.add(field.name)
+      } catch {
+        /* ignore */
+      }
+      if (!cancelled) setSuggestions([...words])
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [connectionId, database, collection])
 
   // Reset the editor when the selected collection changes.
   React.useEffect(() => {
@@ -134,19 +159,17 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
           </div>
         </div>
 
-        <Textarea
+        <SqlEditor
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={setQuery}
           onKeyDown={onKeyDown}
-          spellCheck={false}
-          autoComplete="off"
-          rows={5}
+          suggestions={suggestions}
           placeholder={`SELECT * FROM ${quoteIdent(collection)} LIMIT 20`}
-          className="scrollbar-thin max-h-[18rem] min-h-[7rem] resize-y font-mono text-xs leading-relaxed [field-sizing:fixed]"
         />
         <p className="text-muted-foreground text-xs">
           SELECT with WHERE / IN / LIKE / IS NULL, ORDER BY, LIMIT, GROUP BY, HAVING,
-          DISTINCT and COUNT / SUM / AVG / MIN / MAX. Press Ctrl/⌘ + Enter to run.
+          DISTINCT and COUNT / SUM / AVG / MIN / MAX. Autocomplete covers keywords and
+          collection / field names. Press Ctrl/⌘ + Enter to run.
         </p>
 
         {ran && result ? (

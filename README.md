@@ -43,7 +43,7 @@
 
 ## SQL 查询
 
-集合视图新增 **SQL** 标签页，可以直接用 SQL 查询 MongoDB：查询会被翻译成 find / aggregation 执行，并在界面里展示生成的 MQL（方便学习与调试）。
+集合视图新增 **SQL** 标签页，可以直接用 SQL 查询 MongoDB：编辑器带语法高亮（关键字 / 函数 / 字符串 / 数字 / 注释）与自动补全（关键字 / 函数 / 集合名 / 字段名），查询会被翻译成 find / aggregation 执行，并在界面里展示生成的 MQL（方便学习与调试）。按 Ctrl/⌘ + Enter 运行。
 
 ```sql
 SELECT status, COUNT(*) AS n, SUM(total) AS revenue

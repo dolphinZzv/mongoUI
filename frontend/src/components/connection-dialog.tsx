@@ -14,9 +14,10 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
-import type { Connection } from "@/lib/types"
+import type { Connection, SSHConfig } from "@/lib/types"
 
 const COLORS = [
   "#10b981",
@@ -42,7 +43,53 @@ interface ConnectionDialogProps {
   onSaved: (connection: Connection) => void
 }
 
-const EMPTY = { name: "", uri: "", color: COLORS[0], readOnly: false }
+interface FormState {
+  name: string
+  uri: string
+  color: string
+  readOnly: boolean
+  sshEnabled: boolean
+  sshHost: string
+  sshPort: string
+  sshUser: string
+  sshAuth: "password" | "privateKey"
+  sshPassword: string
+  sshPrivateKey: string
+  sshPassphrase: string
+  sshKnownHosts: string
+}
+
+const EMPTY: FormState = {
+  name: "",
+  uri: "",
+  color: COLORS[0],
+  readOnly: false,
+  sshEnabled: false,
+  sshHost: "",
+  sshPort: "22",
+  sshUser: "",
+  sshAuth: "password",
+  sshPassword: "",
+  sshPrivateKey: "",
+  sshPassphrase: "",
+  sshKnownHosts: "",
+}
+
+function sshFromConnection(connection: Connection | null | undefined): Partial<FormState> {
+  const ssh = connection?.ssh
+  if (!ssh) return {}
+  return {
+    sshEnabled: Boolean(ssh.enabled),
+    sshHost: ssh.host ?? "",
+    sshPort: ssh.port ? String(ssh.port) : "22",
+    sshUser: ssh.user ?? "",
+    sshAuth: ssh.authMethod === "privateKey" ? "privateKey" : "password",
+    sshPassword: ssh.password ?? "",
+    sshPrivateKey: ssh.privateKey ?? "",
+    sshPassphrase: ssh.passphrase ?? "",
+    sshKnownHosts: ssh.knownHosts ?? "",
+  }
+}
 
 export function ConnectionDialog({
   open,
@@ -50,7 +97,7 @@ export function ConnectionDialog({
   connection,
   onSaved,
 }: ConnectionDialogProps) {
-  const [form, setForm] = React.useState(EMPTY)
+  const [form, setForm] = React.useState<FormState>(EMPTY)
   const [saving, setSaving] = React.useState(false)
   const [testing, setTesting] = React.useState(false)
 
@@ -58,35 +105,73 @@ export function ConnectionDialog({
     if (!open) return
     if (connection) {
       setForm({
+        ...EMPTY,
         name: connection.name,
         uri: connection.uri,
         color: connection.color || COLORS[0],
         readOnly: Boolean(connection.readOnly),
+        ...sshFromConnection(connection),
       })
     } else {
       setForm(EMPTY)
     }
   }, [open, connection])
 
-  const update = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
+  const update = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }))
+
+  const buildSSH = (): SSHConfig | undefined => {
+    if (!form.sshEnabled) return undefined
+    const port = Number(form.sshPort)
+    return {
+      enabled: true,
+      host: form.sshHost.trim(),
+      port: Number.isFinite(port) && port > 0 ? port : 22,
+      user: form.sshUser.trim(),
+      authMethod: form.sshAuth,
+      password: form.sshAuth === "password" ? form.sshPassword : undefined,
+      privateKey: form.sshAuth === "privateKey" ? form.sshPrivateKey : undefined,
+      passphrase:
+        form.sshAuth === "privateKey" && form.sshPassphrase ? form.sshPassphrase : undefined,
+      knownHosts: form.sshKnownHosts.trim() || undefined,
+    }
+  }
+
+  /** Returns an error message when the SSH section is incomplete. */
+  const sshError = (): string | null => {
+    if (!form.sshEnabled) return null
+    if (!form.sshHost.trim()) return "SSH host is required"
+    if (!form.sshUser.trim()) return "SSH user is required"
+    if (form.sshAuth === "password" && !form.sshPassword) return "SSH password is required"
+    if (form.sshAuth === "privateKey" && !form.sshPrivateKey.trim())
+      return "SSH private key is required"
+    return null
+  }
+
+  const buildPayload = (name: string) => ({
+    name,
+    uri: form.uri.trim(),
+    color: form.color,
+    readOnly: form.readOnly,
+    ssh: buildSSH(),
+  })
 
   const handleTest = async () => {
     if (!form.uri.trim()) {
       toast.error("Please enter a connection string first")
       return
     }
+    const err = sshError()
+    if (err) {
+      toast.error(err)
+      return
+    }
     setTesting(true)
     try {
-      const res = await api.testConnection({
-        name: form.name || "test",
-        uri: form.uri,
-        color: form.color,
-        readOnly: form.readOnly,
-      })
+      const res = await api.testConnection(buildPayload(form.name || "test"))
       toast.success(res.message || "Connection successful")
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Connection failed")
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Connection failed")
     } finally {
       setTesting(false)
     }
@@ -98,22 +183,22 @@ export function ConnectionDialog({
       toast.error("Name and connection string are required")
       return
     }
+    const err = sshError()
+    if (err) {
+      toast.error(err)
+      return
+    }
     setSaving(true)
     try {
-      const payload = {
-        name: form.name.trim(),
-        uri: form.uri.trim(),
-        color: form.color,
-        readOnly: form.readOnly,
-      }
+      const payload = buildPayload(form.name.trim())
       const saved = connection
         ? await api.updateConnection(connection.id, payload)
         : await api.createConnection(payload)
       toast.success(connection ? "Connection updated" : "Connection created")
       onSaved(saved)
       onOpenChange(false)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save connection")
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save connection")
     } finally {
       setSaving(false)
     }
@@ -198,6 +283,135 @@ export function ConnectionDialog({
                 checked={form.readOnly}
                 onCheckedChange={(checked) => update("readOnly", checked)}
               />
+            </div>
+
+            <div className="rounded-lg border">
+              <div className="flex items-center justify-between p-3">
+                <div className="space-y-0.5">
+                  <Label htmlFor="conn-ssh">SSH tunnel</Label>
+                  <p className="text-muted-foreground text-xs">
+                    Reach MongoDB through a bastion / jump host.
+                  </p>
+                </div>
+                <Switch
+                  id="conn-ssh"
+                  checked={form.sshEnabled}
+                  onCheckedChange={(checked) => update("sshEnabled", checked)}
+                />
+              </div>
+
+              {form.sshEnabled ? (
+                <div className="grid gap-3 border-t p-3">
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-2 grid gap-2">
+                      <Label htmlFor="ssh-host">SSH host</Label>
+                      <Input
+                        id="ssh-host"
+                        value={form.sshHost}
+                        onChange={(e) => update("sshHost", e.target.value)}
+                        placeholder="bastion.example.com"
+                        className="font-mono text-xs"
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="ssh-port">Port</Label>
+                      <Input
+                        id="ssh-port"
+                        type="number"
+                        inputMode="numeric"
+                        value={form.sshPort}
+                        onChange={(e) => update("sshPort", e.target.value)}
+                        placeholder="22"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="ssh-user">SSH user</Label>
+                    <Input
+                      id="ssh-user"
+                      value={form.sshUser}
+                      onChange={(e) => update("sshUser", e.target.value)}
+                      placeholder="ubuntu"
+                      className="font-mono text-xs"
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>Authentication</Label>
+                    <div className="inline-flex w-fit rounded-md border p-0.5">
+                      {(["password", "privateKey"] as const).map((method) => (
+                        <button
+                          key={method}
+                          type="button"
+                          onClick={() => update("sshAuth", method)}
+                          className={cn(
+                            "rounded px-3 py-1 text-xs transition-colors",
+                            form.sshAuth === method
+                              ? "bg-primary text-primary-foreground"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          {method === "password" ? "Password" : "Private key"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {form.sshAuth === "password" ? (
+                    <div className="grid gap-2">
+                      <Label htmlFor="ssh-password">SSH password</Label>
+                      <Input
+                        id="ssh-password"
+                        type="password"
+                        value={form.sshPassword}
+                        onChange={(e) => update("sshPassword", e.target.value)}
+                        autoComplete="off"
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="grid gap-2">
+                        <Label htmlFor="ssh-key">Private key (PEM / OpenSSH)</Label>
+                        <Textarea
+                          id="ssh-key"
+                          value={form.sshPrivateKey}
+                          onChange={(e) => update("sshPrivateKey", e.target.value)}
+                          placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                          spellCheck={false}
+                          rows={5}
+                          className="scrollbar-thin min-h-[6rem] font-mono text-xs"
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="ssh-passphrase">Key passphrase (optional)</Label>
+                        <Input
+                          id="ssh-passphrase"
+                          type="password"
+                          value={form.sshPassphrase}
+                          onChange={(e) => update("sshPassphrase", e.target.value)}
+                          autoComplete="off"
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="ssh-known-hosts">known_hosts file (optional)</Label>
+                    <Input
+                      id="ssh-known-hosts"
+                      value={form.sshKnownHosts}
+                      onChange={(e) => update("sshKnownHosts", e.target.value)}
+                      placeholder="/home/user/.ssh/known_hosts"
+                      className="font-mono text-xs"
+                    />
+                    <p className="text-muted-foreground text-xs">
+                      When empty the host key is not verified (traffic is still encrypted). Set a
+                      known_hosts path on the server to enable strict checking.
+                    </p>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
 

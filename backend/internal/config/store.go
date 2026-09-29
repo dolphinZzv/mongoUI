@@ -12,15 +12,34 @@ import (
 	"github.com/google/uuid"
 )
 
+// SSHConfig describes an optional SSH jump host (bastion) used to reach the
+// MongoDB deployment.
+type SSHConfig struct {
+	Enabled bool   `json:"enabled"`
+	Host    string `json:"host,omitempty"`
+	Port    int    `json:"port,omitempty"`
+	User    string `json:"user,omitempty"`
+	// AuthMethod is "password" or "privateKey"; empty means it is inferred from
+	// which credential is present.
+	AuthMethod string `json:"authMethod,omitempty"`
+	Password   string `json:"password,omitempty"`
+	PrivateKey string `json:"privateKey,omitempty"`
+	Passphrase string `json:"passphrase,omitempty"`
+	// KnownHosts is an optional path to an OpenSSH known_hosts file. When empty
+	// the host key is not verified (documented in the UI).
+	KnownHosts string `json:"knownHosts,omitempty"`
+}
+
 // Connection is a saved MongoDB connection profile.
 type Connection struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	URI       string    `json:"uri"`
-	Color     string    `json:"color,omitempty"`
-	ReadOnly  bool      `json:"readOnly,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID        string     `json:"id"`
+	Name      string     `json:"name"`
+	URI       string     `json:"uri"`
+	Color     string     `json:"color,omitempty"`
+	ReadOnly  bool       `json:"readOnly,omitempty"`
+	SSH       *SSHConfig `json:"ssh,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
+	UpdatedAt time.Time  `json:"updatedAt"`
 }
 
 // ErrNotFound is returned when a connection does not exist.

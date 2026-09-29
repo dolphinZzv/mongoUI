@@ -14,10 +14,11 @@ import (
 )
 
 type connectionInput struct {
-	Name     string `json:"name"`
-	URI      string `json:"uri"`
-	Color    string `json:"color"`
-	ReadOnly bool   `json:"readOnly"`
+	Name     string            `json:"name"`
+	URI      string            `json:"uri"`
+	Color    string            `json:"color"`
+	ReadOnly bool              `json:"readOnly"`
+	SSH      *config.SSHConfig `json:"ssh,omitempty"`
 }
 
 func (in *connectionInput) validate() error {
@@ -31,6 +32,29 @@ func (in *connectionInput) validate() error {
 	}
 	if !strings.HasPrefix(in.URI, "mongodb://") && !strings.HasPrefix(in.URI, "mongodb+srv://") {
 		return errors.New("uri must start with mongodb:// or mongodb+srv://")
+	}
+	if in.SSH != nil && in.SSH.Enabled {
+		in.SSH.Host = strings.TrimSpace(in.SSH.Host)
+		in.SSH.User = strings.TrimSpace(in.SSH.User)
+		if in.SSH.Host == "" {
+			return errors.New("ssh host is required")
+		}
+		if in.SSH.User == "" {
+			return errors.New("ssh user is required")
+		}
+		if in.SSH.Port <= 0 {
+			in.SSH.Port = 22
+		}
+		if in.SSH.Port > 65535 {
+			return errors.New("ssh port must be between 1 and 65535")
+		}
+		switch in.SSH.AuthMethod {
+		case "", "password", "privateKey":
+		default:
+			return errors.New("ssh authMethod must be password or privateKey")
+		}
+	} else {
+		in.SSH = nil
 	}
 	return nil
 }
@@ -73,6 +97,7 @@ func (a *API) createConnection(w http.ResponseWriter, r *http.Request) {
 		URI:      in.URI,
 		Color:    in.Color,
 		ReadOnly: in.ReadOnly,
+		SSH:      in.SSH,
 	})
 	if err != nil {
 		serverError(w, err)
@@ -97,6 +122,7 @@ func (a *API) updateConnection(w http.ResponseWriter, r *http.Request) {
 		URI:      in.URI,
 		Color:    in.Color,
 		ReadOnly: in.ReadOnly,
+		SSH:      in.SSH,
 	})
 	if err != nil {
 		if errors.Is(err, config.ErrNotFound) {
@@ -111,7 +137,7 @@ func (a *API) updateConnection(w http.ResponseWriter, r *http.Request) {
 		a.mgr.Disconnect(id)
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer cancel()
-		if err := a.mgr.Connect(ctx, id, c.URI); err != nil {
+		if err := a.mgr.Connect(ctx, id, c.URI, c.SSH); err != nil {
 			fail(w, http.StatusBadGateway, err)
 			return
 		}
@@ -142,7 +168,7 @@ func (a *API) connect(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	if err := a.mgr.Connect(ctx, id, c.URI); err != nil {
+	if err := a.mgr.Connect(ctx, id, c.URI, c.SSH); err != nil {
 		fail(w, http.StatusBadGateway, err)
 		return
 	}
@@ -167,7 +193,7 @@ func (a *API) testConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	if err := mongoclient.Test(ctx, in.URI); err != nil {
+	if err := mongoclient.Test(ctx, in.URI, in.SSH); err != nil {
 		fail(w, http.StatusBadGateway, err)
 		return
 	}

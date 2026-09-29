@@ -1,9 +1,22 @@
+export interface SSHConfig {
+  enabled: boolean
+  host?: string
+  port?: number
+  user?: string
+  authMethod?: "password" | "privateKey"
+  password?: string
+  privateKey?: string
+  passphrase?: string
+  knownHosts?: string
+}
+
 export interface Connection {
   id: string
   name: string
   uri: string
   color?: string
   readOnly?: boolean
+  ssh?: SSHConfig
   createdAt: string
   updatedAt: string
   connected: boolean
@@ -14,6 +27,7 @@ export interface ConnectionInput {
   uri: string
   color?: string
   readOnly?: boolean
+  ssh?: SSHConfig
 }
 
 export interface DatabaseInfo {

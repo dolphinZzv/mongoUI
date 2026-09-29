@@ -21,6 +21,7 @@
 | 模块 | 能力 |
 | --- | --- |
 | 连接管理 | 新增 / 编辑 / 删除连接、连通性测试、连接 / 断开、只读模式、颜色标记，连接配置持久化到本地 JSON |
+| SSH 隧道 | 通过跳板机 / 堡垒机连接内网 MongoDB（密码或私钥认证，可选 known_hosts 严格校验） |
 | 数据浏览 | 数据库 / 集合树形导航，数据库大小、集合列表 |
 | 文档操作 | 过滤、排序、投影、分页；插入（支持批量数组）、整文档编辑替换、单条 / 批量 / 按条件删除；行选择批量删除、复制 JSON |
 | 聚合管道 | 多行 JSON 编辑器 + 常用模板，表格 / JSON 两种结果视图 |
@@ -161,9 +162,24 @@ await window.mongouiAgent.call("mongoui_find", {
 ./bin/mongoui -addr :9000 -data /var/lib/mongoui
 ```
 
+### SSH 隧道（跳板机）
+
+在连接编辑弹窗里打开 **SSH tunnel**，即可通过跳板机访问内网 MongoDB。MongoDB 自身无需对运行 mongoui 的机器开放：驱动会把每个到 MongoDB 的 TCP 连接交给 SSH 服务器转发。
+
+| 字段 | 说明 |
+| --- | --- |
+| SSH host / port | 跳板机地址，默认端口 `22` |
+| SSH user | 登录用户名 |
+| Authentication | `Password` 或 `Private key`（PEM / OpenSSH，可带 passphrase） |
+| known_hosts file | 可选，服务器上的 OpenSSH known_hosts 路径；填写后严格校验主机密钥 |
+
+> 未填写 `known_hosts` 时不校验主机密钥（流量仍然加密）。生产环境建议在服务器上配置 `known_hosts` 以启用严格校验。
+
+`mongodb+srv://` 同样可用：SRV 解析在本机完成，随后由 SSH 服务器去连接解析出的节点。
+
 ## 安全说明
 
-- 连接串（含账号密码）以**明文**保存在 `-data` 指定的 `connections.json` 中，文件权限为 `0600`。请仅在可信环境使用，不要将 `data/` 提交到版本库（已在 `.gitignore` 中忽略）。
+- 连接串（含账号密码）以**明文**保存在 `-data` 指定的 `connections.json` 中，文件权限为 `0600`。SSH 密码 / 私钥同样如此。请仅在可信环境使用，不要将 `data/` 提交到版本库（已在 `.gitignore` 中忽略）。
 - 只读模式会在前端禁用所有写操作，但后端未强制拦截；如需强约束请使用只读数据库账号。
 - 服务默认无鉴权，请勿直接暴露到公网；建议通过 SSH 隧道或反向代理 + 认证访问。
 

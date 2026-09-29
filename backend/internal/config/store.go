@@ -47,7 +47,8 @@ var ErrNotFound = errors.New("connection not found")
 
 // Store persists connections to a JSON file.
 type Store struct {
-	path string
+	path   string
+	cipher *Cipher
 
 	mu    sync.RWMutex
 	conns []Connection
@@ -57,9 +58,16 @@ type storeFile struct {
 	Connections []Connection `json:"connections"`
 }
 
-// NewStore loads (or creates) the store backed by path.
+// NewStore loads (or creates) the store backed by path, without encryption.
 func NewStore(path string) (*Store, error) {
-	s := &Store{path: path}
+	return NewStoreWithSecret(path, nil)
+}
+
+// NewStoreWithSecret loads the store, transparently decrypting sensitive fields
+// with cipher (nil disables encryption). Plaintext stores are re-written
+// encrypted on first load.
+func NewStoreWithSecret(path string, cipher *Cipher) (*Store, error) {
+	s := &Store{path: path, cipher: cipher}
 	if err := s.load(); err != nil {
 		return nil, err
 	}
@@ -87,7 +95,24 @@ func (s *Store) load() error {
 	if f.Connections == nil {
 		f.Connections = []Connection{}
 	}
+
+	migrate := false
+	if s.cipher != nil {
+		for i := range f.Connections {
+			if needsEncryption(f.Connections[i]) {
+				migrate = true
+			}
+			dec, err := s.cipher.decryptConnection(f.Connections[i])
+			if err != nil {
+				return err
+			}
+			f.Connections[i] = dec
+		}
+	}
 	s.conns = f.Connections
+	if migrate {
+		return s.persistLocked()
+	}
 	return nil
 }
 
@@ -95,7 +120,18 @@ func (s *Store) persistLocked() error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(storeFile{Connections: s.conns}, "", "  ")
+	conns := s.conns
+	if s.cipher != nil {
+		conns = make([]Connection, len(s.conns))
+		for i, c := range s.conns {
+			enc, err := s.cipher.encryptConnection(c)
+			if err != nil {
+				return err
+			}
+			conns[i] = enc
+		}
+	}
+	data, err := json.MarshalIndent(storeFile{Connections: conns}, "", "  ")
 	if err != nil {
 		return err
 	}

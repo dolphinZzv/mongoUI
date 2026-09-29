@@ -104,7 +104,15 @@ func main() {
 	}
 
 	storePath := filepath.Join(*dataDir, "connections.json")
-	store, err := config.NewStore(storePath)
+	key, err := config.LoadKey(*dataDir)
+	if err != nil {
+		log.Fatalf("cannot load secret key: %v", err)
+	}
+	cipher, err := config.NewCipher(key)
+	if err != nil {
+		log.Fatalf("cannot initialise cipher: %v", err)
+	}
+	store, err := config.NewStoreWithSecret(storePath, cipher)
 	if err != nil {
 		log.Fatalf("failed to load connection store: %v", err)
 	}
@@ -162,7 +170,17 @@ func runMCP(args []string) int {
 		fmt.Fprintf(os.Stderr, "cannot create data directory: %v\n", err)
 		return 1
 	}
-	store, err := config.NewStore(filepath.Join(*dataDir, "connections.json"))
+	key, err := config.LoadKey(*dataDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cannot load secret key: %v\n", err)
+		return 1
+	}
+	cipher, err := config.NewCipher(key)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cannot initialise cipher: %v\n", err)
+		return 1
+	}
+	store, err := config.NewStoreWithSecret(filepath.Join(*dataDir, "connections.json"), cipher)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load connection store: %v\n", err)
 		return 1

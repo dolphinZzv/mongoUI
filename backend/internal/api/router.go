@@ -73,6 +73,7 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 				r.Route("/databases/{db}", func(r chi.Router) {
 					r.Delete("/", a.dropDatabase)
 					r.Get("/stats", a.databaseStats)
+					r.Post("/sql", a.runSQL)
 
 					r.Get("/collections", a.listCollections)
 					r.Post("/collections", a.createCollection)

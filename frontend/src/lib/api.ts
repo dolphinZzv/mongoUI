@@ -9,6 +9,7 @@ import type {
   FindResult,
   MongoDocument,
   SchemaResult,
+  SQLResult,
   UpdateRequest,
 } from "@/lib/types"
 
@@ -139,6 +140,13 @@ export const api = {
       `/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/aggregate`,
       { method: "POST", body: JSON.stringify({ pipeline, limit }) },
     ),
+
+  // SQL -------------------------------------------------------------------------
+  runSQL: (id: string, db: string, query: string, limit?: number) =>
+    request<SQLResult>(`/connections/${id}/databases/${enc(db)}/sql`, {
+      method: "POST",
+      body: JSON.stringify({ query, limit }),
+    }),
 
   // indexes ---------------------------------------------------------------------
   listIndexes: (id: string, db: string, col: string) =>

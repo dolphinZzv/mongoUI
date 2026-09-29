@@ -94,6 +94,16 @@ export interface SchemaResult {
   fields: FieldStat[]
 }
 
+export interface SQLResult {
+  documents: MongoDocument[]
+  count: number
+  total: number
+  skip: number
+  limit: number
+  columns: string[] | null
+  mql: Record<string, unknown>
+}
+
 export type Selection =
   | { kind: "welcome" }
   | { kind: "connection"; connectionId: string }

@@ -9,6 +9,7 @@ import { AggregationTab } from "@/components/aggregation-tab"
 import { DocumentsTab } from "@/components/documents-tab"
 import { IndexesTab } from "@/components/indexes-tab"
 import { SchemaTab } from "@/components/schema-tab"
+import { SqlTab } from "@/components/sql-tab"
 import { StatsTab } from "@/components/stats-tab"
 
 interface CollectionViewProps {
@@ -52,6 +53,7 @@ export function CollectionView({
           </Button>
           <TabsList className="ml-auto">
             <TabsTrigger value="documents">Documents</TabsTrigger>
+            <TabsTrigger value="sql">SQL</TabsTrigger>
             <TabsTrigger value="aggregation">Aggregation</TabsTrigger>
             <TabsTrigger value="indexes">Indexes</TabsTrigger>
             <TabsTrigger value="schema">Schema</TabsTrigger>
@@ -66,6 +68,9 @@ export function CollectionView({
             collection={collection}
             readOnly={readOnly}
           />
+        </TabsContent>
+        <TabsContent value="sql" className="min-h-0 flex-1">
+          <SqlTab connectionId={connectionId} database={database} collection={collection} />
         </TabsContent>
         <TabsContent value="aggregation" className="min-h-0 flex-1">
           <AggregationTab

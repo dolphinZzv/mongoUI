@@ -25,6 +25,7 @@
 | 数据浏览 | 数据库 / 集合树形导航，数据库大小、集合列表 |
 | 文档操作 | 过滤、排序、投影、分页；插入（支持批量数组）、整文档编辑替换、单条 / 批量 / 按条件删除；行选择批量删除、复制 JSON |
 | 聚合管道 | 多行 JSON 编辑器 + 常用模板，表格 / JSON 两种结果视图 |
+| SQL 查询 | 用 SQL 查询 MongoDB，自动翻译为 find / aggregation，支持 WHERE / IN / LIKE / GROUP BY / HAVING / DISTINCT / 聚合函数，并展示生成的 MQL |
 | 索引 | 查看索引（键、唯一、稀疏、TTL、部分索引等）、创建、删除 |
 | Schema 分析 | 抽样文档统计字段覆盖率与类型分布 |
 | 统计信息 | `collStats` / `dbStats` 关键指标卡片 + 原始 JSON |
@@ -39,6 +40,30 @@
 ```json
 { "_id": { "$oid": "507f1f77bcf86cd799439011" }, "createdAt": { "$date": "2024-01-01T00:00:00Z" } }
 ```
+
+## SQL 查询
+
+集合视图新增 **SQL** 标签页，可以直接用 SQL 查询 MongoDB：查询会被翻译成 find / aggregation 执行，并在界面里展示生成的 MQL（方便学习与调试）。
+
+```sql
+SELECT status, COUNT(*) AS n, SUM(total) AS revenue
+FROM orders
+WHERE total > 0
+GROUP BY status
+HAVING n > 1
+ORDER BY revenue DESC
+LIMIT 20
+```
+
+支持的范围：
+
+- `SELECT` / `SELECT DISTINCT`，字段别名 `AS`
+- `WHERE`：`= != <> > >= < <=`、`IN` / `NOT IN`、`LIKE` / `NOT LIKE`、`IS [NOT] NULL`、`AND` / `OR` / `NOT`、括号
+- `ORDER BY ... [ASC|DESC]`、`LIMIT n [OFFSET m]`（也支持 MySQL 的 `LIMIT m, n`）
+- `GROUP BY` / `HAVING`，聚合函数 `COUNT / SUM / AVG / MIN / MAX`
+- 点号字段路径（如 `address.city`）
+
+执行接口为 `POST /api/connections/{id}/databases/{db}/sql`（body `{ query, limit? }`），响应包含 `documents`、`columns` 以及翻译后的 `mql`。
 
 ## 快速开始
 

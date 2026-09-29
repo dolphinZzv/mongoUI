@@ -180,6 +180,28 @@ export const agentTools: AgentTool[] = [
     },
   },
   {
+    name: "mongoui_sql",
+    description:
+      "Run a SQL SELECT against a database. FROM names the collection. Supports WHERE (= != <> > >= < <=, IN, NOT IN, LIKE, IS [NOT] NULL, AND/OR/NOT), ORDER BY, LIMIT/OFFSET, GROUP BY, HAVING, DISTINCT and COUNT/SUM/AVG/MIN/MAX. Returns rows plus the generated MongoDB query.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connectionId: connectionId.connectionId,
+        database: { type: "string" },
+        query: { type: "string", description: "A SQL SELECT statement" },
+        limit: { type: "number", description: "Optional result cap override" },
+      },
+      required: ["connectionId", "database", "query"],
+    },
+    execute: (args) =>
+      api.runSQL(
+        requiredStr(args, "connectionId"),
+        requiredStr(args, "database"),
+        requiredStr(args, "query"),
+        num(args, "limit"),
+      ),
+  },
+  {
     name: "mongoui_list_indexes",
     description: "List the indexes defined on a collection.",
     inputSchema: { type: "object", properties: collectionTarget, required: ["connectionId", "database", "collection"] },

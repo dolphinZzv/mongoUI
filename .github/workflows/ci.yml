@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: ["main", "master"]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -57,6 +58,19 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags are needed to check the package version
+
+      - name: Verify version matches the release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg=$(node -p "require('./package.json').version")
+          echo "tag=$tag package=$pkg"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::frontend/package.json ($pkg) is out of sync with tag $GITHUB_REF_NAME. Run ./scripts/sync-version.sh."
+            exit 1
+          fi
 
       - uses: actions/setup-node@v4
         with:
@@ -125,6 +139,13 @@ jobs:
           # The embedded build must be the freshly built one: this bootstrap
           # script only exists in the current front-end build.
           curl -fsS http://127.0.0.1:18099/ | grep -q 'mongoui-theme'
+          # The embedded front-end must carry the same version as the binary, so
+          # a stale dist can never be shipped silently.
+          version=$(./bin/mongoui -version | awk '{print $2}')
+          version=${version#v}
+          asset=$(grep -oE '/assets/index-[^"]+\.js' backend/web/dist/index.html | head -n1)
+          grep -q "$version" "backend/web/dist${asset}"
+          echo "embedded UI version: $version"
           # Every asset referenced by the shell must resolve.
           for asset in $(curl -fsS http://127.0.0.1:18099/ | grep -oE '/assets/[^"]+'); do
             curl -fsS -o /dev/null "http://127.0.0.1:18099${asset}"

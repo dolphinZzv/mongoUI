@@ -1,5 +1,8 @@
 import * as React from "react"
 import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -157,6 +160,33 @@ export function DocumentsTab({
 
   const documents = result?.documents ?? []
   const columns = React.useMemo(() => collectColumns(documents), [documents])
+
+  // Reflect the sort JSON in the table headers so columns can be toggled by
+  // clicking. Only a single-key sort is represented in the header UI.
+  const sortSpec = React.useMemo(() => {
+    try {
+      const parsed = sort.trim() ? JSON.parse(sort) : null
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const keys = Object.keys(parsed)
+        if (keys.length === 1 && (parsed[keys[0]] === 1 || parsed[keys[0]] === -1)) {
+          return { column: keys[0], direction: parsed[keys[0]] as 1 | -1 }
+        }
+      }
+    } catch {
+      /* ignore invalid JSON while the user is typing */
+    }
+    return null
+  }, [sort])
+
+  const toggleSort = (column: string) => {
+    let direction: 1 | -1 | null = 1
+    if (sortSpec?.column === column) {
+      direction = sortSpec.direction === 1 ? -1 : null
+    }
+    const nextSort = direction ? JSON.stringify({ [column]: direction }) : ""
+    setSort(nextSort)
+    void load({ skip: 0, sort: nextSort })
+  }
   const total = result?.total ?? 0
   const page = Math.floor(skip / limit) + 1
   const pages = Math.max(1, Math.ceil(total / limit))
@@ -331,11 +361,32 @@ export function DocumentsTab({
                   aria-label="Select all"
                 />
               </TableHead>
-              {columns.map((column) => (
-                <TableHead key={column} className="font-mono text-xs">
-                  {column}
-                </TableHead>
-              ))}
+              {columns.map((column) => {
+                const direction = sortSpec?.column === column ? sortSpec.direction : undefined
+                return (
+                  <TableHead key={column} className="group font-mono text-xs">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(column)}
+                      title={
+                        direction
+                          ? `Sorted ${direction === 1 ? "ascending" : "descending"} — click to change`
+                          : `Sort by ${column}`
+                      }
+                      className="hover:text-foreground -mx-1 flex items-center gap-1 rounded px-1"
+                    >
+                      <span className="truncate">{column}</span>
+                      {direction === 1 ? (
+                        <ArrowUp className="size-3 shrink-0" />
+                      ) : direction === -1 ? (
+                        <ArrowDown className="size-3 shrink-0" />
+                      ) : (
+                        <ArrowUpDown className="size-3 shrink-0 opacity-0 group-hover:opacity-60" />
+                      )}
+                    </button>
+                  </TableHead>
+                )
+              })}
               <TableHead className="w-12" />
             </TableRow>
           </TableHeader>

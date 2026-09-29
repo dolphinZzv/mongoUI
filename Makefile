@@ -4,8 +4,9 @@ BIN     ?= bin/mongoui
 ADDR    ?= :8080
 DATA    ?= data
 MONGO   ?= mongodb://127.0.0.1:27017
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: help install build frontend backend gen run dev dev-backend dev-frontend test fmt vet tidy clean docker-mongo
+.PHONY: help install build frontend backend gen run dev dev-backend dev-frontend test fmt vet tidy clean docker-mongo sync-version
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -15,13 +16,16 @@ install: ## Install front-end dependencies
 	cd frontend && npm install
 
 frontend: ## Build the front-end and stage it for embedding
-	cd frontend && npm run build
+	cd frontend && VITE_APP_VERSION=$(VERSION) npm run build
 	find backend/web/dist -mindepth 1 ! -name .gitkeep -delete
 	cp -r frontend/dist/. backend/web/dist/
 
-backend: ## Compile the Go server (embeds frontend/dist if present)
+backend: frontend ## Compile the Go server (always embeds a fresh front-end)
 	@mkdir -p bin
-	cd backend && go build -o ../$(BIN) .
+	cd backend && go build -ldflags "-X main.version=$(VERSION)" -o ../$(BIN) .
+
+sync-version: ## Sync frontend/package.json version to the current git tag
+	./scripts/sync-version.sh
 
 build: ## Build everything into a single self-contained binary (scripts/build.sh)
 	./scripts/build.sh

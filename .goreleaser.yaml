@@ -12,9 +12,14 @@ project_name: mongoui
 
 before:
   hooks:
+    # Keep the front-end package version in lockstep with the release tag so no
+    # tooling can ever stamp/serve a stale 0.1.0-era build again.
+    - sh -c "./scripts/sync-version.sh {{ .Version }}"
     - sh -c "cd frontend && npm ci"
-    - sh -c "cd frontend && npm run build"
+    - sh -c "cd frontend && VITE_APP_VERSION={{ .Version }} npm run build"
     - sh -c "find backend/web/dist -mindepth 1 ! -name .gitkeep -delete && cp -r frontend/dist/. backend/web/dist/"
+    # Fail the release if the freshly staged front-end is not the real one.
+    - sh -c "grep -q 'mongoui-theme' backend/web/dist/index.html"
 
 builds:
   - id: mongoui

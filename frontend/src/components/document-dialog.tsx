@@ -59,23 +59,23 @@ export function DocumentDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
-        <form onSubmit={handleSubmit}>
+      <DialogContent className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden sm:max-w-2xl">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
             {description ? <DialogDescription>{description}</DialogDescription> : null}
           </DialogHeader>
-          <div className="py-4">
+          <div className="min-h-0 flex-1 overflow-y-auto py-4 pr-1">
             <JsonEditor
               value={value}
               onChange={setValue}
               allowEmpty={false}
               rows={14}
-              className="min-h-[18rem]"
+              className="min-h-[18rem] max-h-[55vh]"
               placeholder='{ "name": "Alice" }'
             />
           </div>
-          <DialogFooter className="sm:justify-between">
+          <DialogFooter className="shrink-0 sm:justify-between">
             <Button
               type="button"
               variant="outline"

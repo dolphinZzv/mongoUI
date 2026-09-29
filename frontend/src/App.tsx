@@ -2,6 +2,7 @@ import * as React from "react"
 import { Database, Leaf, Menu, Plus, Server, Table2, X } from "lucide-react"
 import { toast } from "sonner"
 
+import { AgentToggle } from "@/components/agent-toggle"
 import { AppSidebar } from "@/components/app-sidebar"
 import { CollectionView } from "@/components/collection-view"
 import { ConnectionDialog } from "@/components/connection-dialog"
@@ -10,6 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { useAgentTools } from "@/hooks/useAgentTools"
 import { api } from "@/lib/api"
 import { ThemeProvider } from "@/lib/theme"
 import { cn } from "@/lib/utils"
@@ -22,6 +24,9 @@ export default function App() {
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editingConnection, setEditingConnection] = React.useState<Connection | null>(null)
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
+
+  // Expose the agent tools to WebMCP / window.mongouiAgent when the user opts in.
+  useAgentTools()
 
   const refreshConnections = React.useCallback(async () => {
     try {
@@ -132,6 +137,10 @@ export default function App() {
               </div>
             </div>
           )}
+
+          <p className="text-muted-foreground mt-10 text-xs">
+            MongoUI v{__APP_VERSION__}
+          </p>
         </div>
       </div>
     )
@@ -188,6 +197,7 @@ export default function App() {
               )}
             </div>
             <div className="ml-auto flex items-center gap-2">
+              <AgentToggle />
               <ThemeToggle />
             </div>
           </header>

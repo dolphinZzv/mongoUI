@@ -8,14 +8,17 @@ import {
   Plug,
   Plus,
   RefreshCw,
+  Search,
   Table2,
   Trash2,
   Unplug,
+  X,
 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import { Input } from "@/components/ui/input"
 import {
   CreateCollectionDialog,
   CreateDatabaseDialog,
@@ -67,6 +70,7 @@ export function AppSidebar({
   const [collections, setCollections] = React.useState<Record<string, CollectionInfo[]>>({})
   const [loadingCols, setLoadingCols] = React.useState<Record<string, boolean>>({})
   const [busyConn, setBusyConn] = React.useState<Record<string, boolean>>({})
+  const [filter, setFilter] = React.useState("")
 
   const [dbDialogFor, setDbDialogFor] = React.useState<string | null>(null)
   const [colDialogFor, setColDialogFor] = React.useState<{ connectionId: string; database: string } | null>(null)
@@ -96,6 +100,35 @@ export function AppSidebar({
       setLoadingCols((prev) => ({ ...prev, [key]: false }))
     }
   }, [])
+
+  const query = filter.trim().toLowerCase()
+  const filtering = query.length > 0
+  const matches = (value: string) => value.toLowerCase().includes(query)
+
+  // While filtering, make sure nested databases/collections are loaded so the
+  // search covers the whole tree rather than only expanded branches.
+  React.useEffect(() => {
+    if (!filtering) return
+    for (const connection of connections) {
+      if (connection.connected && !databases[connection.id] && !loadingDbs[connection.id]) {
+        void loadDatabases(connection.id)
+      }
+    }
+  }, [filtering, connections, databases, loadingDbs, loadDatabases])
+
+  React.useEffect(() => {
+    if (!filtering) return
+    for (const connection of connections) {
+      const dbs = databases[connection.id]
+      if (!dbs) continue
+      for (const database of dbs) {
+        const key = dbKey(connection.id, database.name)
+        if (!collections[key] && !loadingCols[key]) {
+          void loadCollections(connection.id, database.name)
+        }
+      }
+    }
+  }, [filtering, connections, databases, collections, loadingCols, loadCollections])
 
   // Load databases for expanded, connected connections.
   React.useEffect(() => {
@@ -243,6 +276,18 @@ export function AppSidebar({
     }
   }, [confirm])
 
+  const noMatches =
+    filtering &&
+    connections.every((connection) => {
+      if (matches(connection.name)) return false
+      const dbs = databases[connection.id] ?? []
+      return !dbs.some((database) => {
+        if (matches(database.name)) return true
+        const key = dbKey(connection.id, database.name)
+        return (collections[key] ?? []).some((collection) => matches(collection.name))
+      })
+    })
+
   return (
     <div className="bg-sidebar text-sidebar-foreground flex h-full min-h-0 flex-col border-r" data-testid="sidebar">
       <div className="flex h-14 shrink-0 items-center gap-2 border-b px-3">
@@ -259,6 +304,31 @@ export function AppSidebar({
             </TooltipTrigger>
             <TooltipContent>New connection</TooltipContent>
           </Tooltip>
+        </div>
+      </div>
+
+      <div className="shrink-0 border-b px-2 py-2">
+        <div className="relative">
+          <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
+          <Input
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            placeholder="Filter connections, databases, collections…"
+            aria-label="Filter connections, databases and collections"
+            spellCheck={false}
+            autoComplete="off"
+            className="h-8 pr-7 pl-8 text-xs"
+          />
+          {filter ? (
+            <button
+              type="button"
+              onClick={() => setFilter("")}
+              aria-label="Clear filter"
+              className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 rounded-sm p-0.5"
+            >
+              <X className="size-3.5" />
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -283,11 +353,26 @@ export function AppSidebar({
             </div>
           ) : null}
 
+          {noMatches ? (
+            <div className="text-muted-foreground px-3 py-8 text-center text-xs">
+              Nothing matches “{filter.trim()}”.
+            </div>
+          ) : null}
+
           {connections.map((connection) => {
-            const isExpanded = Boolean(expandedConns[connection.id])
+            const connectionMatches = matches(connection.name)
+            const isExpanded = filtering || Boolean(expandedConns[connection.id])
             const isSelected =
               selection.kind === "connection" && selection.connectionId === connection.id
             const dbs = databases[connection.id] ?? []
+            const visibleDbs = filtering
+              ? dbs.filter((database) => {
+                  if (connectionMatches || matches(database.name)) return true
+                  const key = dbKey(connection.id, database.name)
+                  return (collections[key] ?? []).some((collection) => matches(collection.name))
+                })
+              : dbs
+            if (filtering && !connectionMatches && visibleDbs.length === 0) return null
             return (
               <div key={connection.id}>
                 <div
@@ -370,18 +455,23 @@ export function AppSidebar({
 
                 {isExpanded ? (
                   <div className="mt-0.5 ml-4 space-y-0.5 border-l pl-2">
-                    {loadingDbs[connection.id] && dbs.length === 0 ? (
+                    {loadingDbs[connection.id] && visibleDbs.length === 0 ? (
                       <div className="text-muted-foreground flex items-center gap-2 px-2 py-1 text-xs">
                         <Loader2 className="size-3 animate-spin" /> Loading databases…
                       </div>
                     ) : null}
-                    {dbs.length === 0 && !loadingDbs[connection.id] ? (
+                    {visibleDbs.length === 0 && !loadingDbs[connection.id] ? (
                       <div className="text-muted-foreground px-2 py-1 text-xs">No databases</div>
                     ) : null}
-                    {dbs.map((database) => {
+                    {visibleDbs.map((database) => {
                       const key = dbKey(connection.id, database.name)
-                      const dbOpen = Boolean(expandedDbs[key])
-                      const cols = collections[key] ?? []
+                      const dbOpen = filtering || Boolean(expandedDbs[key])
+                      const allCols = collections[key] ?? []
+                      const dbMatches = matches(database.name)
+                      const cols =
+                        !filtering || connectionMatches || dbMatches
+                          ? allCols
+                          : allCols.filter((collection) => matches(collection.name))
                       return (
                         <div key={key}>
                           <div className="group hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-1 rounded-md px-1 py-1">
@@ -536,8 +626,10 @@ export function AppSidebar({
       </ScrollArea>
 
       <div className="text-muted-foreground flex shrink-0 items-center justify-between border-t px-3 py-2 text-xs">
-        <span>
+        <span className="flex items-center gap-1.5">
           {connections.length} connection{connections.length === 1 ? "" : "s"}
+          <span className="text-muted-foreground/60">·</span>
+          <span title="Embedded front-end version">v{__APP_VERSION__}</span>
         </span>
         <div className="flex items-center gap-1">
           <Button

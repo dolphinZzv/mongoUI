@@ -31,52 +31,12 @@
 | 数据管理 | 创建 / 删除数据库、创建 / 删除集合（含 capped 选项） |
 | 主题 | 明亮 / 暗黑 / 跟随系统三种模式，偏好保存在浏览器 |
 | 运维 | 守护进程后台运行（`-daemon` / `-stop` / `-status`）、一键安装脚本、`mongoui update` 自更新 |
+| 浏览器 Agent | WebMCP（`navigator.modelContext`）+ `window.mongouiAgent`，把连接 / 查询 / 聚合 / 索引等操作暴露给浏览器内 agent，**默认关闭**、需显式开启 |
 
 所有 BSON 值均以 **MongoDB Extended JSON**（relaxed 模式）在前后端之间传输，因此 `ObjectId`、`Date`、`Decimal128`、`Long`、`Binary` 等类型都能无损保留：
 
 ```json
 { "_id": { "$oid": "507f1f77bcf86cd799439011" }, "createdAt": { "$date": "2024-01-01T00:00:00Z" } }
-```
-
-## 目录结构
-
-```
-mongoui/
-├── backend/                     # Go API 服务
-│   ├── main.go                  # 启动、静态资源托管、优雅退出
-│   ├── internal/
-│   │   ├── api/                 # HTTP 路由与处理器
-│   │   │   ├── router.go        # chi 路由 + CORS + 中间件
-│   │   │   ├── response.go      # Extended JSON / 响应辅助
-│   │   │   ├── handlers_connection.go
-│   │   │   ├── handlers_database.go
-│   │   │   ├── handlers_document.go
-│   │   │   ├── handlers_index.go
-│   │   │   └── handlers_server.go
-│   │   ├── config/store.go      # 连接配置持久化（JSON 文件 + 原子写）
-│   │   └── mongoclient/manager.go # 连接池（按连接 ID 缓存 client）
-│   └── web/embed.go             # 嵌入 frontend/dist
-├── frontend/                    # React 前端
-│   ├── src/
-│   │   ├── App.tsx              # 布局与全局状态
-│   │   ├── components/          # 业务组件
-│   │   │   ├── app-sidebar.tsx          # 连接 / 库 / 集合树
-│   │   │   ├── connection-dialog.tsx
-│   │   │   ├── connection-overview.tsx
-│   │   │   ├── collection-view.tsx      # 集合详情 + 标签页
-│   │   │   ├── documents-tab.tsx
-│   │   │   ├── document-dialog.tsx
-│   │   │   ├── aggregation-tab.tsx
-│   │   │   ├── indexes-tab.tsx
-│   │   │   ├── schema-tab.tsx
-│   │   │   ├── stats-tab.tsx
-│   │   │   ├── json-editor.tsx / json-view.tsx
-│   │   │   ├── confirm-dialog.tsx
-│   │   │   └── ui/              # shadcn/ui 组件
-│   │   └── lib/                 # api 客户端、类型、ExtJSON 工具
-│   └── vite.config.ts           # /api 代理到后端
-├── Makefile
-└── README.md
 ```
 
 ## 快速开始
@@ -166,6 +126,27 @@ mongoui update -version v0.2.0
 
 仓库地址可用 `-repo owner/name` 或 `MONGOUI_REPO` 覆盖；设置 `GITHUB_TOKEN` 可提高 API 速率限制。更新后需重启进程（`mongoui -stop && mongoui -daemon`）。
 
+## 浏览器 Agent（WebMCP）
+
+MongoUI 可以把一组操作暴露给**浏览器内的 agent**，让它直接读取 / 操作当前服务，无需额外部署 MCP server。该能力**默认关闭**：需在右上角的 **Agent** 中手动开启，关闭后立即注销工具。
+
+- **WebMCP**：当浏览器提供实验性的 `navigator.modelContext`（如 Edge）时自动注册工具。
+- **兜底通道**：开启后始终暴露 `window.mongouiAgent`，扩展 / 书签 / 控制台均可调用：
+
+```js
+window.mongouiAgent.tools                       // [{ name, description }]
+await window.mongouiAgent.call("mongoui_list_connections")
+await window.mongouiAgent.call("mongoui_find", {
+  connectionId: "<id>",
+  database: "demo",
+  collection: "users",
+  filter: { age: { $gte: 30 } },
+  limit: 20,
+})
+```
+
+工具覆盖连接与库 / 集合浏览、查询、聚合、Schema、索引，以及插入 / 更新 / 删除等写操作。所有调用都走同一个后端 REST API，因此仍受只读模式与后端校验约束；完整列表见 `frontend/src/lib/agentTools.ts`（界面里也会列出）。
+
 ## 配置
 
 通过命令行参数或环境变量配置：
@@ -178,49 +159,6 @@ mongoui update -version v0.2.0
 
 ```bash
 ./bin/mongoui -addr :9000 -data /var/lib/mongoui
-```
-
-## API
-
-所有接口以 `/api` 为前缀，统一返回 `{ "data": ... }` 或 `{ "error": "..." }`。
-
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/api/health` | 健康检查 |
-| GET | `/api/connections` | 连接列表 |
-| POST | `/api/connections` | 新建连接 |
-| PUT | `/api/connections/{id}` | 更新连接（在线时自动重连） |
-| DELETE | `/api/connections/{id}` | 删除连接 |
-| POST | `/api/connections/test` | 测试连接串（不保存） |
-| POST | `/api/connections/{id}/connect` \| `/disconnect` | 建立 / 断开连接 |
-| GET | `/api/connections/{id}/server` | 服务器信息（hello / buildInfo） |
-| GET | `/api/connections/{id}/databases` | 数据库列表（含大小） |
-| POST | `/api/connections/{id}/databases` | 创建数据库 |
-| DELETE | `/api/connections/{id}/databases/{db}` | 删除数据库 |
-| GET | `/api/connections/{id}/databases/{db}/stats` | dbStats |
-| GET / POST | `/api/connections/{id}/databases/{db}/collections` | 集合列表 / 创建集合 |
-| DELETE | `/api/connections/{id}/databases/{db}/collections/{col}` | 删除集合 |
-| GET | `.../{col}/stats` \| `/schema` | 集合统计 / Schema 抽样 |
-| POST | `.../{col}/find` | 查询文档（filter/sort/projection/skip/limit） |
-| POST | `.../{col}/insert` | 插入文档（数组即批量） |
-| POST | `.../{col}/update` | 更新（带 `$` 操作符 → update；否则整文档替换） |
-| POST | `.../{col}/delete` | 删除文档 |
-| POST | `.../{col}/aggregate` | 聚合管道 |
-| GET / POST | `.../{col}/indexes` | 索引列表 / 创建 |
-| DELETE | `.../{col}/indexes/{name}` | 删除索引 |
-
-示例：
-
-```bash
-# 查询 age >= 30 的文档，按 age 升序
-curl -X POST localhost:8080/api/connections/<id>/databases/demo/collections/users/find \
-  -H 'Content-Type: application/json' \
-  -d '{"filter":{"age":{"$gte":30}},"sort":{"age":1},"limit":20}'
-
-# 聚合
-curl -X POST localhost:8080/api/connections/<id>/databases/demo/collections/users/aggregate \
-  -H 'Content-Type: application/json' \
-  -d '{"pipeline":[{"$group":{"_id":"$status","n":{"$sum":1}}}]}'
 ```
 
 ## 安全说明
@@ -246,9 +184,12 @@ curl -X POST localhost:8080/api/connections/<id>/databases/demo/collections/user
 发布新版本：
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+./scripts/sync-version.sh v0.2.4   # 同步 frontend/package.json 版本（必须与 tag 一致）
+git tag v0.2.4
+git push origin v0.2.4
 ```
+
+> `frontend/package.json` 的版本必须与 tag 一致：CI 会在 tag 构建时校验，`scripts/build.sh` 也会拒绝内嵌过期前端（缺少主题 / 版本标记）的构建，避免再次出现「内嵌包版本停留在 0.1.0」这类发布旧 UI 的问题。Release 也会在构建前自动同步一次。
 
 也可在 Actions 页面手动触发 Release workflow 的 snapshot 构建（不创建 GitHub Release）。
 
@@ -261,7 +202,7 @@ git push origin v0.1.0
 # mongoui v0.1.0 (commit abc1234, built 2024-01-01T00:00:00Z)
 ```
 
-本地 `scripts/build.sh` 会从 git tag / commit 自动注入；CI 中由 GoReleaser 注入。
+本地 `scripts/build.sh` 会从 git tag / commit 自动注入；CI 中由 GoReleaser 注入。前端构建会把同一个版本号写进界面（首页与侧边栏底部），方便确认手上的二进制到底内嵌了哪个版本。
 
 ## 开发命令
 

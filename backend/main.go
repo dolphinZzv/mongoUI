@@ -18,6 +18,7 @@ import (
 	"mongoui/internal/api"
 	"mongoui/internal/config"
 	"mongoui/internal/daemon"
+	"mongoui/internal/mcp"
 	"mongoui/internal/mongoclient"
 	"mongoui/internal/update"
 	"mongoui/web"
@@ -31,9 +32,14 @@ var (
 )
 
 func main() {
-	// `mongoui update` is a subcommand and must be handled before flag parsing.
-	if len(os.Args) > 1 && os.Args[1] == "update" {
-		os.Exit(runUpdate(os.Args[2:]))
+	// Subcommands must be handled before flag parsing.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "update":
+			os.Exit(runUpdate(os.Args[2:]))
+		case "mcp":
+			os.Exit(runMCP(os.Args[2:]))
+		}
 	}
 
 	var (
@@ -46,6 +52,8 @@ func main() {
 		statusDaemon = flag.Bool("status", false, "report whether the background process is running")
 		pidFile      = flag.String("pidfile", "", "pid file path (default <data>/mongoui.pid)")
 		logFile      = flag.String("logfile", "", "log file path used by -daemon (default <data>/mongoui.log)")
+		mcpReadOnly  = flag.Bool("mcp-readonly", envBool("MONGOUI_MCP_READONLY"), "expose only read tools over MCP")
+		mcpToken     = flag.String("mcp-token", envOr("MONGOUI_MCP_TOKEN", ""), "require this bearer token for the MCP HTTP endpoint")
 	)
 	flag.Parse()
 
@@ -114,7 +122,7 @@ func main() {
 		log.Printf("serving front-end from %s", *webDir)
 	}
 
-	handler := api.New(store, mgr, uiEmbedded, version).Router(webHandler)
+	handler := api.New(store, mgr, uiEmbedded, version, mcp.New(store, mgr, version, *mcpToken, *mcpReadOnly).HTTPHandler()).Router(webHandler)
 
 	srv := &http.Server{
 		Addr:              *addr,
@@ -140,6 +148,34 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Printf("shutdown error: %v", err)
 	}
+}
+
+// runMCP implements the `mongoui mcp` subcommand: an MCP server over stdio.
+func runMCP(args []string) int {
+	flags := flag.NewFlagSet("mcp", flag.ContinueOnError)
+	dataDir := flags.String("data", envOr("MONGOUI_DATA", "data"), "directory used to store connection profiles")
+	readOnly := flags.Bool("read-only", envBool("MONGOUI_MCP_READONLY"), "only expose read tools")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "cannot create data directory: %v\n", err)
+		return 1
+	}
+	store, err := config.NewStore(filepath.Join(*dataDir, "connections.json"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load connection store: %v\n", err)
+		return 1
+	}
+	mgr := mongoclient.NewManager()
+	defer mgr.CloseAll()
+
+	srv := mcp.New(store, mgr, version, "", *readOnly)
+	if err := srv.ServeStdio(context.Background(), os.Stdin, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "mcp server: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 // runUpdate implements the `mongoui update` subcommand.
@@ -220,4 +256,13 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// envBool reports true when the environment variable is set to a truthy value.
+func envBool(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }

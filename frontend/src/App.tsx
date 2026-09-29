@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Database, Leaf, Menu, Plus, Server, Table2, X } from "lucide-react"
+import { Database, Leaf, Loader2, Menu, Plus, Server, Table2, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { AgentToggle } from "@/components/agent-toggle"
@@ -13,6 +13,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useAgentTools } from "@/hooks/useAgentTools"
 import { api } from "@/lib/api"
+import { useRouter } from "@/lib/router"
 import { ThemeProvider } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 import type { Connection, Selection } from "@/lib/types"
@@ -20,7 +21,7 @@ import type { Connection, Selection } from "@/lib/types"
 export default function App() {
   const [connections, setConnections] = React.useState<Connection[]>([])
   const [loading, setLoading] = React.useState(true)
-  const [selection, setSelection] = React.useState<Selection>({ kind: "welcome" })
+  const { selection, tab, navigate } = useRouter()
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editingConnection, setEditingConnection] = React.useState<Connection | null>(null)
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
@@ -45,13 +46,14 @@ export default function App() {
     void refreshConnections()
   }, [refreshConnections])
 
-  // Keep the selection in sync when a connection disappears.
+  // Keep the selection in sync when a connection disappears (or the URL points
+  // at one that no longer exists).
   React.useEffect(() => {
-    if (selection.kind === "welcome") return
+    if (loading || selection.kind === "welcome") return
     if (!connections.some((connection) => connection.id === selection.connectionId)) {
-      setSelection({ kind: "welcome" })
+      navigate({ kind: "welcome" }, undefined, { replace: true })
     }
-  }, [connections, selection])
+  }, [connections, loading, selection, navigate])
 
   const selectedConnection = React.useMemo(
     () =>
@@ -72,18 +74,57 @@ export default function App() {
   }
 
   const handleSelect = (next: Selection) => {
-    setSelection(next)
+    navigate(next)
     setSidebarOpen(false)
   }
 
+  const handleTabChange = React.useCallback(
+    (next: string) => {
+      if (selection.kind !== "collection") return
+      // Replacing keeps one history entry per collection.
+      navigate(selection, next, { replace: true })
+    },
+    [selection, navigate],
+  )
+
   const renderContent = () => {
     if (selection.kind === "collection") {
+      // On a deep link the view mounts before the (auto-)connect finishes;
+      // wait for the connection so tabs do not fire against a dead client.
+      if (!selectedConnection) {
+        return (
+          <div className="text-muted-foreground flex h-full items-center justify-center gap-2 text-sm">
+            <Loader2 className="size-4 animate-spin" /> Loading connection…
+          </div>
+        )
+      }
+      if (!selectedConnection.connected) {
+        return (
+          <div className="flex h-full flex-col items-center justify-center gap-3">
+            <Loader2 className="text-muted-foreground size-5 animate-spin" />
+            <p className="text-muted-foreground text-sm">
+              Connecting to {selectedConnection.name}…
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                void api.connect(selectedConnection.id).then(() => refreshConnections())
+              }}
+            >
+              Connect now
+            </Button>
+          </div>
+        )
+      }
       return (
         <CollectionView
           connectionId={selection.connectionId}
           database={selection.database}
           collection={selection.collection}
           readOnly={Boolean(selectedConnection?.readOnly)}
+          tab={tab}
+          onTabChange={handleTabChange}
         />
       )
     }
@@ -211,7 +252,7 @@ export default function App() {
           connection={editingConnection}
           onSaved={(saved) => {
             void refreshConnections()
-            setSelection({ kind: "connection", connectionId: saved.id })
+            navigate({ kind: "connection", connectionId: saved.id })
           }}
         />
         <Toaster />

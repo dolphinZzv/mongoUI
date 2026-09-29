@@ -1,0 +1,21 @@
+services:
+  mongoui:
+    build:
+      context: .
+      args:
+        APP_VERSION: dev
+    image: mongoui:dev
+    ports:
+      - "8080:8080"
+    volumes:
+      - mongoui-data:/data
+    environment:
+      # Require a bearer token on the MCP endpoint:
+      # MONGOUI_MCP_TOKEN: change-me
+      # Expose read-only MCP tools only:
+      # MONGOUI_MCP_READONLY: "1"
+      TZ: Asia/Shanghai
+    restart: unless-stopped
+
+volumes:
+  mongoui-data:

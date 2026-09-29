@@ -20,11 +20,12 @@ type API struct {
 	mgr        *mongoclient.Manager
 	uiEmbedded bool
 	version    string
+	mcpHandler http.Handler
 }
 
-// New builds an API instance.
-func New(store *config.Store, mgr *mongoclient.Manager, uiEmbedded bool, version string) *API {
-	return &API{store: store, mgr: mgr, uiEmbedded: uiEmbedded, version: version}
+// New builds an API instance. mcpHandler, when non-nil, is mounted at /mcp.
+func New(store *config.Store, mgr *mongoclient.Manager, uiEmbedded bool, version string, mcpHandler http.Handler) *API {
+	return &API{store: store, mgr: mgr, uiEmbedded: uiEmbedded, version: version, mcpHandler: mcpHandler}
 }
 
 // Router returns the fully configured HTTP handler.
@@ -39,7 +40,7 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Requested-With"},
-		ExposedHeaders:   []string{"Link"},
+		ExposedHeaders:   []string{"Link", "Mcp-Session-Id"},
 		AllowCredentials: false,
 		MaxAge:           300,
 	}))
@@ -97,6 +98,11 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 			})
 		})
 	})
+
+	if a.mcpHandler != nil {
+		r.Handle("/mcp", a.mcpHandler)
+		r.Handle("/mcp/", a.mcpHandler)
+	}
 
 	if webHandler != nil {
 		r.Handle("/*", webHandler)

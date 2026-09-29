@@ -1,10 +1,11 @@
 import * as React from "react"
-import { BotIcon } from "lucide-react"
+import { BotIcon, CheckIcon, CopyIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Switch } from "@/components/ui/switch"
+import { copyToClipboard } from "@/lib/clipboard"
 import { agentToolList, setAgentEnabled, useAgentEnabled, webMcpAvailable } from "@/lib/webmcp"
 
 /**
@@ -16,6 +17,16 @@ export function AgentToggle({ className }: { className?: string }) {
   const enabled = useAgentEnabled()
   const tools = React.useMemo(() => agentToolList(), [])
   const mcp = React.useMemo(() => webMcpAvailable(), [])
+  const [copiedMcp, setCopiedMcp] = React.useState(false)
+  const mcpUrl =
+    typeof window === "undefined" ? "/mcp" : `${window.location.origin}/mcp`
+
+  const copyMcp = async () => {
+    const ok = await copyToClipboard(mcpUrl)
+    if (!ok) return
+    setCopiedMcp(true)
+    window.setTimeout(() => setCopiedMcp(false), 1500)
+  }
 
   return (
     <Popover>
@@ -69,6 +80,31 @@ export function AgentToggle({ className }: { className?: string }) {
               </div>
             ))}
           </div>
+        </div>
+
+        <div className="space-y-1.5 border-t p-3 text-xs">
+          <p className="text-foreground font-medium">Server MCP</p>
+          <p className="text-muted-foreground">
+            External agents (Claude Desktop, Cursor, ...) can drive mongoUI over the Model
+            Context Protocol:
+          </p>
+          <div className="flex items-center gap-1">
+            <code className="bg-muted min-w-0 flex-1 truncate rounded px-1.5 py-1 text-[11px]">
+              {mcpUrl}
+            </code>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={copyMcp}
+              title="Copy MCP endpoint"
+            >
+              {copiedMcp ? <CheckIcon className="text-emerald-600" /> : <CopyIcon />}
+            </Button>
+          </div>
+          <p className="text-muted-foreground">
+            Start the server with <code className="bg-muted rounded px-1">-mcp-readonly</code> to
+            expose read tools only; the local agent can also use <code className="bg-muted rounded px-1">mongoui mcp</code> over stdio.
+          </p>
         </div>
       </PopoverContent>
     </Popover>

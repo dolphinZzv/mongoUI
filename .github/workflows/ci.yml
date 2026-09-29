@@ -159,3 +159,28 @@ jobs:
           name: mongoui-linux-amd64
           path: bin/mongoui
           if-no-files-found: error
+
+  docker:
+    name: Docker image (build + smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build --build-arg APP_VERSION=ci -t mongoui:ci .
+
+      - name: Smoke test the container
+        run: |
+          set -euo pipefail
+          docker run -d --name mongoui-ci -p 18098:8080 mongoui:ci
+          trap 'docker rm -f mongoui-ci' EXIT
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:18098/api/health && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18098/api/health | grep -q '"uiEmbedded":true'
+          curl -fsS http://127.0.0.1:18098/ | grep -q 'mongoui-theme'
+          # MCP endpoint is served by the container too.
+          curl -fsS http://127.0.0.1:18098/mcp \
+            -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize"}' | grep -q '"name":"mongoui"'

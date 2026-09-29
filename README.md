@@ -34,6 +34,7 @@
 | 主题 | 明亮 / 暗黑 / 跟随系统三种模式，偏好保存在浏览器 |
 | 运维 | 守护进程后台运行（`-daemon` / `-stop` / `-status`）、一键安装脚本、`mongoui update` 自更新 |
 | 浏览器 Agent | WebMCP（`navigator.modelContext`）+ `window.mongouiAgent`，把连接 / 查询 / 聚合 / 索引等操作暴露给浏览器内 agent，**默认关闭**、需显式开启 |
+| MCP | 内置 Model Context Protocol server（stdio / HTTP），把连接、查询、聚合、SQL、增删改、索引等暴露给外部 Agent；支持整体只读模式 |
 
 所有 BSON 值均以 **MongoDB Extended JSON**（relaxed 模式）在前后端之间传输，因此 `ObjectId`、`Date`、`Decimal128`、`Long`、`Binary` 等类型都能无损保留：
 
@@ -64,6 +65,21 @@ LIMIT 20
 - 点号字段路径（如 `address.city`）
 
 执行接口为 `POST /api/connections/{id}/databases/{db}/sql`（body `{ query, limit? }`），响应包含 `documents`、`columns` 以及翻译后的 `mql`。
+
+## URL 路由与状态保持
+
+当前视图会写进 URL，刷新、分享链接、浏览器前进/后退都能恢复：
+
+| 视图 | URL |
+| --- | --- |
+| 首页 | `/` |
+| 连接概览 | `/connections/{connectionId}` |
+| 集合视图 | `/connections/{connectionId}/databases/{db}/collections/{collection}` |
+| 集合标签页 | 上表 URL 后追加 `?tab=documents\|sql\|aggregation\|indexes\|schema\|stats` |
+
+- 直接打开深链接会按需自动连接该连接，并在左侧树里自动展开定位到对应集合。
+- 侧边栏的展开状态保存在 `localStorage`，刷新后保持。
+- 主题与浏览器 Agent 开关同样保存在 `localStorage`。
 
 ## 快速开始
 
@@ -101,6 +117,30 @@ make dev-frontend
 ```bash
 make docker-mongo   # docker run -p 27017:27017 mongo:8
 ```
+
+## Docker
+
+镜像内置前端，单容器即可运行；连接配置持久化在 `/data` 卷。
+
+```bash
+docker build -t mongoui .
+docker run -d --name mongoui -p 8080:8080 -v mongoui-data:/data mongoui
+
+# 或使用 compose
+docker compose up -d
+```
+
+生产使用建议顺带保护 MCP 端点：
+
+```bash
+docker run -d -p 8080:8080 -v mongoui-data:/data \
+  -e MONGOUI_MCP_TOKEN=change-me \
+  mongoui
+```
+
+推送 `v*` tag 时 GitHub Actions 会自动构建并发布镜像到 GHCR：`ghcr.io/dolphinzzv/mongoui`。
+
+> 容器内连接宿主机上的 MongoDB：Linux 下用 `--network host`，或把连接串指向宿主机 IP；Docker Desktop 可用 `host.docker.internal:27017`。
 
 ## 一键安装（从 GitHub Releases）
 
@@ -173,6 +213,29 @@ await window.mongouiAgent.call("mongoui_find", {
 
 工具覆盖连接与库 / 集合浏览、查询、聚合、Schema、索引，以及插入 / 更新 / 删除等写操作。所有调用都走同一个后端 REST API，因此仍受只读模式与后端校验约束；完整列表见 `frontend/src/lib/agentTools.ts`（界面里也会列出）。
 
+## MCP（Model Context Protocol）
+
+mongoUI 内置 MCP server，外部 AI Agent（Claude Desktop、Cursor、Cline 等）可以通过 MCP 直接操作 MongoDB——浏览库/集合、查询、聚合、SQL、增删改、索引管理，无需自行连接数据库。
+
+- **stdio**：`mongoui mcp`（本地子进程，共用 `-data` 目录里的连接配置）。
+- **HTTP（Streamable HTTP）**：运行中的 server 在 `POST /mcp` 提供端点。
+
+```jsonc
+// Claude Desktop / Cursor —— 完整示例见 examples/ 与 docs/mcp.md
+{
+  "mcpServers": {
+    "mongoui": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp"
+    }
+  }
+}
+```
+
+**只读模式**：用 `-mcp-readonly`（或 `MONGOUI_MCP_READONLY=1`）启动后，写工具不会出现在 `tools/list` 中，直接调用也会被拒绝；连接自身的「只读模式」同样生效，两层保护可独立使用。
+
+详见 [docs/mcp.md](docs/mcp.md)。
+
 ## 配置
 
 通过命令行参数或环境变量配置：
@@ -182,6 +245,8 @@ await window.mongouiAgent.call("mongoui_find", {
 | `-addr` | `MONGOUI_ADDR` | `:8080` | HTTP 监听地址 |
 | `-data` | `MONGOUI_DATA` | `data` | 连接配置存储目录（`connections.json`） |
 | `-web` | — | 空 | 从指定目录提供前端资源（覆盖内嵌版本） |
+| `-mcp-readonly` | `MONGOUI_MCP_READONLY` | 关 | MCP 只读模式（不暴露写工具） |
+| `-mcp-token` | `MONGOUI_MCP_TOKEN` | 空 | `/mcp` 的 Bearer 令牌（非空时校验） |
 
 ```bash
 ./bin/mongoui -addr :9000 -data /var/lib/mongoui
@@ -205,8 +270,9 @@ await window.mongouiAgent.call("mongoui_find", {
 ## 安全说明
 
 - 连接串（含账号密码）以**明文**保存在 `-data` 指定的 `connections.json` 中，文件权限为 `0600`。SSH 密码 / 私钥同样如此。请仅在可信环境使用，不要将 `data/` 提交到版本库（已在 `.gitignore` 中忽略）。
-- 只读模式会在前端禁用所有写操作，但后端未强制拦截；如需强约束请使用只读数据库账号。
+- 只读模式在网页端与 MCP 写工具中生效（MCP 写工具会拒绝只读连接）；HTTP API 未强制拦截，如需强约束请使用只读数据库账号。
 - 服务默认无鉴权，请勿直接暴露到公网；建议通过 SSH 隧道或反向代理 + 认证访问。
+- `/mcp` 端点同样默认无鉴权，对外暴露时请设置 `MONGOUI_MCP_TOKEN`（或 `-mcp-token`），并可用 `-mcp-readonly` 限制为只读。
 
 ## 持续集成与发布
 

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "mongoui": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp",
+      "headers": {
+        "Authorization": "Bearer CHANGE_ME_IF_MONGOUI_MCP_TOKEN_IS_SET"
+      }
+    }
+  }
+}

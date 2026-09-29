@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "mongoui": {
+      "command": "mongoui",
+      "args": ["mcp"],
+      "env": {
+        "MONGOUI_DATA": "/home/me/.mongoui"
+      }
+    }
+  }
+}

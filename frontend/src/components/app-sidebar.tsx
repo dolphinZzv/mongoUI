@@ -54,6 +54,25 @@ type PendingConfirm =
 
 const dbKey = (connectionId: string, database: string) => `${connectionId}::${database}`
 
+// Sidebar expansion is remembered so a refresh keeps the tree open.
+const EXPANDED_KEY = "mongoui-sidebar-expanded"
+
+interface ExpandedState {
+  conns: Record<string, boolean>
+  dbs: Record<string, boolean>
+}
+
+function readExpanded(): ExpandedState {
+  try {
+    const raw = localStorage.getItem(EXPANDED_KEY)
+    if (!raw) return { conns: {}, dbs: {} }
+    const parsed = JSON.parse(raw) as Partial<ExpandedState>
+    return { conns: parsed.conns ?? {}, dbs: parsed.dbs ?? {} }
+  } catch {
+    return { conns: {}, dbs: {} }
+  }
+}
+
 export function AppSidebar({
   connections,
   loading,
@@ -63,10 +82,14 @@ export function AppSidebar({
   onEditConnection,
   onRefresh,
 }: AppSidebarProps) {
-  const [expandedConns, setExpandedConns] = React.useState<Record<string, boolean>>({})
+  const [expandedConns, setExpandedConns] = React.useState<Record<string, boolean>>(
+    () => readExpanded().conns,
+  )
   const [databases, setDatabases] = React.useState<Record<string, DatabaseInfo[]>>({})
   const [loadingDbs, setLoadingDbs] = React.useState<Record<string, boolean>>({})
-  const [expandedDbs, setExpandedDbs] = React.useState<Record<string, boolean>>({})
+  const [expandedDbs, setExpandedDbs] = React.useState<Record<string, boolean>>(
+    () => readExpanded().dbs,
+  )
   const [collections, setCollections] = React.useState<Record<string, CollectionInfo[]>>({})
   const [loadingCols, setLoadingCols] = React.useState<Record<string, boolean>>({})
   const [busyConn, setBusyConn] = React.useState<Record<string, boolean>>({})
@@ -167,6 +190,17 @@ export function AppSidebar({
     }
   }, [expandedDbs, collections, loadingCols, loadCollections])
 
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(
+        EXPANDED_KEY,
+        JSON.stringify({ conns: expandedConns, dbs: expandedDbs }),
+      )
+    } catch {
+      /* storage may be unavailable */
+    }
+  }, [expandedConns, expandedDbs])
+
   const handleConnect = async (connection: Connection) => {
     setBusyConn((prev) => ({ ...prev, [connection.id]: true }))
     try {
@@ -181,6 +215,27 @@ export function AppSidebar({
       setBusyConn((prev) => ({ ...prev, [connection.id]: false }))
     }
   }
+
+  // Restore a deep-linked collection: connect if needed, then expand the
+  // connection and database so the tree reveals the selection.
+  const autoConnectedRef = React.useRef<Set<string>>(new Set())
+  const autoExpandedRef = React.useRef<string | null>(null)
+  React.useEffect(() => {
+    if (selection.kind !== "collection") return
+    const connection = connections.find((c) => c.id === selection.connectionId)
+    if (!connection) return
+    if (!connection.connected) {
+      if (busyConn[connection.id] || autoConnectedRef.current.has(connection.id)) return
+      autoConnectedRef.current.add(connection.id)
+      void handleConnect(connection)
+      return
+    }
+    const key = dbKey(selection.connectionId, selection.database)
+    if (autoExpandedRef.current === key) return
+    autoExpandedRef.current = key
+    setExpandedConns((prev) => (prev[connection.id] ? prev : { ...prev, [connection.id]: true }))
+    setExpandedDbs((prev) => (prev[key] ? prev : { ...prev, [key]: true }))
+  }, [selection, connections, busyConn])
 
   const handleDisconnect = async (connection: Connection) => {
     setBusyConn((prev) => ({ ...prev, [connection.id]: true }))

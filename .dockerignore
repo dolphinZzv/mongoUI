@@ -1,0 +1,9 @@
+.git
+.github
+bin
+data
+frontend/node_modules
+frontend/dist
+backend/web/dist
+**/*.log
+docs/*.png

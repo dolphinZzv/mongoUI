@@ -17,6 +17,8 @@ interface CollectionViewProps {
   database: string
   collection: string
   readOnly: boolean
+  tab?: string
+  onTabChange?: (tab: string) => void
 }
 
 export function CollectionView({
@@ -24,8 +26,11 @@ export function CollectionView({
   database,
   collection,
   readOnly,
+  tab,
+  onTabChange,
 }: CollectionViewProps) {
   const [copied, setCopied] = React.useState(false)
+  const activeTab = tab ?? "documents"
 
   const copyPath = async () => {
     const ok = await copyToClipboard(`${database}.${collection}`)
@@ -40,7 +45,11 @@ export function CollectionView({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <Tabs defaultValue="documents" className="flex h-full min-h-0 flex-col gap-0">
+      <Tabs
+        value={activeTab}
+        onValueChange={onTabChange}
+        className="flex h-full min-h-0 flex-col gap-0"
+      >
         <div className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
           <Table2 className="text-muted-foreground size-4" />
           <div className="flex min-w-0 items-baseline gap-1.5">

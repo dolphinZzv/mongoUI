@@ -18,6 +18,8 @@ RUN go mod download
 COPY backend/ ./
 # Stage the freshly built front-end so go:embed picks up the current UI.
 COPY --from=frontend /src/frontend/dist/. /src/backend/web/dist/
+# Compress JS/CSS so the embedded payload stays small.
+RUN find web/dist -type f \( -name '*.js' -o -name '*.css' \) -exec gzip -9 -f {} +
 ARG APP_VERSION=dev
 ARG APP_COMMIT=none
 ARG APP_DATE=unknown

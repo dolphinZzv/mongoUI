@@ -19,6 +19,7 @@ frontend: ## Build the front-end and stage it for embedding
 	cd frontend && VITE_APP_VERSION=$(VERSION) npm run build
 	find backend/web/dist -mindepth 1 ! -name .gitkeep -delete
 	cp -r frontend/dist/. backend/web/dist/
+	./scripts/gzip-assets.sh backend/web/dist
 
 backend: frontend ## Compile the Go server (always embeds a fresh front-end)
 	@mkdir -p bin

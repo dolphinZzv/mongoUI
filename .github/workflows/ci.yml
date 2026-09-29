@@ -144,7 +144,7 @@ jobs:
           version=$(./bin/mongoui -version | awk '{print $2}')
           version=${version#v}
           asset=$(grep -oE '/assets/index-[^"]+\.js' backend/web/dist/index.html | head -n1)
-          grep -q "$version" "backend/web/dist${asset}"
+          gzip -dc "backend/web/dist${asset}.gz" | grep -q "$version"
           echo "embedded UI version: $version"
           # Every asset referenced by the shell must resolve.
           for asset in $(curl -fsS http://127.0.0.1:18099/ | grep -oE '/assets/[^"]+'); do
@@ -152,6 +152,21 @@ jobs:
           done
           # The shell must be revalidated so upgrades are picked up at once.
           curl -fsSI http://127.0.0.1:18099/ | grep -qi 'cache-control: no-cache'
+
+      - name: Check size budget
+        run: |
+          set -euo pipefail
+          binary=$(wc -c < bin/mongoui)
+          ui=$(du -sb backend/web/dist | cut -f1)
+          echo "binary: $binary bytes; embedded UI: $ui bytes"
+          if [ "$binary" -gt 13000000 ]; then
+            echo "::error::binary grew past 13 MB ($binary bytes) — trim before merging"
+            exit 1
+          fi
+          if [ "$ui" -gt 350000 ]; then
+            echo "::error::embedded UI grew past 350 KB ($ui bytes) — keep assets gzipped / trim the bundle"
+            exit 1
+          fi
 
       - name: Upload binary
         uses: actions/upload-artifact@v4

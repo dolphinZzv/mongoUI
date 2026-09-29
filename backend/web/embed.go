@@ -16,7 +16,7 @@ import (
 //	./scripts/build.sh
 //	go generate ./... && go build ./...
 //
-//go:generate sh -c "cd ../../frontend && npm run build && find ../backend/web/dist -mindepth 1 ! -name .gitkeep -delete && cp -r dist/. ../backend/web/dist/"
+//go:generate sh -c "cd ../../frontend && npm run build && find ../backend/web/dist -mindepth 1 ! -name .gitkeep -delete && cp -r dist/. ../backend/web/dist/ && sh ../scripts/gzip-assets.sh ../backend/web/dist"
 //go:embed all:dist
 var dist embed.FS
 

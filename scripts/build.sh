@@ -56,6 +56,9 @@ if [[ "$skip_ui" -eq 0 ]]; then
   # Clear previous build but keep the placeholder so plain `go build` still works.
   find "$STAGE" -mindepth 1 ! -name .gitkeep -delete
   cp -r "$ROOT/frontend/dist/." "$STAGE/"
+  # Compress JS/CSS so the embedded payload stays small (served with
+  # Content-Encoding: gzip, so browsers decompress on their side).
+  sh "$ROOT/scripts/gzip-assets.sh" "$STAGE"
 fi
 
 if [[ ! -f "$STAGE/index.html" ]]; then
@@ -83,4 +86,6 @@ CGO_ENABLED="${CGO_ENABLED:-0}" go build -trimpath -ldflags "$LDFLAGS" -o "$OUT"
 
 echo "==> Done ($VERSION)"
 "$OUT" -version
+SIZE=$(wc -c < "$OUT" | tr -d ' ')
+echo "    binary size: ${SIZE} bytes ($((SIZE / 1024 / 1024)) MiB)"
 echo "    front-end embedded; run: $OUT -addr :8080"

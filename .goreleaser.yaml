@@ -18,6 +18,8 @@ before:
     - sh -c "cd frontend && npm ci"
     - sh -c "cd frontend && VITE_APP_VERSION={{ .Version }} npm run build"
     - sh -c "find backend/web/dist -mindepth 1 ! -name .gitkeep -delete && cp -r frontend/dist/. backend/web/dist/"
+    # Compress JS/CSS so the embedded payload stays small.
+    - sh -c "./scripts/gzip-assets.sh backend/web/dist"
     # Fail the release if the freshly staged front-end is not the real one.
     - sh -c "grep -q 'mongoui-theme' backend/web/dist/index.html"
 

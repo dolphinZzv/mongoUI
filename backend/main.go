@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"os/signal"
+	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -245,28 +248,54 @@ func spaHandler(fsys fs.FS) http.Handler {
 		if p == "" {
 			p = "index.html"
 		}
-		if _, err := fs.Stat(fsys, p); err != nil {
-			// Unknown path: serve the SPA shell. Never cache it so the browser
-			// always picks up the latest hashed asset references.
-			w.Header().Set("Cache-Control", "no-cache")
-			clone := r.Clone(r.Context())
-			clone.URL.Path = "/"
-			fileServer.ServeHTTP(w, clone)
+
+		// Serve the exact file when present (index.html, favicon, ...).
+		if _, err := fs.Stat(fsys, p); err == nil {
+			setCacheHeaders(w, p)
+			fileServer.ServeHTTP(w, r)
 			return
 		}
-		switch {
-		case p == "index.html":
-			// The shell references content-hashed assets, so it must be
-			// revalidated on every load to avoid serving a stale UI after an
-			// upgrade.
-			w.Header().Set("Cache-Control", "no-cache")
-		case strings.HasPrefix(p, "assets/"):
-			// Vite output filenames contain a content hash: safe to cache
-			// aggressively.
-			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+
+		// Front-end assets are stored gzip-compressed to keep the binary small;
+		// hand the compressed bytes to the browser with Content-Encoding: gzip.
+		if strings.HasPrefix(p, "assets/") {
+			if data, err := fs.ReadFile(fsys, p+".gz"); err == nil {
+				if ct := mime.TypeByExtension(path.Ext(p)); ct != "" {
+					w.Header().Set("Content-Type", ct)
+				}
+				w.Header().Set("Content-Encoding", "gzip")
+				w.Header().Set("Vary", "Accept-Encoding")
+				setCacheHeaders(w, p)
+				w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(data)
+				return
+			}
+			// A missing static asset is a real 404, never the SPA shell.
+			http.NotFound(w, r)
+			return
 		}
-		fileServer.ServeHTTP(w, r)
+
+		// Client-side route: serve the SPA shell. Never cache it so the browser
+		// always picks up the latest hashed asset references.
+		w.Header().Set("Cache-Control", "no-cache")
+		clone := r.Clone(r.Context())
+		clone.URL.Path = "/"
+		fileServer.ServeHTTP(w, clone)
 	})
+}
+
+func setCacheHeaders(w http.ResponseWriter, p string) {
+	switch {
+	case p == "index.html":
+		// The shell references content-hashed assets, so it must be revalidated
+		// on every load to avoid serving a stale UI after an upgrade.
+		w.Header().Set("Cache-Control", "no-cache")
+	case strings.HasPrefix(p, "assets/"):
+		// Vite output filenames contain a content hash: safe to cache
+		// aggressively.
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	}
 }
 
 func envOr(key, def string) string {

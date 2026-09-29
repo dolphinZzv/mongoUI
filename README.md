@@ -85,7 +85,7 @@ LIMIT 20
 
 ### 环境要求
 
-- Go 1.22+
+- Go 1.26+
 - Node.js 20+
 - 一个可访问的 MongoDB（本地、Docker 或 Atlas 均可）
 
@@ -248,6 +248,7 @@ mongoUI 内置 MCP server，外部 AI Agent（Claude Desktop、Cursor、Cline �
 | `-mcp-readonly` | `MONGOUI_MCP_READONLY` | 关 | MCP 只读模式（不暴露写工具） |
 | `-mcp-token` | `MONGOUI_MCP_TOKEN` | 空 | `/mcp` 的 Bearer 令牌（非空时校验） |
 | — | `MONGOUI_SECRET_KEY` | 自动生成 | 加密连接密钥的主密钥（32 字节 hex/base64）；不填则用 `<data>/secret.key` |
+| — | `MONGOUI_ALLOW_ORIGIN` | 空 | 允许跨域访问的来源（逗号分隔）；默认仅同源 |
 
 ```bash
 ./bin/mongoui -addr :9000 -data /var/lib/mongoui
@@ -271,7 +272,9 @@ mongoUI 内置 MCP server，外部 AI Agent（Claude Desktop、Cursor、Cline �
 ## 安全说明
 
 - 连接串（含账号密码）与 SSH 密码 / 私钥在 `connections.json` 中默认以 **AES-256-GCM 加密**存储（`enc:v1:` 前缀）。主密钥来自 `MONGOUI_SECRET_KEY`（32 字节 hex/base64），未设置时首次启动自动生成 `<data>/secret.key`（权限 `0600`）。**请务必备份主密钥或 `secret.key`，丢失后将无法解密连接配置。** 旧版明文配置会在启动时自动加密。请仅在可信环境使用，不要将 `data/` 提交到版本库（已在 `.gitignore` 中忽略）。
-- 只读模式在网页端与 MCP 写工具中生效（MCP 写工具会拒绝只读连接）；HTTP API 未强制拦截，如需强约束请使用只读数据库账号。
+- 只读模式在**网页端、HTTP API 与 MCP 写工具中均服务端强制生效**（对只读连接的写操作返回 403，包括聚合里的 `$out` / `$merge`）。
+- 跨域默认**关闭（仅同源）**：如需让其他源访问 API/MCP，请设置 `MONGOUI_ALLOW_ORIGIN`（逗号分隔）。
+- 请求体限制 32MB，聚合结果默认限量，服务端设置了读/写/空闲超时，响应带 `X-Content-Type-Options` / `X-Frame-Options` / `Referrer-Policy`。
 - 服务默认无鉴权，请勿直接暴露到公网；建议通过 SSH 隧道或反向代理 + 认证访问。
 - `/mcp` 端点同样默认无鉴权，对外暴露时请设置 `MONGOUI_MCP_TOKEN`（或 `-mcp-token`），并可用 `-mcp-readonly` 限制为只读。
 

@@ -116,6 +116,9 @@ type insertRequest struct {
 }
 
 func (a *API) insertDocuments(w http.ResponseWriter, r *http.Request) {
+	if !a.requireWrite(w, r) {
+		return
+	}
 	coll, err := a.dbCollection(r)
 	if err != nil {
 		a.dbErr(w, err)
@@ -183,6 +186,9 @@ type updateRequest struct {
 }
 
 func (a *API) updateDocuments(w http.ResponseWriter, r *http.Request) {
+	if !a.requireWrite(w, r) {
+		return
+	}
 	coll, err := a.dbCollection(r)
 	if err != nil {
 		a.dbErr(w, err)
@@ -263,6 +269,9 @@ type deleteRequest struct {
 }
 
 func (a *API) deleteDocuments(w http.ResponseWriter, r *http.Request) {
+	if !a.requireWrite(w, r) {
+		return
+	}
 	coll, err := a.dbCollection(r)
 	if err != nil {
 		a.dbErr(w, err)
@@ -319,9 +328,33 @@ func (a *API) aggregate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	// $out/$merge write into a collection: block them on read-only connections.
+	readOnly := a.readOnly(r)
+	terminal := false
+	for _, stage := range stages {
+		for _, e := range stage {
+			if e.Key == "$out" || e.Key == "$merge" {
+				if readOnly {
+					fail(w, http.StatusForbidden, errors.New("$out and $merge are disabled on read-only connections"))
+					return
+				}
+				terminal = true
+			}
+		}
+	}
+
 	pipeline := mongo.Pipeline(stages)
-	if req.Limit > 0 {
-		pipeline = append(pipeline, bson.D{{Key: "$limit", Value: req.Limit}})
+	if !terminal {
+		// Bound the result so a single aggregation cannot exhaust memory.
+		limit := req.Limit
+		if limit <= 0 {
+			limit = maxLimit
+		}
+		if limit > maxLimit {
+			limit = maxLimit
+		}
+		pipeline = append(pipeline, bson.D{{Key: "$limit", Value: limit}})
 	}
 
 	ctx, cancel := withTimeout(r)

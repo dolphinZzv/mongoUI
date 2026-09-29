@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -36,14 +37,20 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Requested-With"},
-		ExposedHeaders:   []string{"Link", "Mcp-Session-Id"},
-		AllowCredentials: false,
-		MaxAge:           300,
-	}))
+	r.Use(securityHeaders)
+	// Cross-origin access is opt-in. Without MONGOUI_ALLOW_ORIGIN the API is
+	// same-origin only (no CORS headers), which stops a random website from
+	// reading or writing this server through the user's browser.
+	if origins := allowOrigins(); len(origins) > 0 {
+		r.Use(cors.Handler(cors.Options{
+			AllowedOrigins:   origins,
+			AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+			AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Requested-With"},
+			ExposedHeaders:   []string{"Link", "Mcp-Session-Id"},
+			AllowCredentials: false,
+			MaxAge:           300,
+		}))
+	}
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -111,6 +118,35 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 }
 
 // --- request helpers --------------------------------------------------------
+
+// securityHeaders sets a few conservative response headers. A strict CSP is
+// intentionally omitted because the SPA shell relies on an inline bootstrap
+// script.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// allowOrigins reads MONGOUI_ALLOW_ORIGIN (comma separated). Empty means
+// same-origin only.
+func allowOrigins() []string {
+	raw := strings.TrimSpace(os.Getenv("MONGOUI_ALLOW_ORIGIN"))
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
 
 func (a *API) client(r *http.Request) (*mongo.Client, error) {
 	return a.mgr.Get(chi.URLParam(r, "id"))

@@ -38,6 +38,9 @@ func (a *API) listDatabases(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) createDatabase(w http.ResponseWriter, r *http.Request) {
+	if !a.requireWrite(w, r) {
+		return
+	}
 	client, err := a.client(r)
 	if err != nil {
 		a.dbErr(w, err)
@@ -70,6 +73,9 @@ func (a *API) createDatabase(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) dropDatabase(w http.ResponseWriter, r *http.Request) {
+	if !a.requireWrite(w, r) {
+		return
+	}
 	client, err := a.client(r)
 	if err != nil {
 		a.dbErr(w, err)
@@ -139,6 +145,9 @@ func (a *API) listCollections(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) createCollection(w http.ResponseWriter, r *http.Request) {
+	if !a.requireWrite(w, r) {
+		return
+	}
 	client, err := a.client(r)
 	if err != nil {
 		a.dbErr(w, err)
@@ -181,6 +190,9 @@ func (a *API) createCollection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) dropCollection(w http.ResponseWriter, r *http.Request) {
+	if !a.requireWrite(w, r) {
+		return
+	}
 	coll, err := a.dbCollection(r)
 	if err != nil {
 		a.dbErr(w, err)

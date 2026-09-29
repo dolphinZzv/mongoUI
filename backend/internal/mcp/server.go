@@ -11,6 +11,7 @@ package mcp
 import (
 	"bufio"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -238,5 +239,6 @@ func (s *Server) authorized(r *http.Request) bool {
 		return true
 	}
 	header := r.Header.Get("Authorization")
-	return header == "Bearer "+s.token
+	expected := "Bearer " + s.token
+	return subtle.ConstantTimeCompare([]byte(header), []byte(expected)) == 1
 }

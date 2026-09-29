@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -15,6 +16,9 @@ import (
 
 // opTimeout is the default timeout applied to database operations.
 const opTimeout = 60 * time.Second
+
+// maxBodyBytes bounds request bodies so a single request cannot exhaust memory.
+const maxBodyBytes = 32 << 20
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -50,7 +54,7 @@ func decodeJSON(r *http.Request, v any) error {
 	if r.Body == nil {
 		return nil
 	}
-	dec := json.NewDecoder(r.Body)
+	dec := json.NewDecoder(io.LimitReader(r.Body, maxBodyBytes))
 	if err := dec.Decode(v); err != nil {
 		if err.Error() == "EOF" {
 			return nil

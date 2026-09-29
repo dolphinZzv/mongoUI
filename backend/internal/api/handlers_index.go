@@ -46,6 +46,9 @@ type createIndexRequest struct {
 }
 
 func (a *API) createIndex(w http.ResponseWriter, r *http.Request) {
+	if !a.requireWrite(w, r) {
+		return
+	}
 	coll, err := a.dbCollection(r)
 	if err != nil {
 		a.dbErr(w, err)
@@ -90,6 +93,9 @@ func (a *API) createIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) dropIndex(w http.ResponseWriter, r *http.Request) {
+	if !a.requireWrite(w, r) {
+		return
+	}
 	coll, err := a.dbCollection(r)
 	if err != nil {
 		a.dbErr(w, err)

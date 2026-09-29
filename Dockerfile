@@ -11,7 +11,7 @@ ARG APP_VERSION=dev
 RUN VITE_APP_VERSION="${APP_VERSION#v}" npm run build
 
 # --- Backend build ----------------------------------------------------------
-FROM golang:1.23-alpine AS backend
+FROM golang:1.26-alpine AS backend
 WORKDIR /src/backend
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download

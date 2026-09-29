@@ -144,7 +144,10 @@ jobs:
           version=$(./bin/mongoui -version | awk '{print $2}')
           version=${version#v}
           asset=$(grep -oE '/assets/index-[^"]+\.js' backend/web/dist/index.html | head -n1)
-          gzip -dc "backend/web/dist${asset}.gz" | grep -q "$version"
+          # Avoid `gzip | grep -q` under pipefail: grep -q closes the pipe early
+          # and gzip dies with SIGPIPE, failing the step spuriously.
+          gzip -dc "backend/web/dist${asset}.gz" > /tmp/mongoui-ui.js
+          grep -q "$version" /tmp/mongoui-ui.js
           echo "embedded UI version: $version"
           # Every asset referenced by the shell must resolve.
           for asset in $(curl -fsS http://127.0.0.1:18099/ | grep -oE '/assets/[^"]+'); do

@@ -257,6 +257,9 @@ mongoUI 内置 MCP server，外部 AI Agent（Claude Desktop、Cursor、Cline �
 | `-web` | — | 空 | 从指定目录提供前端资源（覆盖内嵌版本） |
 | `-mcp-readonly` | `MONGOUI_MCP_READONLY` | 关 | MCP 只读模式（不暴露写工具） |
 | `-mcp-token` | `MONGOUI_MCP_TOKEN` | 空 | `/mcp` 的 Bearer 令牌（非空时校验） |
+| `-tls-cert` | `MONGOUI_TLS_CERT` | 空 | TLS 证书；与 `-tls-key` 同时设置时启用 HTTPS |
+| `-tls-key` | `MONGOUI_TLS_KEY` | 空 | TLS 私钥 |
+| — | `MONGOUI_KNOWN_HOSTS` | `~/.ssh/known_hosts` | SSH 跳板机主机密钥校验文件 |
 | — | `MONGOUI_SECRET_KEY` | 自动生成 | 加密连接密钥的主密钥（32 字节 hex/base64）；不填则用 `<data>/secret.key` |
 | — | `MONGOUI_ALLOW_ORIGIN` | 空 | 允许跨域访问的来源（逗号分隔）；默认仅同源 |
 
@@ -273,9 +276,9 @@ mongoUI 内置 MCP server，外部 AI Agent（Claude Desktop、Cursor、Cline �
 | SSH host / port | 跳板机地址，默认端口 `22` |
 | SSH user | 登录用户名 |
 | Authentication | `Password` 或 `Private key`（PEM / OpenSSH，可带 passphrase） |
-| known_hosts file | 可选，服务器上的 OpenSSH known_hosts 路径；填写后严格校验主机密钥 |
+| known_hosts file | 可选，服务器上的 OpenSSH known_hosts 路径；留空时依次回退到 `MONGOUI_KNOWN_HOSTS`、`~/.ssh/known_hosts` |
 
-> 未填写 `known_hosts` 时不校验主机密钥（流量仍然加密）。生产环境建议在服务器上配置 `known_hosts` 以启用严格校验。
+> 主机密钥默认**严格校验**（用上面的 known_hosts）。只有当上述文件都不存在时，才回退到“接受任意主机密钥”并打印警告。
 
 `mongodb+srv://` 同样可用：SRV 解析在本机完成，随后由 SSH 服务器去连接解析出的节点。
 
@@ -285,6 +288,7 @@ mongoUI 内置 MCP server，外部 AI Agent（Claude Desktop、Cursor、Cline �
 - 只读模式在**网页端、HTTP API 与 MCP 写工具中均服务端强制生效**（对只读连接的写操作返回 403，包括聚合里的 `$out` / `$merge`）。
 - 跨域默认**关闭（仅同源）**：如需让其他源访问 API/MCP，请设置 `MONGOUI_ALLOW_ORIGIN`（逗号分隔）。
 - 请求体限制 32MB，聚合结果默认限量，服务端设置了读/写/空闲超时，响应带 `X-Content-Type-Options` / `X-Frame-Options` / `Referrer-Policy`。
+- 连接列表接口对 **URI 密码与 SSH 凭据做了脱敏**（密码显示为 `xxxxxxxx`、SSH 密钥清空）；完整凭据仅在打开编辑弹窗时按单个连接获取，保存时会用完整值回写，不会丢失。
 - 首次启动会**强制引导设置 TOTP 两步验证**（见下），之后所有 `/api/*` 需要登录会话（`/api/health` 除外）。
 - `/mcp` 端点同样默认无鉴权，对外暴露时请设置 `MONGOUI_MCP_TOKEN`（或 `-mcp-token`），并可用 `-mcp-readonly` 限制为只读。
 

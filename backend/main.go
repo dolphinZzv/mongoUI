@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -58,6 +59,8 @@ func main() {
 		logFile      = flag.String("logfile", "", "log file path used by -daemon (default <data>/mongoui.log)")
 		mcpReadOnly  = flag.Bool("mcp-readonly", envBool("MONGOUI_MCP_READONLY"), "expose only read tools over MCP")
 		mcpToken     = flag.String("mcp-token", envOr("MONGOUI_MCP_TOKEN", ""), "require this bearer token for the MCP HTTP endpoint")
+		tlsCert      = flag.String("tls-cert", envOr("MONGOUI_TLS_CERT", ""), "TLS certificate file; enables HTTPS together with -tls-key")
+		tlsKey       = flag.String("tls-key", envOr("MONGOUI_TLS_KEY", ""), "TLS private key file")
 	)
 	flag.Parse()
 
@@ -150,6 +153,10 @@ func main() {
 
 	handler := api.New(store, mgr, uiEmbedded, version, mcp.New(store, mgr, version, *mcpToken, *mcpReadOnly).HTTPHandler(), authManager).Router(webHandler)
 
+	if (*tlsCert == "") != (*tlsKey == "") {
+		log.Printf("warning: both -tls-cert and -tls-key are required for HTTPS; serving plain HTTP")
+	}
+
 	srv := &http.Server{
 		Addr:              *addr,
 		Handler:           handler,
@@ -160,8 +167,16 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("mongoui %s listening on %s", version, *addr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		var err error
+		if *tlsCert != "" && *tlsKey != "" {
+			srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+			log.Printf("mongoui %s listening on %s (https)", version, *addr)
+			err = srv.ListenAndServeTLS(*tlsCert, *tlsKey)
+		} else {
+			log.Printf("mongoui %s listening on %s", version, *addr)
+			err = srv.ListenAndServe()
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("server error: %v", err)
 		}
 	}()

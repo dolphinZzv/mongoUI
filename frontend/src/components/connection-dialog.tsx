@@ -105,17 +105,32 @@ export function ConnectionDialog({
 
   React.useEffect(() => {
     if (!open) return
-    if (connection) {
+    if (!connection) {
+      setForm(EMPTY)
+      return
+    }
+    // The list is redacted, so fetch the full record (with credentials) before
+    // populating the form; otherwise saving would overwrite them.
+    let cancelled = false
+    void (async () => {
+      let full = connection
+      try {
+        full = await api.getConnection(connection.id)
+      } catch {
+        /* fall back to the redacted entry */
+      }
+      if (cancelled) return
       setForm({
         ...EMPTY,
-        name: connection.name,
-        uri: connection.uri,
-        color: connection.color || COLORS[0],
-        readOnly: Boolean(connection.readOnly),
-        ...sshFromConnection(connection),
+        name: full.name,
+        uri: full.uri,
+        color: full.color || COLORS[0],
+        readOnly: Boolean(full.readOnly),
+        ...sshFromConnection(full),
       })
-    } else {
-      setForm(EMPTY)
+    })()
+    return () => {
+      cancelled = true
     }
   }, [open, connection])
 

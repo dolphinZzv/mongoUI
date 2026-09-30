@@ -68,7 +68,9 @@ func (a *API) listConnections(w http.ResponseWriter, _ *http.Request) {
 	conns := a.store.List()
 	views := make([]connectionView, 0, len(conns))
 	for _, c := range conns {
-		views = append(views, connectionView{Connection: c, Connected: a.mgr.IsConnected(c.ID)})
+		// List responses are redacted: the UI only needs names/state, and
+		// credentials are fetched per connection when editing.
+		views = append(views, connectionView{Connection: redactConnection(c), Connected: a.mgr.IsConnected(c.ID)})
 	}
 	ok(w, views)
 }

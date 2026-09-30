@@ -9,11 +9,14 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 
 	"mongoui/internal/config"
 )
@@ -58,8 +61,10 @@ func startEcho(t *testing.T) (string, func()) {
 }
 
 // startSSHServer starts a minimal SSH server that supports direct-tcpip
-// forwarding, which is exactly what sshDialer relies on.
-func startSSHServer(t *testing.T, hostKey ssh.Signer, acceptKey ssh.PublicKey) (string, int, func()) {
+// forwarding, which is exactly what sshDialer relies on. It also returns a
+// known_hosts file containing the server key so tests exercise strict host key
+// verification.
+func startSSHServer(t *testing.T, hostKey ssh.Signer, acceptKey ssh.PublicKey) (string, int, string, func()) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -93,7 +98,16 @@ func startSSHServer(t *testing.T, hostKey ssh.Signer, acceptKey ssh.PublicKey) (
 	}()
 
 	addr := ln.Addr().(*net.TCPAddr)
-	return "127.0.0.1", addr.Port, func() { _ = ln.Close() }
+	host := "127.0.0.1"
+	knownHosts := filepath.Join(t.TempDir(), "known_hosts")
+	line := knownhosts.Line(
+		[]string{knownhosts.Normalize(net.JoinHostPort(host, strconv.Itoa(addr.Port)))},
+		hostKey.PublicKey(),
+	)
+	if err := os.WriteFile(knownHosts, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatalf("write known_hosts: %v", err)
+	}
+	return host, addr.Port, knownHosts, func() { _ = ln.Close() }
 }
 
 func serveSSHConn(conn net.Conn, cfg *ssh.ServerConfig) {
@@ -142,7 +156,7 @@ func TestSSHTunnelForwardsToTarget(t *testing.T) {
 
 	hostKey, _ := generateEd25519(t)
 	clientSigner, clientKeyPEM := generateEd25519(t)
-	host, port, stopSSH := startSSHServer(t, hostKey, clientSigner.PublicKey())
+	host, port, knownHosts, stopSSH := startSSHServer(t, hostKey, clientSigner.PublicKey())
 	defer stopSSH()
 
 	cfg := config.SSHConfig{
@@ -152,6 +166,7 @@ func TestSSHTunnelForwardsToTarget(t *testing.T) {
 		User:       "tester",
 		AuthMethod: "privateKey",
 		PrivateKey: clientKeyPEM,
+		KnownHosts: knownHosts,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -184,11 +199,11 @@ func TestSSHTunnelForwardsToTarget(t *testing.T) {
 
 func TestSSHTunnelPasswordInferred(t *testing.T) {
 	hostKey, _ := generateEd25519(t)
-	host, port, stopSSH := startSSHServer(t, hostKey, nil)
+	host, port, knownHosts, stopSSH := startSSHServer(t, hostKey, nil)
 	defer stopSSH()
 
 	// No AuthMethod set: it must be inferred as password.
-	cfg := config.SSHConfig{Enabled: true, Host: host, Port: port, User: "tester", Password: "secret"}
+	cfg := config.SSHConfig{Enabled: true, Host: host, Port: port, User: "tester", Password: "secret", KnownHosts: knownHosts}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

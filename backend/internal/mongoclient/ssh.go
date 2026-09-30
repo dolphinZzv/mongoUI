@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -201,15 +204,30 @@ func sshAuthMethods(cfg config.SSHConfig) ([]ssh.AuthMethod, error) {
 	}
 }
 
-// sshHostKeyCallback verifies the bastion's host key against a known_hosts file
-// when one is configured; otherwise the key is accepted without verification.
+// sshHostKeyCallback verifies the bastion's host key. It uses the per-connection
+// known_hosts path, then MONGOUI_KNOWN_HOSTS, then ~/.ssh/known_hosts. When no
+// known_hosts file exists at all it falls back to accepting any key (with a
+// warning) so the feature keeps working on minimal hosts.
 func sshHostKeyCallback(cfg config.SSHConfig) (ssh.HostKeyCallback, error) {
-	if path := strings.TrimSpace(cfg.KnownHosts); path != "" {
+	path := strings.TrimSpace(cfg.KnownHosts)
+	if path == "" {
+		path = strings.TrimSpace(os.Getenv("MONGOUI_KNOWN_HOSTS"))
+	}
+	if path == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			candidate := filepath.Join(home, ".ssh", "known_hosts")
+			if _, err := os.Stat(candidate); err == nil {
+				path = candidate
+			}
+		}
+	}
+	if path != "" {
 		cb, err := knownhosts.New(path)
 		if err != nil {
 			return nil, fmt.Errorf("load known_hosts %q: %w", path, err)
 		}
 		return cb, nil
 	}
+	log.Printf("ssh: no known_hosts file found; host key verification disabled (set MONGOUI_KNOWN_HOSTS to enable)")
 	return ssh.InsecureIgnoreHostKey(), nil
 }

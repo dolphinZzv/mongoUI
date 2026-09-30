@@ -95,3 +95,25 @@ func TestCORSIsSameOriginByDefault(t *testing.T) {
 		t.Fatalf("cross-origin allowed by default: %q", got)
 	}
 }
+
+func TestRedactConnection(t *testing.T) {
+	c := config.Connection{
+		URI: "mongodb://user:secret@host:27017/db",
+		SSH: &config.SSHConfig{Password: "sshpass", PrivateKey: "PRIVATE", Passphrase: "pp"},
+	}
+	r := redactConnection(c)
+	if strings.Contains(r.URI, "secret") {
+		t.Fatalf("uri password leaked: %s", r.URI)
+	}
+	if !strings.Contains(r.URI, "xxxxxxxx") {
+		t.Fatalf("uri not masked: %s", r.URI)
+	}
+	if r.SSH == nil || r.SSH.Password != "" || r.SSH.PrivateKey != "" || r.SSH.Passphrase != "" {
+		t.Fatalf("ssh secrets leaked: %+v", r.SSH)
+	}
+
+	// A URI without credentials is returned unchanged.
+	if got := redactURI("mongodb://host:27017"); got != "mongodb://host:27017" {
+		t.Fatalf("no-credential uri changed: %s", got)
+	}
+}

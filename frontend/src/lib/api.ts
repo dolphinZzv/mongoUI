@@ -83,6 +83,8 @@ const post = (path: string, body?: unknown) =>
 export const api = {
   // connections -----------------------------------------------------------------
   listConnections: () => request<Connection[]>("/connections"),
+  // getConnection returns the full record (used when editing); the list is redacted.
+  getConnection: (id: string) => request<Connection>(`/connections/${id}`),
   createConnection: (input: ConnectionInput) =>
     request<Connection>("/connections", { method: "POST", body: JSON.stringify(input) }),
   updateConnection: (id: string, input: ConnectionInput) =>

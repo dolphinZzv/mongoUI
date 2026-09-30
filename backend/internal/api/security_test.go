@@ -17,7 +17,7 @@ func newTestAPI(t *testing.T) (*API, *config.Store) {
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}
-	return New(store, mongoclient.NewManager(), true, "test", nil), store
+	return New(store, mongoclient.NewManager(), true, "test", nil, nil), store
 }
 
 func TestReadOnlyConnectionRejectsWrites(t *testing.T) {

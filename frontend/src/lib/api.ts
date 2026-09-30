@@ -1,5 +1,7 @@
 import type {
   AggregateResult,
+  AuthSetup,
+  AuthStatus,
   CollectionInfo,
   Connection,
   ConnectionInput,
@@ -49,6 +51,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!res.ok) {
+    // A 401 means the session expired or was never established; let the auth
+    // gate show the login screen again.
+    if (res.status === 401) {
+      try {
+        window.dispatchEvent(new Event("mongoui-unauthorized"))
+      } catch {
+        /* ignore */
+      }
+    }
     const message =
       body && typeof body === "object" && "error" in body
         ? String((body as { error: unknown }).error)
@@ -147,6 +158,21 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ query, limit }),
     }),
+
+  // auth ------------------------------------------------------------------------
+  authStatus: () => request<AuthStatus>("/auth/status"),
+  authSetupBegin: () => request<AuthSetup>("/auth/setup/begin", { method: "POST" }),
+  authSetupConfirm: (code: string) =>
+    request<{ enabled: boolean }>("/auth/setup/confirm", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+  authLogin: (code: string) =>
+    request<{ authenticated: boolean }>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+  authLogout: () => request<{ authenticated: boolean }>("/auth/logout", { method: "POST" }),
 
   // indexes ---------------------------------------------------------------------
   listIndexes: (id: string, db: string, col: string) =>

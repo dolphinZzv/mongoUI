@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"mongoui/internal/api"
+	"mongoui/internal/auth"
 	"mongoui/internal/config"
 	"mongoui/internal/daemon"
 	"mongoui/internal/mcp"
@@ -120,6 +121,11 @@ func main() {
 		log.Fatalf("failed to load connection store: %v", err)
 	}
 
+	authManager, err := auth.New(*dataDir, cipher, key)
+	if err != nil {
+		log.Fatalf("failed to load auth state: %v", err)
+	}
+
 	mgr := mongoclient.NewManager()
 	defer mgr.CloseAll()
 
@@ -133,7 +139,16 @@ func main() {
 		log.Printf("serving front-end from %s", *webDir)
 	}
 
-	handler := api.New(store, mgr, uiEmbedded, version, mcp.New(store, mgr, version, *mcpToken, *mcpReadOnly).HTTPHandler()).Router(webHandler)
+	if authManager.Enabled() {
+		log.Printf("TOTP authentication enabled")
+		if *mcpToken == "" {
+			log.Printf("warning: TOTP is enabled but MONGOUI_MCP_TOKEN is empty; the /mcp endpoint is unauthenticated")
+		}
+	} else {
+		log.Printf("TOTP not configured yet; open the UI to set it up")
+	}
+
+	handler := api.New(store, mgr, uiEmbedded, version, mcp.New(store, mgr, version, *mcpToken, *mcpReadOnly).HTTPHandler(), authManager).Router(webHandler)
 
 	srv := &http.Server{
 		Addr:              *addr,

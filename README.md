@@ -32,6 +32,7 @@
 | 服务器信息 | 版本、构建信息、运行时长、数据库总大小 |
 | 数据管理 | 创建 / 删除数据库、创建 / 删除集合（含 capped 选项） |
 | 主题 / i18n | 明亮 / 暗黑 / 跟随系统三种模式；中文 / English 双语，顶栏切换并自动跟随浏览器语言，偏好保存在浏览器 |
+| 登录 | 首次启动引导开启 TOTP 两步验证，之后所有 API 需登录（签名会话 Cookie） |
 | 运维 | 守护进程后台运行（`-daemon` / `-stop` / `-status`）、一键安装脚本、`mongoui update` 自更新 |
 | 浏览器 Agent | WebMCP（`navigator.modelContext`）+ `window.mongouiAgent`，把连接 / 查询 / 聚合 / 索引等操作暴露给浏览器内 agent，**默认关闭**、需显式开启 |
 | MCP | 内置 Model Context Protocol server（stdio / HTTP），把连接、查询、聚合、SQL、增删改、索引等暴露给外部 Agent；支持整体只读模式 |
@@ -236,6 +237,15 @@ mongoUI 内置 MCP server，外部 AI Agent（Claude Desktop、Cursor、Cline �
 
 详见 [docs/mcp.md](docs/mcp.md)。
 
+### 登录与两步验证（TOTP）
+
+首次打开界面会引导开启 TOTP：用验证器 App 扫描二维码（或手动输入密钥），输入 6 位验证码即启用。之后每次访问都需登录，会话由 **HttpOnly + SameSite=Strict 的签名 Cookie** 维持（默认 30 天）。
+
+- 启用后所有 `/api/*` 需要登录（`/api/health` 除外）；静态前端不受影响，所以登录页始终能打开。
+- 密钥经 AES-256-GCM 加密后保存在 `<data>/auth.json`；会话签名密钥由主密钥派生（`MONGOUI_SECRET_KEY`），**换主密钥会导致会话失效并需重新登录**。
+- 启用 TOTP 后 `/mcp` 不在会话保护范围内，请务必设置 `MONGOUI_MCP_TOKEN`，否则 agent 端点等于无鉴权（启动时会有告警日志）。
+- 想重置：删除 `<data>/auth.json` 重启，会重新进入首次设置。
+
 ## 配置
 
 通过命令行参数或环境变量配置：
@@ -275,7 +285,7 @@ mongoUI 内置 MCP server，外部 AI Agent（Claude Desktop、Cursor、Cline �
 - 只读模式在**网页端、HTTP API 与 MCP 写工具中均服务端强制生效**（对只读连接的写操作返回 403，包括聚合里的 `$out` / `$merge`）。
 - 跨域默认**关闭（仅同源）**：如需让其他源访问 API/MCP，请设置 `MONGOUI_ALLOW_ORIGIN`（逗号分隔）。
 - 请求体限制 32MB，聚合结果默认限量，服务端设置了读/写/空闲超时，响应带 `X-Content-Type-Options` / `X-Frame-Options` / `Referrer-Policy`。
-- 服务默认无鉴权，请勿直接暴露到公网；建议通过 SSH 隧道或反向代理 + 认证访问。
+- 首次启动会**强制引导设置 TOTP 两步验证**（见下），之后所有 `/api/*` 需要登录会话（`/api/health` 除外）。
 - `/mcp` 端点同样默认无鉴权，对外暴露时请设置 `MONGOUI_MCP_TOKEN`（或 `-mcp-token`），并可用 `-mcp-readonly` 限制为只读。
 
 ## 持续集成与发布

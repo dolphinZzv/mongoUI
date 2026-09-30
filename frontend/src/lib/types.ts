@@ -104,6 +104,18 @@ export interface SQLResult {
   mql: Record<string, unknown>
 }
 
+export interface AuthStatus {
+  enabled: boolean
+  authenticated: boolean
+  needsSetup: boolean
+}
+
+export interface AuthSetup {
+  secret: string
+  otpauthUrl: string
+  qr: string
+}
+
 export type Selection =
   | { kind: "welcome" }
   | { kind: "connection"; connectionId: string }

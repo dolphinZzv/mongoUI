@@ -6,11 +6,13 @@ require (
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/go-chi/cors v1.2.2
 	github.com/google/uuid v1.6.0
+	github.com/pquerna/otp v1.5.0
 	go.mongodb.org/mongo-driver v1.17.10
 	golang.org/x/crypto v0.57.0
 )
 
 require (
+	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/klauspost/compress v1.20.1 // indirect
 	github.com/montanaflynn/stats v0.7.1 // indirect

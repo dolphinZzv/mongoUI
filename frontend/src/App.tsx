@@ -1,9 +1,10 @@
 import * as React from "react"
-import { Database, Leaf, Loader2, Menu, Plus, Server, Table2, X } from "lucide-react"
+import { Database, Leaf, Loader2, LogOut, Menu, Plus, Server, Table2, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { AgentToggle } from "@/components/agent-toggle"
 import { AppSidebar } from "@/components/app-sidebar"
+import { useAuth } from "@/components/auth-gate"
 import { CollectionView } from "@/components/collection-view"
 import { ConnectionDialog } from "@/components/connection-dialog"
 import { ConnectionOverview } from "@/components/connection-overview"
@@ -22,6 +23,7 @@ import type { Connection, Selection } from "@/lib/types"
 
 export default function App() {
   const { t } = useI18n()
+  const { enabled: authEnabled } = useAuth()
   const [connections, setConnections] = React.useState<Connection[]>([])
   const [loading, setLoading] = React.useState(true)
   const { selection, tab, navigate } = useRouter()
@@ -250,6 +252,19 @@ export default function App() {
             </div>
             <div className="ml-auto flex items-center gap-2">
               <LanguageToggle />
+              {authEnabled ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  title={t("auth.signOut")}
+                  aria-label={t("auth.signOut")}
+                  onClick={() => {
+                    void api.authLogout().then(() => window.location.reload())
+                  }}
+                >
+                  <LogOut />
+                </Button>
+              ) : null}
               <AgentToggle />
               <ThemeToggle />
             </div>

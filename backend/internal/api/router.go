@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/cors"
 	"go.mongodb.org/mongo-driver/mongo"
 
+	"mongoui/internal/auth"
 	"mongoui/internal/config"
 	"mongoui/internal/mongoclient"
 )
@@ -22,11 +23,13 @@ type API struct {
 	uiEmbedded bool
 	version    string
 	mcpHandler http.Handler
+	auth       *auth.Manager
 }
 
-// New builds an API instance. mcpHandler, when non-nil, is mounted at /mcp.
-func New(store *config.Store, mgr *mongoclient.Manager, uiEmbedded bool, version string, mcpHandler http.Handler) *API {
-	return &API{store: store, mgr: mgr, uiEmbedded: uiEmbedded, version: version, mcpHandler: mcpHandler}
+// New builds an API instance. mcpHandler, when non-nil, is mounted at /mcp;
+// authManager, when non-nil, guards the data API with TOTP sessions.
+func New(store *config.Store, mgr *mongoclient.Manager, uiEmbedded bool, version string, mcpHandler http.Handler, authManager *auth.Manager) *API {
+	return &API{store: store, mgr: mgr, uiEmbedded: uiEmbedded, version: version, mcpHandler: mcpHandler, auth: authManager}
 }
 
 // Router returns the fully configured HTTP handler.
@@ -60,6 +63,15 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 				"uiEmbedded": a.uiEmbedded,
 			})
 		})
+
+		if a.auth != nil {
+			r.Mount("/auth", a.auth.Routes())
+		}
+
+		r.Group(func(r chi.Router) {
+			if a.auth != nil {
+				r.Use(a.auth.Middleware)
+			}
 
 		r.Route("/connections", func(r chi.Router) {
 			r.Get("/", a.listConnections)
@@ -103,6 +115,7 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 					})
 				})
 			})
+		})
 		})
 	})
 

@@ -255,6 +255,20 @@ const en: Record<string, string> = {
   "overview.name": "Name",
   "overview.loadDbFailed": "Failed to load databases",
 
+  "auth.setupTitle": "Enable two-factor authentication",
+  "auth.setupIntro":
+    "Scan the QR code with an authenticator app (Google Authenticator, 1Password, ...), then enter the 6-digit code to finish setup.",
+  "auth.secretLabel": "Or enter this secret manually",
+  "auth.saveSecret": "Save this secret somewhere safe — it is required to sign in.",
+  "auth.codeLabel": "6-digit code",
+  "auth.confirm": "Enable",
+  "auth.loginTitle": "Sign in",
+  "auth.loginIntro": "Enter the 6-digit code from your authenticator app.",
+  "auth.login": "Sign in",
+  "auth.invalidCode": "Invalid code, please try again",
+  "auth.setupFailed": "Could not start setup",
+  "auth.signOut": "Sign out",
+
   "resource.createDatabase": "Create database",
   "resource.databaseName": "Database name",
   "resource.initialCollection": "Initial collection",
@@ -541,6 +555,20 @@ const zh: Record<string, string> = {
   "overview.totalSize": "总大小",
   "overview.name": "名称",
   "overview.loadDbFailed": "获取数据库列表失败",
+
+  "auth.setupTitle": "开启两步验证（TOTP）",
+  "auth.setupIntro":
+    "用验证器 App（Google Authenticator、1Password 等）扫描二维码，然后输入 6 位验证码完成设置。",
+  "auth.secretLabel": "或手动输入以下密钥",
+  "auth.saveSecret": "请妥善保存该密钥，登录时需要用到。",
+  "auth.codeLabel": "6 位验证码",
+  "auth.confirm": "启用",
+  "auth.loginTitle": "登录",
+  "auth.loginIntro": "请输入验证器 App 中的 6 位验证码。",
+  "auth.login": "登录",
+  "auth.invalidCode": "验证码不正确，请重试",
+  "auth.setupFailed": "无法开始设置",
+  "auth.signOut": "退出登录",
 
   "resource.createDatabase": "创建数据库",
   "resource.databaseName": "数据库名",

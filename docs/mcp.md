@@ -231,6 +231,7 @@ curl -s http://localhost:8080/mcp \
 | --- | --- |
 | `command not found: mongoui` | 未安装或不在 `PATH` |
 | HTTP `401 unauthorized` | 服务端开启了 `MONGOUI_MCP_TOKEN`，需带 `Authorization: Bearer <token>` |
+| 开启 TOTP 后 MCP 返回 401 / 无鉴权 | `/mcp` 不受网页登录会话保护，请设置 `MONGOUI_MCP_TOKEN` |
 | HTTP `405` | `GET /mcp` 不支持；请用 `POST` |
 | `connection is not active` | 先调用 `mongoui_connect` |
 | `unknown connection "..."` | 连接 id 不对，先 `mongoui_list_connections` |

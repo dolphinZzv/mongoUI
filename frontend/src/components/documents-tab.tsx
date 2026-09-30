@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { DocumentDialog } from "@/components/document-dialog"
+import { RecentQueries } from "@/components/recent-queries"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -47,6 +48,7 @@ import {
 } from "@/components/ui/table"
 import { JsonEditor } from "@/components/json-editor"
 import { api } from "@/lib/api"
+import { useRecentQueries } from "@/hooks/useRecentQueries"
 import { useI18n } from "@/lib/i18n"
 import { copyToClipboard } from "@/lib/clipboard"
 import { classForType, collectColumns, documentId, formatValue, prettyJSON, valueType } from "@/lib/mongo"
@@ -103,6 +105,12 @@ export function DocumentsTab({
     | null
   >(null)
 
+  const {
+    items: recentFilters,
+    push: pushRecent,
+    clear: clearRecent,
+  } = useRecentQueries(`docs:${connectionId}:${database}:${collection}`)
+
   const load = React.useCallback(
     async (opts?: {
       skip?: number
@@ -141,13 +149,16 @@ export function DocumentsTab({
         setResult(res)
         setSkip(res.skip)
         setSelected(new Set())
+        if (nextSkip === 0 && filterText.trim() && filterText.trim() !== "{}") {
+          pushRecent(filterText.trim())
+        }
       } catch (err) {
         toast.error(err instanceof Error ? err.message : t("docs.queryFailed"))
       } finally {
         setLoading(false)
       }
     },
-    [connectionId, database, collection, filter, sort, projection, skip, limit],
+    [connectionId, database, collection, filter, sort, projection, skip, limit, pushRecent],
   )
 
   React.useEffect(() => {
@@ -364,6 +375,14 @@ export function DocumentsTab({
               {t("docs.filter")}
             </span>
           </div>
+          <RecentQueries
+            items={recentFilters}
+            onPick={(query) => {
+              setFilter(query)
+              void load({ skip: 0, filter: query })
+            }}
+            onClear={clearRecent}
+          />
           <Button onClick={() => void load({ skip: 0 })} disabled={loading}>
             {loading ? <Loader2 className="animate-spin" /> : <Play />}
             {t("common.run")}

@@ -203,3 +203,23 @@ func TestGroupByNonGroupedColumnFails(t *testing.T) {
 		t.Fatal("expected error for non-grouped column")
 	}
 }
+
+func TestComments(t *testing.T) {
+	cases := []struct {
+		sql  string
+		want string
+	}{
+		{"-- leading\nSELECT * FROM users /* inline */ WHERE age > 1 -- trailing", `{"age":{"$gt":1}}`},
+		{"SELECT * FROM users\n-- comment line\nWHERE name = 'a'", `{"name":"a"}`},
+		{"/* block\n comment */ SELECT * FROM users WHERE a = 1", `{"a":1}`},
+	}
+	for _, tc := range cases {
+		q, err := Translate(tc.sql)
+		if err != nil {
+			t.Fatalf("translate %q: %v", tc.sql, err)
+		}
+		if got := doc(t, q); got != tc.want {
+			t.Errorf("%q: filter = %s, want %s", tc.sql, got, tc.want)
+		}
+	}
+}

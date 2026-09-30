@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Database, Leaf, Loader2, LogOut, Menu, Plus, Server, Table2, X } from "lucide-react"
+import { Database, Leaf, Loader2, LogOut, Menu, PanelLeft, PanelLeftClose, Plus, Server, Table2, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { AgentToggle } from "@/components/agent-toggle"
@@ -21,6 +21,25 @@ import { ThemeProvider } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 import type { Connection, Selection } from "@/lib/types"
 
+function useIsDesktop() {
+  const [isDesktop, setIsDesktop] = React.useState(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches,
+  )
+  React.useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)")
+    const onChange = () => setIsDesktop(mq.matches)
+    mq.addEventListener("change", onChange)
+    return () => mq.removeEventListener("change", onChange)
+  }, [])
+  return isDesktop
+}
+
+const SIDEBAR_KEY = "mongoui-sidebar-width"
+const SIDEBAR_COLLAPSED_KEY = "mongoui-sidebar-collapsed"
+const SIDEBAR_DEFAULT = 288
+const SIDEBAR_MIN = 200
+const SIDEBAR_MAX = 520
+
 export default function App() {
   const { t } = useI18n()
   const { enabled: authEnabled } = useAuth()
@@ -30,6 +49,62 @@ export default function App() {
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editingConnection, setEditingConnection] = React.useState<Connection | null>(null)
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
+  const isDesktop = useIsDesktop()
+  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1"
+    } catch {
+      return false
+    }
+  })
+  const [sidebarWidth, setSidebarWidth] = React.useState(() => {
+    try {
+      const raw = Number(localStorage.getItem(SIDEBAR_KEY))
+      return Number.isFinite(raw) && raw >= SIDEBAR_MIN && raw <= SIDEBAR_MAX
+        ? raw
+        : SIDEBAR_DEFAULT
+    } catch {
+      return SIDEBAR_DEFAULT
+    }
+  })
+  const sidebarRef = React.useRef<HTMLDivElement>(null)
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? "1" : "0")
+    } catch {
+      /* storage may be unavailable */
+    }
+  }, [sidebarCollapsed])
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_KEY, String(sidebarWidth))
+    } catch {
+      /* storage may be unavailable */
+    }
+  }, [sidebarWidth])
+
+  const toggleSidebar = () => {
+    if (isDesktop) setSidebarCollapsed((prev) => !prev)
+    else setSidebarOpen((prev) => !prev)
+  }
+
+  const startResize = (event: React.MouseEvent) => {
+    event.preventDefault()
+    const onMove = (e: MouseEvent) => {
+      const left = sidebarRef.current?.getBoundingClientRect().left ?? 0
+      setSidebarWidth(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, e.clientX - left)))
+    }
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", onUp)
+      document.body.style.userSelect = ""
+    }
+    document.body.style.userSelect = "none"
+    document.addEventListener("mousemove", onMove)
+    document.addEventListener("mouseup", onUp)
+  }
 
   // Expose the agent tools to WebMCP / window.mongouiAgent when the user opts in.
   useAgentTools()
@@ -212,9 +287,12 @@ export default function App() {
         ) : null}
 
         <div
+          ref={sidebarRef}
+          style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}
           className={cn(
-            "bg-sidebar fixed inset-y-0 left-0 z-40 w-72 -translate-x-full transition-transform duration-200 md:static md:z-auto md:translate-x-0",
+            "bg-sidebar fixed inset-y-0 left-0 z-40 w-72 -translate-x-full transition-transform duration-200 md:relative md:z-auto md:w-[var(--sidebar-width)] md:translate-x-0",
             sidebarOpen && "translate-x-0",
+            sidebarCollapsed && "md:hidden",
           )}
         >
           <AppSidebar
@@ -226,6 +304,14 @@ export default function App() {
             onEditConnection={openEditConnection}
             onRefresh={() => void refreshConnections()}
           />
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            onMouseDown={startResize}
+            onDoubleClick={() => setSidebarWidth(SIDEBAR_DEFAULT)}
+            title={t("sidebar.resize")}
+            className="hover:bg-primary/40 absolute inset-y-0 -right-1 z-50 hidden w-2 cursor-col-resize md:block"
+          />
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col">
@@ -233,10 +319,21 @@ export default function App() {
             <Button
               variant="ghost"
               size="icon-sm"
-              className="md:hidden"
-              onClick={() => setSidebarOpen((prev) => !prev)}
+              onClick={toggleSidebar}
+              title={t("sidebar.toggle")}
+              aria-label={t("sidebar.toggle")}
             >
-              {sidebarOpen ? <X /> : <Menu />}
+              {isDesktop ? (
+                sidebarCollapsed ? (
+                  <PanelLeft />
+                ) : (
+                  <PanelLeftClose />
+                )
+              ) : sidebarOpen ? (
+                <X />
+              ) : (
+                <Menu />
+              )}
             </Button>
             <div className="min-w-0 truncate text-sm">
               {/* The collection view already renders its own db/collection path,

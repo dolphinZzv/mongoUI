@@ -14,9 +14,11 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { JsonView } from "@/components/json-view"
+import { RecentQueries } from "@/components/recent-queries"
 import { SqlEditor } from "@/components/sql-editor"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
+import { useRecentQueries } from "@/hooks/useRecentQueries"
 import { classForType, collectColumns, formatValue, valueType } from "@/lib/mongo"
 import { cn } from "@/lib/utils"
 import type { SQLResult } from "@/lib/types"
@@ -58,6 +60,11 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
   const [ran, setRan] = React.useState(false)
   const [view, setView] = React.useState<"table" | "json">("table")
   const [suggestions, setSuggestions] = React.useState<string[]>([])
+  const {
+    items: recentSql,
+    push: pushRecent,
+    clear: clearRecent,
+  } = useRecentQueries(`sql:${connectionId}:${database}`)
 
   // Complete collection and field names alongside the SQL keywords.
   React.useEffect(() => {
@@ -105,12 +112,13 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
       )
       setResult(res)
       setRan(true)
+      pushRecent(query)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("sql.failed"))
     } finally {
       setLoading(false)
     }
-  }, [connectionId, database, query, limit, t])
+  }, [connectionId, database, query, limit, t, pushRecent])
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
@@ -158,6 +166,11 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
               {loading ? <Loader2 className="animate-spin" /> : <Play />}
               {t("sql.run")}
             </Button>
+            <RecentQueries
+              items={recentSql}
+              onPick={(value) => setQuery(value)}
+              onClear={clearRecent}
+            />
           </div>
         </div>
 

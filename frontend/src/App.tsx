@@ -239,12 +239,10 @@ export default function App() {
               {sidebarOpen ? <X /> : <Menu />}
             </Button>
             <div className="min-w-0 truncate text-sm">
-              {selection.kind === "collection" ? (
-                <span className="text-muted-foreground">
-                  {selection.database} <span className="px-1">/</span>
-                  <span className="text-foreground font-medium">{selection.collection}</span>
-                </span>
-              ) : selection.kind === "connection" && selectedConnection ? (
+              {/* The collection view already renders its own db/collection path,
+                  so the top bar only shows the connection (scope) instead of
+                  repeating it. */}
+              {selection.kind !== "welcome" && selectedConnection ? (
                 <span className="font-medium">{selectedConnection.name}</span>
               ) : (
                 <span className="font-medium md:hidden">MongoUI</span>

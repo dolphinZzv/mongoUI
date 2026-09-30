@@ -215,6 +215,82 @@ export function DocumentsTab({
     })
   }
 
+  // --- drag / box selection ---------------------------------------------------
+  // Dragging across rows selects the range between the anchor row and the row
+  // under the cursor; Shift extends from the anchor and Cmd/Ctrl adds to the
+  // current selection.
+  const [dragging, setDragging] = React.useState(false)
+  const draggingRef = React.useRef(false)
+  const dragAnchorRef = React.useRef<number | null>(null)
+  const dragBaseRef = React.useRef<Set<string>>(new Set())
+  const dragMovedRef = React.useRef(false)
+  const dragHoverRef = React.useRef<number | null>(null)
+
+  const idsInRange = React.useCallback(
+    (a: number, b: number) => {
+      const lo = Math.min(a, b)
+      const hi = Math.max(a, b)
+      const ids: string[] = []
+      for (let i = lo; i <= hi; i++) {
+        const doc = documents[i]
+        const id = doc ? documentId(doc) : null
+        if (id) ids.push(id)
+      }
+      return ids
+    },
+    [documents],
+  )
+
+  React.useEffect(() => {
+    const onUp = () => {
+      if (!draggingRef.current) return
+      draggingRef.current = false
+      setDragging(false)
+    }
+    document.addEventListener("mouseup", onUp)
+    return () => document.removeEventListener("mouseup", onUp)
+  }, [])
+
+  const onRowMouseDown = (index: number, event: React.MouseEvent) => {
+    if (event.button !== 0) return
+    const target = event.target as HTMLElement
+    if (
+      target.closest(
+        'button, a, input, [role="checkbox"], [data-slot="checkbox"], [role="menuitem"]',
+      )
+    ) {
+      return
+    }
+    // Do not hijack an intentional text selection.
+    if (window.getSelection()?.toString()) return
+
+    event.preventDefault()
+    dragMovedRef.current = false
+    dragHoverRef.current = index
+
+    if (event.shiftKey && dragAnchorRef.current !== null) {
+      setSelected(new Set([...dragBaseRef.current, ...idsInRange(dragAnchorRef.current, index)]))
+    } else {
+      const base =
+        event.metaKey || event.ctrlKey ? new Set(selected) : new Set<string>()
+      const id = documents[index] ? documentId(documents[index]) : null
+      if (id) base.add(id)
+      dragBaseRef.current = base
+      dragAnchorRef.current = index
+      setSelected(base)
+    }
+    draggingRef.current = true
+    setDragging(true)
+  }
+
+  const onRowMouseEnter = (index: number) => {
+    if (!draggingRef.current || dragAnchorRef.current === null) return
+    if (dragHoverRef.current === index) return
+    dragHoverRef.current = index
+    dragMovedRef.current = true
+    setSelected(new Set([...dragBaseRef.current, ...idsInRange(dragAnchorRef.current, index)]))
+  }
+
   const handleInsert = async (value: unknown) => {
     const docs = Array.isArray(value) ? value : [value]
     const res = await api.insert(connectionId, database, collection, docs as MongoDocument[])
@@ -337,26 +413,9 @@ export function DocumentsTab({
         ) : null}
       </div>
 
-      {/* Selection actions */}
-      {selected.size > 0 ? (
-        <div className="bg-muted/50 flex shrink-0 items-center gap-3 border-b px-3 py-2 text-sm">
-          <span>{t("docs.selected", { count: selected.size })}</span>
-          <Button
-            variant="destructive"
-            size="sm"
-            disabled={readOnly}
-            onClick={() => setConfirm({ type: "bulk" })}
-          >
-            <Trash2 /> {t("docs.deleteSelected")}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
-            {t("docs.clear")}
-          </Button>
-        </div>
-      ) : null}
-
       {/* Table */}
-      <div className="scrollbar-thin min-h-0 flex-1 overflow-auto">
+      <div className="relative min-h-0 flex-1">
+        <div className={cn("scrollbar-thin h-full overflow-auto", dragging && "select-none")}>
         <Table>
           <TableHeader className="bg-background sticky top-0 z-10">
             <TableRow className="hover:bg-transparent">
@@ -398,7 +457,26 @@ export function DocumentsTab({
               <TableHead className="w-12" />
             </TableRow>
           </TableHeader>
-          <TableBody>
+          <TableBody
+            onMouseMove={(event) => {
+              const tr = (event.target as HTMLElement).closest("tr")
+              const raw = tr?.getAttribute("data-row-index")
+              if (raw !== null && raw !== undefined) onRowMouseEnter(Number(raw))
+            }}
+            onMouseUp={(event) => {
+              // Finalize on the row under the pointer: the last mousemove before
+              // mouseup can be coalesced, which would drop the end row.
+              if (!draggingRef.current || dragAnchorRef.current === null) return
+              const tr = (event.target as HTMLElement).closest("tr")
+              const raw = tr?.getAttribute("data-row-index")
+              if (raw === null || raw === undefined) return
+              const idx = Number(raw)
+              dragHoverRef.current = idx
+              setSelected(
+                new Set([...dragBaseRef.current, ...idsInRange(dragAnchorRef.current, idx)]),
+              )
+            }}
+          >
             {loading && documents.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={columns.length + 2} className="h-32 text-center">
@@ -422,8 +500,16 @@ export function DocumentsTab({
               return (
                 <TableRow
                   key={id ?? index}
+                  data-row-index={index}
                   data-state={isSelected ? "selected" : undefined}
-                  onDoubleClick={() => !readOnly && setEditing({ mode: "edit", document: doc })}
+                  onMouseDown={(event) => onRowMouseDown(index, event)}
+                  onDoubleClick={() => {
+                    if (dragMovedRef.current) {
+                      dragMovedRef.current = false
+                      return
+                    }
+                    if (!readOnly) setEditing({ mode: "edit", document: doc })
+                  }}
                 >
                   <TableCell>
                     <Checkbox
@@ -479,6 +565,24 @@ export function DocumentsTab({
             })}
           </TableBody>
         </Table>
+        </div>
+
+        {selected.size > 0 ? (
+          <div className="bg-background/95 absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border px-3 py-1.5 text-sm whitespace-nowrap shadow-lg backdrop-blur">
+            <span className="text-muted-foreground">{t("docs.selected", { count: selected.size })}</span>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={readOnly}
+              onClick={() => setConfirm({ type: "bulk" })}
+            >
+              <Trash2 /> {t("docs.deleteSelected")}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+              {t("docs.clear")}
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       {/* Pagination */}

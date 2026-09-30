@@ -5,6 +5,8 @@ import {
   Ellipsis,
   Loader2,
   Pencil,
+  Pin,
+  PinOff,
   Plug,
   Plus,
   RefreshCw,
@@ -74,6 +76,35 @@ function readExpanded(): ExpandedState {
   }
 }
 
+// Pinned connections / databases / collections are kept in localStorage so they
+// stay at the top of their list across refreshes.
+const PINNED_KEY = "mongoui-sidebar-pinned"
+
+const connPin = (id: string) => `c:${id}`
+const dbPin = (connectionId: string, database: string) => `d:${connectionId}::${database}`
+const colPin = (connectionId: string, database: string, collection: string) =>
+  `x:${connectionId}::${database}::${collection}`
+
+function readPinned(): Set<string> {
+  try {
+    const raw = localStorage.getItem(PINNED_KEY)
+    if (!raw) return new Set()
+    const parsed = JSON.parse(raw)
+    return new Set(Array.isArray(parsed) ? (parsed as string[]) : [])
+  } catch {
+    return new Set()
+  }
+}
+
+// pinnedFirst is a stable sort that floats pinned keys to the top.
+function pinnedFirst<T>(items: T[], pinned: Set<string>, key: (item: T) => string): T[] {
+  return [...items].sort((a, b) => {
+    const pa = pinned.has(key(a)) ? 0 : 1
+    const pb = pinned.has(key(b)) ? 0 : 1
+    return pa - pb
+  })
+}
+
 export function AppSidebar({
   connections,
   loading,
@@ -96,6 +127,7 @@ export function AppSidebar({
   const [loadingCols, setLoadingCols] = React.useState<Record<string, boolean>>({})
   const [busyConn, setBusyConn] = React.useState<Record<string, boolean>>({})
   const [filter, setFilter] = React.useState("")
+  const [pinned, setPinned] = React.useState<Set<string>>(() => readPinned())
 
   const [dbDialogFor, setDbDialogFor] = React.useState<string | null>(null)
   const [colDialogFor, setColDialogFor] = React.useState<{ connectionId: string; database: string } | null>(null)
@@ -202,6 +234,23 @@ export function AppSidebar({
       /* storage may be unavailable */
     }
   }, [expandedConns, expandedDbs])
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(PINNED_KEY, JSON.stringify([...pinned]))
+    } catch {
+      /* storage may be unavailable */
+    }
+  }, [pinned])
+
+  const togglePin = React.useCallback((key: string) => {
+    setPinned((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
 
   const handleConnect = async (connection: Connection) => {
     setBusyConn((prev) => ({ ...prev, [connection.id]: true }))
@@ -345,6 +394,60 @@ export function AppSidebar({
       })
     })
 
+  const orderedConnections = React.useMemo(
+    () => pinnedFirst(connections, pinned, (c) => connPin(c.id)),
+    [connections, pinned],
+  )
+
+  const pinnedItems = React.useMemo(() => {
+    const items: {
+      key: string
+      label: string
+      kind: "connection" | "database" | "collection"
+      onClick: () => void
+    }[] = []
+    for (const key of pinned) {
+      if (key.startsWith("c:")) {
+        const id = key.slice(2)
+        const connection = connections.find((c) => c.id === id)
+        if (!connection) continue
+        items.push({
+          key,
+          label: connection.name,
+          kind: "connection",
+          onClick: () => onSelect({ kind: "connection", connectionId: id }),
+        })
+      } else if (key.startsWith("d:")) {
+        const [connectionId, database] = key.slice(2).split("::")
+        const connection = connections.find((c) => c.id === connectionId)
+        if (!connection || !database) continue
+        items.push({
+          key,
+          label: `${connection.name} / ${database}`,
+          kind: "database",
+          onClick: () => {
+            setExpandedConns((prev) => ({ ...prev, [connectionId]: true }))
+            setExpandedDbs((prev) => ({ ...prev, [dbKey(connectionId, database)]: true }))
+            onSelect({ kind: "connection", connectionId })
+          },
+        })
+      } else if (key.startsWith("x:")) {
+        const [connectionId, database, collection] = key.slice(2).split("::")
+        const connection = connections.find((c) => c.id === connectionId)
+        if (!connection || !database || !collection) continue
+        items.push({
+          key,
+          label: `${connection.name} / ${database} / ${collection}`,
+          kind: "collection",
+          onClick: () =>
+            onSelect({ kind: "collection", connectionId, database, collection }),
+        })
+      }
+    }
+    return items
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinned, connections, onSelect])
+
   return (
     <div className="bg-sidebar text-sidebar-foreground flex h-full min-h-0 flex-col border-r" data-testid="sidebar">
       <div className="flex h-14 shrink-0 items-center gap-2 border-b px-3">
@@ -391,6 +494,44 @@ export function AppSidebar({
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-0.5 p-2">
+          {pinnedItems.length > 0 && !filtering ? (
+            <div className="mb-2 space-y-0.5 border-b pb-2">
+              <p className="text-muted-foreground px-1 pb-1 text-[10px] tracking-wide uppercase">
+                {t("sidebar.pinned")}
+              </p>
+              {pinnedItems.map((item) => (
+                <div
+                  key={item.key}
+                  className="group hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-1 rounded-md px-1 py-1"
+                >
+                  {item.kind === "connection" ? (
+                    <Plug className="text-muted-foreground size-3.5 shrink-0" />
+                  ) : item.kind === "database" ? (
+                    <Database className="text-muted-foreground size-3.5 shrink-0" />
+                  ) : (
+                    <Table2 className="text-muted-foreground size-3.5 shrink-0" />
+                  )}
+                  <button
+                    type="button"
+                    onClick={item.onClick}
+                    data-testid={`pinned-${item.key}`}
+                    className="min-w-0 flex-1 truncate text-left text-sm"
+                    title={item.label}
+                  >
+                    {item.label}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => togglePin(item.key)}
+                    aria-label={t("sidebar.unpin")}
+                    className="text-muted-foreground hover:text-foreground shrink-0 p-0.5 opacity-0 group-hover:opacity-100"
+                  >
+                    <PinOff className="size-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
           {loading && connections.length === 0 ? (
             <div className="flex items-center gap-2 px-2 py-6 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" /> {t("sidebar.loadingConnections")}
@@ -416,7 +557,7 @@ export function AppSidebar({
             </div>
           ) : null}
 
-          {connections.map((connection) => {
+          {orderedConnections.map((connection) => {
             const connectionMatches = matches(connection.name)
             const isExpanded = filtering || Boolean(expandedConns[connection.id])
             const isSelected =
@@ -430,6 +571,9 @@ export function AppSidebar({
                 })
               : dbs
             if (filtering && !connectionMatches && visibleDbs.length === 0) return null
+            const orderedDbs = pinnedFirst(visibleDbs, pinned, (db) =>
+              dbPin(connection.id, db.name),
+            )
             return (
               <div key={connection.id}>
                 <div
@@ -496,6 +640,10 @@ export function AppSidebar({
                       >
                         <Plus /> {t("sidebar.createDatabase")}
                       </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => togglePin(connPin(connection.id))}>
+                        {pinned.has(connPin(connection.id)) ? <PinOff /> : <Pin />}
+                        {pinned.has(connPin(connection.id)) ? t("sidebar.unpin") : t("sidebar.pin")}
+                      </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onSelect={() => onEditConnection(connection)}>
                         <Pencil /> {t("sidebar.editConnection")}
@@ -520,7 +668,7 @@ export function AppSidebar({
                     {visibleDbs.length === 0 && !loadingDbs[connection.id] ? (
                       <div className="text-muted-foreground px-2 py-1 text-xs">{t("sidebar.noDatabases")}</div>
                     ) : null}
-                    {visibleDbs.map((database) => {
+                    {orderedDbs.map((database) => {
                       const key = dbKey(connection.id, database.name)
                       const dbOpen = filtering || Boolean(expandedDbs[key])
                       const allCols = collections[key] ?? []
@@ -529,6 +677,9 @@ export function AppSidebar({
                         !filtering || connectionMatches || dbMatches
                           ? allCols
                           : allCols.filter((collection) => matches(collection.name))
+                      const orderedCols = pinnedFirst(cols, pinned, (col) =>
+                        colPin(connection.id, database.name, col.name),
+                      )
                       return (
                         <div key={key}>
                           <div className="group hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-1 rounded-md px-1 py-1">
@@ -577,6 +728,18 @@ export function AppSidebar({
                                 >
                                   <Plus /> {t("sidebar.createCollection")}
                                 </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onSelect={() => togglePin(dbPin(connection.id, database.name))}
+                                >
+                                  {pinned.has(dbPin(connection.id, database.name)) ? (
+                                    <PinOff />
+                                  ) : (
+                                    <Pin />
+                                  )}
+                                  {pinned.has(dbPin(connection.id, database.name))
+                                    ? t("sidebar.unpin")
+                                    : t("sidebar.pin")}
+                                </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
                                   variant="destructive"
@@ -607,7 +770,7 @@ export function AppSidebar({
                                   {t("sidebar.noCollections")}
                                 </div>
                               ) : null}
-                              {cols.map((collection) => {
+                              {orderedCols.map((collection) => {
                                 const colSelected =
                                   selection.kind === "collection" &&
                                   selection.connectionId === connection.id &&
@@ -650,6 +813,31 @@ export function AppSidebar({
                                         </Button>
                                       </DropdownMenuTrigger>
                                       <DropdownMenuContent align="start" className="w-48">
+                                        <DropdownMenuItem
+                                          onSelect={() =>
+                                            togglePin(
+                                              colPin(
+                                                connection.id,
+                                                database.name,
+                                                collection.name,
+                                              ),
+                                            )
+                                          }
+                                        >
+                                          {pinned.has(
+                                            colPin(connection.id, database.name, collection.name),
+                                          ) ? (
+                                            <PinOff />
+                                          ) : (
+                                            <Pin />
+                                          )}
+                                          {pinned.has(
+                                            colPin(connection.id, database.name, collection.name),
+                                          )
+                                            ? t("sidebar.unpin")
+                                            : t("sidebar.pin")}
+                                        </DropdownMenuItem>
+                                        <DropdownMenuSeparator />
                                         <DropdownMenuItem
                                           variant="destructive"
                                           disabled={connection.readOnly}

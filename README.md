@@ -23,7 +23,7 @@
 | 连接管理 | 新增 / 编辑 / 删除连接、连通性测试、连接 / 断开、只读模式、颜色标记，连接配置持久化到本地 JSON |
 | SSH 隧道 | 通过跳板机 / 堡垒机连接内网 MongoDB（密码或私钥认证，可选 known_hosts 严格校验） |
 | 数据浏览 | 数据库 / 集合树形导航，数据库大小、集合列表 |
-| 文档操作 | 过滤、排序、投影、分页；插入（支持批量数组）、整文档编辑替换、单条 / 批量 / 按条件删除；行选择批量删除、复制 JSON |
+| 文档操作 | 过滤器编辑器（MongoDB 语法高亮、操作符 / 字段名自动补全、常用过滤模板）、排序、投影、分页；插入（支持批量数组）、整文档编辑替换、单条 / 批量 / 按条件删除；行选择批量删除、复制 JSON |
 | 聚合管道 | 多行 JSON 编辑器 + 常用模板，表格 / JSON 两种结果视图 |
 | SQL 查询 | 用 SQL 查询 MongoDB，自动翻译为 find / aggregation，支持 WHERE / IN / LIKE / GROUP BY / HAVING / DISTINCT / 聚合函数，并展示生成的 MQL |
 | 索引 | 查看索引（键、唯一、稀疏、TTL、部分索引等）、创建、删除 |
@@ -31,6 +31,10 @@
 | 统计信息 | `collStats` / `dbStats` 关键指标卡片 + 原始 JSON |
 | 服务器信息 | 版本、构建信息、运行时长、数据库总大小 |
 | 数据管理 | 创建 / 删除数据库、创建 / 删除集合（含 capped 选项） |
+| 数据导入 / 导出 | JSON（Extended JSON 数组或 NDJSON）与 CSV 导入导出；导出可套用当前过滤 / 排序 / 投影，导入可先清空目标集合 |
+| 集合复制 / 迁移 | 把集合（可按过滤）复制到同一连接下的其它数据库 / 集合，可选复制索引、先清空目标 |
+| 执行计划 | 对 find / 聚合管道运行 `explain`（queryPlanner / executionStats / allPlansExecution），展示关键指标与原始计划 JSON |
+| 查询可视化 | 把 find / SQL / 聚合结果切换为图表（柱状 / 折线 / 面积 / 饼图），自选 X 轴、数值字段与聚合方式（计数 / 求和 / 平均 / 最大 / 最小）；纯 SVG 无额外依赖 |
 | 主题 / i18n | 明亮 / 暗黑 / 跟随系统三种模式；中文 / English 双语，顶栏切换并自动跟随浏览器语言，偏好保存在浏览器 |
 | 登录 | 首次启动引导开启 TOTP 两步验证，之后所有 API 需登录（签名会话 Cookie） |
 | 运维 | 守护进程后台运行（`-daemon` / `-stop` / `-status`）、一键安装脚本、`mongoui update` 自更新 |
@@ -66,6 +70,46 @@ LIMIT 20
 - 点号字段路径（如 `address.city`）
 
 执行接口为 `POST /api/connections/{id}/databases/{db}/sql`（body `{ query, limit? }`），响应包含 `documents`、`columns` 以及翻译后的 `mql`。
+
+## 过滤器与常用语法
+
+文档页的过滤框是一个轻量的 MongoDB 过滤器编辑器（不引入额外依赖）：
+
+- **语法高亮**：字段名、`$` 操作符、字符串 / 数字 / 布尔 / `null` 分色显示。
+- **自动补全**：输入 `$` 补全查询 / BSON 操作符（带简要说明），输入字段名按当前结果列补全；`Enter` / `Tab` 接受，`↑` / `↓` 选择。
+- **常用模板**：右侧魔棒可插入等于、比较、`$in`、正则、`$exists`、`$or` / `$and`、日期范围、按 `_id` 查询等模板。
+- **历史与收藏**：过滤历史保存在浏览器，可把常用查询收藏起来，随时从下拉里取用。
+
+语法与 MongoDB 一致（Extended JSON），例如：
+
+```json
+{ "status": "paid", "total": { "$gte": 100 }, "createdAt": { "$gte": { "$date": "2024-01-01T00:00:00Z" } } }
+```
+
+## 导入 / 导出与集合复制
+
+- **导出**：`POST /api/connections/{id}/databases/{db}/collections/{col}/export`，body `{ format: "json"|"csv", filter?, sort?, projection?, limit? }`，返回文件名、MIME 与内容，由前端触发下载。JSON 使用 Extended JSON，CSV 会展开顶层字段。
+- **导入**：`POST .../import`，body `{ format: "json"|"csv", content, drop? }`。JSON 支持数组或 NDJSON；CSV 以首行为表头，并自动推断数字 / 布尔 / 内嵌 JSON；`drop: true` 会先清空集合（可用作备份恢复）。
+- **复制 / 迁移**：`POST .../copy`，body `{ targetDatabase, targetCollection, filter?, dropTarget?, copyIndexes? }`，把文档批量写入同一连接下的目标集合，并可选重建源索引。
+
+## 执行计划（explain）
+
+`POST /api/connections/{id}/databases/{db}/collections/{col}/explain`，body `{ type: "find"|"aggregate", filter?, sort?, projection?, pipeline?, limit?, verbosity? }`。界面在文档页与聚合页都提供入口，可切换 `queryPlanner` / `executionStats` / `allPlansExecution`，并展示耗时、扫描索引键 / 文档数、返回条数等指标与完整计划 JSON。
+
+MCP 也暴露了 `mongoui_explain` 工具。
+
+## 查询结果可视化（query to chart）
+
+文档页、SQL 页与聚合页都可以把当前结果切换成图表（文档页在“更多操作”里打开可视化弹窗）：
+
+- **图表类型**：柱状图、折线图、面积图、饼图。
+- **X 轴**：任意字段，按值分类聚合。
+- **数值**：可选多个数值字段（求和 / 平均 / 最大 / 最小），或直接用「计数」。
+- **排序与上限**：按数值升 / 降序排列，并限制展示的分类数（默认 20）。
+- **自动识别**：打开时自动选一个低基数的分类字段作 X 轴、数值字段作 Y 轴；配置按集合 / 查询记忆在浏览器 `localStorage`。
+- 图表用原生 SVG 绘制，使用主题的 `--chart-*` 配色，暗黑模式自动适配，**不引入任何图表依赖**。
+
+> 图表基于当前返回的文档（SQL / 聚合受结果上限约束，文档页为当前页）。需要全量统计时，用 SQL 的 `GROUP BY` 或聚合的 `$group` 先聚合成少量文档再可视化。
 
 ## URL 路由与状态保持
 
@@ -212,11 +256,11 @@ await window.mongouiAgent.call("mongoui_find", {
 })
 ```
 
-工具覆盖连接与库 / 集合浏览、查询、聚合、Schema、索引，以及插入 / 更新 / 删除等写操作。所有调用都走同一个后端 REST API，因此仍受只读模式与后端校验约束；完整列表见 `frontend/src/lib/agentTools.ts`（界面里也会列出）。
+工具覆盖连接与库 / 集合浏览、查询、聚合、执行计划（explain）、Schema、索引，以及插入 / 更新 / 删除等写操作。所有调用都走同一个后端 REST API，因此仍受只读模式与后端校验约束；完整列表见 `frontend/src/lib/agentTools.ts`（界面里也会列出）。
 
 ## MCP（Model Context Protocol）
 
-mongoUI 内置 MCP server，外部 AI Agent（Claude Desktop、Cursor、Cline 等）可以通过 MCP 直接操作 MongoDB——浏览库/集合、查询、聚合、SQL、增删改、索引管理，无需自行连接数据库。
+mongoUI 内置 MCP server，外部 AI Agent（Claude Desktop、Cursor、Cline 等）可以通过 MCP 直接操作 MongoDB——浏览库/集合、查询、聚合、SQL、执行计划（explain）、增删改、索引管理，无需自行连接数据库。
 
 - **stdio**：`mongoui mcp`（本地子进程，共用 `-data` 目录里的连接配置）。
 - **HTTP（Streamable HTTP）**：运行中的 server 在 `POST /mcp` 提供端点。
@@ -341,8 +385,8 @@ make clean       # 清理构建产物
 
 ## 后续可扩展方向
 
-- 连接鉴权 / 多用户
-- 数据导入导出（JSON / CSV）
-- 查询历史与收藏
-- 集合间的复制 / 迁移
-- 更完整的索引编辑器与执行计划（explain）可视化
+- 多用户与更细粒度的权限（当前是单一 TOTP 登录 + 每连接只读开关）
+- 跨设备的查询收藏同步（当前历史与收藏保存在浏览器 `localStorage`）
+- 定时备份 / 导出任务与进度展示
+- 更完整的索引编辑器（可视化选择字段、collation、隐藏索引等）
+- 复制的高级选项（字段映射 / 限速 / 跨连接迁移）

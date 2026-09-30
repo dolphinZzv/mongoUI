@@ -1,12 +1,16 @@
 import * as React from "react"
 import {
+  Activity,
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  BarChart3,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Copy,
+  Download,
+  Ellipsis,
   Loader2,
   Pencil,
   Play,
@@ -14,15 +18,20 @@ import {
   RefreshCw,
   Rows3,
   Trash2,
+  Upload,
 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { ChartDialog } from "@/components/chart-dialog"
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import { CopyCollectionDialog } from "@/components/copy-collection-dialog"
 import { DocumentDialog } from "@/components/document-dialog"
+import { ExportDialog, ImportDialog } from "@/components/data-transfer-dialog"
+import { ExplainDialog } from "@/components/explain-dialog"
+import { MongoFilterEditor } from "@/components/mongo-filter-editor"
 import { RecentQueries } from "@/components/recent-queries"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   DropdownMenu,
@@ -53,7 +62,7 @@ import { useI18n } from "@/lib/i18n"
 import { copyToClipboard } from "@/lib/clipboard"
 import { classForType, collectColumns, documentId, formatValue, prettyJSON, valueType } from "@/lib/mongo"
 import { cn } from "@/lib/utils"
-import type { FindResult, MongoDocument } from "@/lib/types"
+import type { ExplainRequest, FindResult, MongoDocument } from "@/lib/types"
 
 interface DocumentsTabProps {
   connectionId: string
@@ -104,11 +113,18 @@ export function DocumentsTab({
     | { type: "filter" }
     | null
   >(null)
+  const [transfer, setTransfer] = React.useState<"import" | "export" | null>(null)
+  const [copyOpen, setCopyOpen] = React.useState(false)
+  const [explainOpen, setExplainOpen] = React.useState(false)
+  const [chartOpen, setChartOpen] = React.useState(false)
 
   const {
     items: recentFilters,
+    favorites: favoriteFilters,
     push: pushRecent,
     clear: clearRecent,
+    toggleFavorite: toggleFavoriteFilter,
+    removeFavorite: removeFavoriteFilter,
   } = useRecentQueries(`docs:${connectionId}:${database}:${collection}`)
 
   const load = React.useCallback(
@@ -351,6 +367,20 @@ export function DocumentsTab({
     await load({ skip: 0 })
   }
 
+  const explainRequest = React.useMemo<Omit<ExplainRequest, "verbosity"> | null>(() => {
+    try {
+      return {
+        type: "find",
+        filter: filter.trim() ? JSON.parse(filter) : {},
+        sort: sort.trim() ? JSON.parse(sort) : undefined,
+        projection: projection.trim() ? JSON.parse(projection) : undefined,
+        limit,
+      }
+    } catch {
+      return null
+    }
+  }, [filter, sort, projection, limit])
+
   const allSelected = documents.length > 0 && documents.every((doc) => {
     const id = documentId(doc)
     return id !== null && selected.has(id)
@@ -362,26 +392,29 @@ export function DocumentsTab({
       <div className="shrink-0 space-y-2 border-b p-3">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
-            <Input
+            <MongoFilterEditor
               value={filter}
-              onChange={(e) => setFilter(e.target.value)}
+              onChange={setFilter}
               onKeyDown={(e) => {
-                if (e.key === "Enter") void load({ skip: 0 })
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault()
+                  void load({ skip: 0 })
+                }
               }}
               placeholder={t("docs.filterPlaceholder")}
-              className="pr-14 font-mono text-xs"
+              suggestions={columns}
             />
-            <span className="text-muted-foreground pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-[10px] tracking-wide uppercase">
-              {t("docs.filter")}
-            </span>
           </div>
           <RecentQueries
             items={recentFilters}
+            favorites={favoriteFilters}
             onPick={(query) => {
               setFilter(query)
               void load({ skip: 0, filter: query })
             }}
             onClear={clearRecent}
+            onToggleFavorite={toggleFavoriteFilter}
+            onRemoveFavorite={removeFavoriteFilter}
           />
           <Button onClick={() => void load({ skip: 0 })} disabled={loading}>
             {loading ? <Loader2 className="animate-spin" /> : <Play />}
@@ -399,6 +432,42 @@ export function DocumentsTab({
             <Rows3 />
             <ChevronDown className={cn("transition-transform", showOptions && "rotate-180")} />
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" title={t("docs.more")}>
+                <Ellipsis />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem disabled={readOnly} onSelect={() => setTransfer("import")}>
+                <Upload /> {t("transfer.importAction")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setTransfer("export")}>
+                <Download /> {t("transfer.exportAction")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() => {
+                  if (!explainRequest) {
+                    toast.error(t("docs.invalidJson"))
+                    return
+                  }
+                  setExplainOpen(true)
+                }}
+              >
+                <Activity /> {t("explain.title")}
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={readOnly} onSelect={() => setCopyOpen(true)}>
+                <Copy /> {t("copy.action")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={documents.length === 0}
+                onSelect={() => setChartOpen(true)}
+              >
+                <BarChart3 /> {t("chart.open")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             onClick={() => setEditing({ mode: "insert" })}
             disabled={readOnly}
@@ -694,6 +763,49 @@ export function DocumentsTab({
         description={t("docs.deleteDesc")}
         confirmLabel={t("common.delete")}
         onConfirm={runConfirm}
+      />
+
+      <ExportDialog
+        open={transfer === "export"}
+        onOpenChange={(open) => !open && setTransfer(null)}
+        connectionId={connectionId}
+        database={database}
+        collection={collection}
+        filter={filter}
+        sort={sort}
+        projection={projection}
+      />
+      <ImportDialog
+        open={transfer === "import"}
+        onOpenChange={(open) => !open && setTransfer(null)}
+        connectionId={connectionId}
+        database={database}
+        collection={collection}
+        onImported={() => void load({ skip: 0 })}
+      />
+      <ExplainDialog
+        open={explainOpen}
+        onOpenChange={setExplainOpen}
+        connectionId={connectionId}
+        database={database}
+        collection={collection}
+        request={explainRequest}
+      />
+      <CopyCollectionDialog
+        open={copyOpen}
+        onOpenChange={setCopyOpen}
+        connectionId={connectionId}
+        database={database}
+        collection={collection}
+        filter={filter}
+        onCopied={() => undefined}
+      />
+      <ChartDialog
+        open={chartOpen}
+        onOpenChange={setChartOpen}
+        documents={documents}
+        columns={columns}
+        storageKey={`docs:${connectionId}:${database}:${collection}`}
       />
     </div>
   )

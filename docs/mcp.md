@@ -101,7 +101,7 @@ MONGOUI_MCP_READONLY=1 mongoui        # 环境变量
 
 ## 3. 工具参考
 
-共 20 个工具（只读模式下暴露 12 个）。
+共 21 个工具（只读模式下暴露 13 个）。
 
 ### 只读工具
 
@@ -118,6 +118,7 @@ MONGOUI_MCP_READONLY=1 mongoui        # 环境变量
 | `mongoui_find` | `connectionId`, `database`, `collection`, `filter?`, `sort?`, `projection?`, `skip?`, `limit?` | 查询文档（Extended JSON） |
 | `mongoui_aggregate` | `connectionId`, `database`, `collection`, `pipeline`, `limit?` | 聚合管道 |
 | `mongoui_sql` | `connectionId`, `database`, `query`, `limit?` | SQL 查询（SELECT） |
+| `mongoui_explain` | `connectionId`, `database`, `collection`, `type?`, `filter?`, `sort?`, `projection?`, `pipeline?`, `limit?`, `verbosity?` | 执行计划（find / 聚合） |
 | `mongoui_list_indexes` | `connectionId`, `database`, `collection` | 索引列表 |
 
 ### 写工具（只读模式下隐藏）

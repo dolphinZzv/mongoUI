@@ -1,8 +1,10 @@
 import * as React from "react"
-import { Braces, Loader2, Play, Table2 } from "lucide-react"
+import { Activity, BarChart3, Braces, Loader2, Play, Table2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { ChartView } from "@/components/chart-view"
+import { ExplainDialog } from "@/components/explain-dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -53,7 +55,14 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
   const [documents, setDocuments] = React.useState<MongoDocument[]>([])
   const [loading, setLoading] = React.useState(false)
   const [ran, setRan] = React.useState(false)
-  const [view, setView] = React.useState<"table" | "json">("table")
+  const [view, setView] = React.useState<"table" | "json" | "chart">("table")
+  const [explainOpen, setExplainOpen] = React.useState(false)
+  const [explainPipeline, setExplainPipeline] = React.useState<unknown[] | null>(null)
+
+  const explainRequest = React.useMemo(
+    () => (explainPipeline ? { type: "aggregate" as const, pipeline: explainPipeline } : null),
+    [explainPipeline],
+  )
 
   const run = async () => {
     let parsed: unknown
@@ -86,6 +95,22 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
   }
 
   const columns = React.useMemo(() => collectColumns(documents), [documents])
+
+  const explain = () => {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(pipeline.trim() || "[]")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("agg.notJson"))
+      return
+    }
+    if (!Array.isArray(parsed)) {
+      toast.error(t("agg.mustBeArray"))
+      return
+    }
+    setExplainPipeline(parsed)
+    setExplainOpen(true)
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -120,6 +145,9 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
               {loading ? <Loader2 className="animate-spin" /> : <Play />}
               {t("common.run")}
             </Button>
+            <Button onClick={explain} disabled={loading} size="sm" variant="outline">
+              <Activity /> {t("explain.title")}
+            </Button>
           </div>
         </div>
         <JsonEditor
@@ -146,6 +174,14 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
         >
           <Braces /> {t("result.json")}
         </Button>
+        <Button
+          variant={view === "chart" ? "secondary" : "ghost"}
+          size="sm"
+          onClick={() => setView("chart")}
+          disabled={!ran}
+        >
+          <BarChart3 /> {t("result.chart")}
+        </Button>
         <span className="text-muted-foreground ml-auto text-xs">
           {ran
             ? t(documents.length === 1 ? "sql.rows" : "sql.rows_plural", {
@@ -155,50 +191,68 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
         </span>
       </div>
 
-      <div className="scrollbar-thin min-h-0 flex-1 overflow-auto p-3">
-        {!ran ? (
-          <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
-            {t("agg.placeholder")}
-          </div>
-        ) : view === "json" ? (
-          <JsonView value={documents} maxHeight="none" />
-        ) : documents.length === 0 ? (
-          <div className="text-muted-foreground flex h-32 items-center justify-center text-sm">
-            {t("agg.empty")}
-          </div>
-        ) : (
-          <Table>
-            <TableHeader className="bg-background sticky top-0 z-10">
-              <TableRow className="hover:bg-transparent">
-                {columns.map((column) => (
-                  <TableHead key={column} className="font-mono text-xs">
-                    {column}
-                  </TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {documents.map((doc, index) => (
-                <TableRow key={index}>
-                  {columns.map((column) => {
-                    const value = doc[column]
-                    return (
-                      <TableCell key={column} className="max-w-[320px] truncate">
-                        <span
-                          className={cn("font-mono text-xs", classForType(valueType(value)))}
-                          title={formatValue(value)}
-                        >
-                          {formatValue(value).slice(0, 90)}
-                        </span>
-                      </TableCell>
-                    )
-                  })}
+      {ran && view === "chart" ? (
+        <ChartView
+          className="min-h-0 flex-1"
+          documents={documents}
+          columns={columns}
+          storageKey={`agg:${connectionId}:${database}:${collection}`}
+        />
+      ) : (
+        <div className="scrollbar-thin min-h-0 flex-1 overflow-auto p-3">
+          {!ran ? (
+            <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
+              {t("agg.placeholder")}
+            </div>
+          ) : view === "json" ? (
+            <JsonView value={documents} maxHeight="none" />
+          ) : documents.length === 0 ? (
+            <div className="text-muted-foreground flex h-32 items-center justify-center text-sm">
+              {t("agg.empty")}
+            </div>
+          ) : (
+            <Table>
+              <TableHeader className="bg-background sticky top-0 z-10">
+                <TableRow className="hover:bg-transparent">
+                  {columns.map((column) => (
+                    <TableHead key={column} className="font-mono text-xs">
+                      {column}
+                    </TableHead>
+                  ))}
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </div>
+              </TableHeader>
+              <TableBody>
+                {documents.map((doc, index) => (
+                  <TableRow key={index}>
+                    {columns.map((column) => {
+                      const value = doc[column]
+                      return (
+                        <TableCell key={column} className="max-w-[320px] truncate">
+                          <span
+                            className={cn("font-mono text-xs", classForType(valueType(value)))}
+                            title={formatValue(value)}
+                          >
+                            {formatValue(value).slice(0, 90)}
+                          </span>
+                        </TableCell>
+                      )
+                    })}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      )}
+
+      <ExplainDialog
+        open={explainOpen}
+        onOpenChange={setExplainOpen}
+        connectionId={connectionId}
+        database={database}
+        collection={collection}
+        request={explainRequest}
+      />
     </div>
   )
 }

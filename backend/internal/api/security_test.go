@@ -33,6 +33,8 @@ func TestReadOnlyConnectionRejectsWrites(t *testing.T) {
 		{http.MethodPost, "/api/connections/" + conn.ID + "/databases/db/collections/c/update"},
 		{http.MethodPost, "/api/connections/" + conn.ID + "/databases/db/collections/c/delete"},
 		{http.MethodPost, "/api/connections/" + conn.ID + "/databases/db/collections/c/indexes"},
+		{http.MethodPost, "/api/connections/" + conn.ID + "/databases/db/collections/c/import"},
+		{http.MethodPost, "/api/connections/" + conn.ID + "/databases/db/collections/c/copy"},
 		{http.MethodPost, "/api/connections/" + conn.ID + "/databases/db/collections"},
 		{http.MethodDelete, "/api/connections/" + conn.ID + "/databases/db"},
 	}

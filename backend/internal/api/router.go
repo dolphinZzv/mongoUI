@@ -73,49 +73,53 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 				r.Use(a.auth.Middleware)
 			}
 
-		r.Route("/connections", func(r chi.Router) {
-			r.Get("/", a.listConnections)
-			r.Post("/", a.createConnection)
-			r.Post("/test", a.testConnection)
+			r.Route("/connections", func(r chi.Router) {
+				r.Get("/", a.listConnections)
+				r.Post("/", a.createConnection)
+				r.Post("/test", a.testConnection)
 
-			r.Route("/{id}", func(r chi.Router) {
-				r.Get("/", a.getConnection)
-				r.Put("/", a.updateConnection)
-				r.Delete("/", a.deleteConnection)
+				r.Route("/{id}", func(r chi.Router) {
+					r.Get("/", a.getConnection)
+					r.Put("/", a.updateConnection)
+					r.Delete("/", a.deleteConnection)
 
-				r.Post("/connect", a.connect)
-				r.Post("/disconnect", a.disconnect)
-				r.Get("/server", a.serverInfo)
+					r.Post("/connect", a.connect)
+					r.Post("/disconnect", a.disconnect)
+					r.Get("/server", a.serverInfo)
 
-				r.Get("/databases", a.listDatabases)
-				r.Post("/databases", a.createDatabase)
+					r.Get("/databases", a.listDatabases)
+					r.Post("/databases", a.createDatabase)
 
-				r.Route("/databases/{db}", func(r chi.Router) {
-					r.Delete("/", a.dropDatabase)
-					r.Get("/stats", a.databaseStats)
-					r.Post("/sql", a.runSQL)
+					r.Route("/databases/{db}", func(r chi.Router) {
+						r.Delete("/", a.dropDatabase)
+						r.Get("/stats", a.databaseStats)
+						r.Post("/sql", a.runSQL)
 
-					r.Get("/collections", a.listCollections)
-					r.Post("/collections", a.createCollection)
+						r.Get("/collections", a.listCollections)
+						r.Post("/collections", a.createCollection)
 
-					r.Route("/collections/{col}", func(r chi.Router) {
-						r.Delete("/", a.dropCollection)
-						r.Get("/stats", a.collectionStats)
-						r.Get("/schema", a.collectionSchema)
+						r.Route("/collections/{col}", func(r chi.Router) {
+							r.Delete("/", a.dropCollection)
+							r.Get("/stats", a.collectionStats)
+							r.Get("/schema", a.collectionSchema)
 
-						r.Post("/find", a.findDocuments)
-						r.Post("/insert", a.insertDocuments)
-						r.Post("/update", a.updateDocuments)
-						r.Post("/delete", a.deleteDocuments)
-						r.Post("/aggregate", a.aggregate)
+							r.Post("/find", a.findDocuments)
+							r.Post("/insert", a.insertDocuments)
+							r.Post("/update", a.updateDocuments)
+							r.Post("/delete", a.deleteDocuments)
+							r.Post("/aggregate", a.aggregate)
+							r.Post("/explain", a.explain)
+							r.Post("/export", a.exportDocuments)
+							r.Post("/import", a.importDocuments)
+							r.Post("/copy", a.copyCollection)
 
-						r.Get("/indexes", a.listIndexes)
-						r.Post("/indexes", a.createIndex)
-						r.Delete("/indexes/{name}", a.dropIndex)
+							r.Get("/indexes", a.listIndexes)
+							r.Post("/indexes", a.createIndex)
+							r.Delete("/indexes/{name}", a.dropIndex)
+						})
 					})
 				})
 			})
-		})
 		})
 	})
 

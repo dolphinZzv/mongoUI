@@ -1,5 +1,5 @@
 import { api } from "@/lib/api"
-import type { FindRequest, MongoDocument } from "@/lib/types"
+import type { ExplainRequest, FindRequest, MongoDocument } from "@/lib/types"
 
 /**
  * Tools an in-browser agent (WebMCP, a browser extension, the console, ...) can
@@ -176,6 +176,46 @@ export const agentTools: AgentTool[] = [
         requiredStr(args, "collection"),
         pipeline,
         num(args, "limit"),
+      )
+    },
+  },
+  {
+    name: "mongoui_explain",
+    description:
+      "Return the execution plan (explain) for a find query or an aggregation pipeline. Use verbosity=executionStats to see examined/returned counts.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ...collectionTarget,
+        type: { type: "string", enum: ["find", "aggregate"], description: "Query type (default find)" },
+        filter: { type: "object", description: "MongoDB query filter (find)" },
+        sort: { type: "object", description: "Sort spec (find)" },
+        projection: { type: "object", description: "Projection spec (find)" },
+        pipeline: { type: "array", items: { type: "object" }, description: "Pipeline stages (aggregate)" },
+        limit: { type: "number" },
+        verbosity: {
+          type: "string",
+          enum: ["queryPlanner", "executionStats", "allPlansExecution"],
+        },
+      },
+      required: ["connectionId", "database", "collection"],
+    },
+    execute: (args) => {
+      const verbosity = str(args, "verbosity")
+      const request: ExplainRequest = {
+        type: str(args, "type") === "aggregate" ? "aggregate" : "find",
+        filter: obj(args, "filter") ?? {},
+        sort: obj(args, "sort"),
+        projection: obj(args, "projection"),
+        pipeline: list(args, "pipeline"),
+        limit: num(args, "limit"),
+        verbosity: (verbosity as ExplainRequest["verbosity"]) || undefined,
+      }
+      return api.explain(
+        requiredStr(args, "connectionId"),
+        requiredStr(args, "database"),
+        requiredStr(args, "collection"),
+        request,
       )
     },
   },

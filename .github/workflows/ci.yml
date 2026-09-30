@@ -18,6 +18,13 @@ jobs:
   backend:
     name: Backend (vet + test)
     runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:8
+        ports:
+          - 27017:27017
+    env:
+      MONGOUI_TEST_MONGO_URI: mongodb://127.0.0.1:27017
     defaults:
       run:
         working-directory: backend

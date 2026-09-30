@@ -1,4 +1,4 @@
-import { CheckIcon, CopyIcon, Table2 } from "lucide-react"
+import { CheckIcon, CopyIcon, FolderInput, Table2 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { copyToClipboard } from "@/lib/clipboard"
 import { useI18n } from "@/lib/i18n"
+import { CopyCollectionDialog } from "@/components/copy-collection-dialog"
 import { AggregationTab } from "@/components/aggregation-tab"
 import { DocumentsTab } from "@/components/documents-tab"
 import { IndexesTab } from "@/components/indexes-tab"
@@ -31,6 +32,7 @@ export function CollectionView({
   onTabChange,
 }: CollectionViewProps) {
   const [copied, setCopied] = React.useState(false)
+  const [copyOpen, setCopyOpen] = React.useState(false)
   const { t } = useI18n()
   const activeTab = tab ?? "documents"
 
@@ -61,6 +63,15 @@ export function CollectionView({
           </div>
           <Button variant="ghost" size="icon-sm" onClick={copyPath} title={t("collection.copyPath")}>
             {copied ? <CheckIcon className="text-emerald-600 dark:text-emerald-400" /> : <CopyIcon />}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            disabled={readOnly}
+            onClick={() => setCopyOpen(true)}
+            title={t("copy.action")}
+          >
+            <FolderInput />
           </Button>
           <TabsList className="ml-auto">
             <TabsTrigger value="documents">{t("collection.tab.documents")}</TabsTrigger>
@@ -105,6 +116,15 @@ export function CollectionView({
           <StatsTab connectionId={connectionId} database={database} collection={collection} />
         </TabsContent>
       </Tabs>
+
+      <CopyCollectionDialog
+        open={copyOpen}
+        onOpenChange={setCopyOpen}
+        connectionId={connectionId}
+        database={database}
+        collection={collection}
+        onCopied={() => undefined}
+      />
     </div>
   )
 }

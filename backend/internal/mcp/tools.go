@@ -248,6 +248,21 @@ var tools = []tool{
 		write: true,
 		run:   toolDropIndex,
 	},
+	{
+		name:        "mongoui_explain",
+		description: "Return the execution plan (explain) for a find query or an aggregation pipeline. Use verbosity=executionStats to see examined/returned counts.",
+		inputSchema: obj(map[string]any{
+			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
+			"type":       strP(`"find" (default) or "aggregate"`),
+			"filter":     objP("query filter (find)"),
+			"sort":       objP("sort spec (find)"),
+			"projection": objP("projection spec (find)"),
+			"pipeline":   arrP("aggregation pipeline (aggregate)"),
+			"limit":      numP("limit"),
+			"verbosity":  strP("queryPlanner (default), executionStats or allPlansExecution"),
+		}, "connectionId", "database", "collection"),
+		run: toolExplain,
+	},
 }
 
 // --- argument helpers -------------------------------------------------------
@@ -292,6 +307,15 @@ func argObject(args map[string]any, key string) (any, bool) {
 		return nil, false
 	}
 	return v, true
+}
+
+func argStrDefault(args map[string]any, key, def string) string {
+	if v, ok := args[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return def
 }
 
 // --- BSON / JSON helpers ----------------------------------------------------
@@ -1112,4 +1136,92 @@ func hasUpdateOperator(update bson.D) bool {
 		}
 	}
 	return false
+}
+
+func toolExplain(s *Server, args map[string]any) (string, error) {
+	coll, err := target(s, args)
+	if err != nil {
+		return "", err
+	}
+
+	verbosity := "queryPlanner"
+	if v := argStrDefault(args, "verbosity", ""); v != "" {
+		switch v {
+		case "queryPlanner", "executionStats", "allPlansExecution":
+			verbosity = v
+		default:
+			return "", fmt.Errorf("verbosity must be queryPlanner, executionStats or allPlansExecution")
+		}
+	}
+
+	queryType := "find"
+	if v := argStrDefault(args, "type", ""); v != "" {
+		queryType = strings.ToLower(v)
+	}
+
+	var plan bson.D
+	switch queryType {
+	case "find":
+		filter := bson.D{}
+		if raw, ok := argObject(args, "filter"); ok {
+			if filter, err = toBSON(raw); err != nil {
+				return "", err
+			}
+		}
+		sortDoc := bson.D{}
+		if raw, ok := argObject(args, "sort"); ok {
+			if sortDoc, err = toBSON(raw); err != nil {
+				return "", err
+			}
+		}
+		projection := bson.D{}
+		if raw, ok := argObject(args, "projection"); ok {
+			if projection, err = toBSON(raw); err != nil {
+				return "", err
+			}
+		}
+		plan = bson.D{{Key: "find", Value: coll.Name()}}
+		if len(filter) > 0 {
+			plan = append(plan, bson.E{Key: "filter", Value: filter})
+		}
+		if len(sortDoc) > 0 {
+			plan = append(plan, bson.E{Key: "sort", Value: sortDoc})
+		}
+		if len(projection) > 0 {
+			plan = append(plan, bson.E{Key: "projection", Value: projection})
+		}
+		if limit := argInt(args, "limit", 0); limit > 0 {
+			plan = append(plan, bson.E{Key: "limit", Value: limit})
+		}
+	case "aggregate":
+		rawStages, ok := args["pipeline"].([]any)
+		if !ok || len(rawStages) == 0 {
+			return "", fmt.Errorf("pipeline must be a non-empty array")
+		}
+		stages := make([]bson.D, 0, len(rawStages))
+		for i, raw := range rawStages {
+			stage, err := toBSON(raw)
+			if err != nil {
+				return "", fmt.Errorf("pipeline[%d]: %w", i, err)
+			}
+			stages = append(stages, stage)
+		}
+		plan = bson.D{
+			{Key: "aggregate", Value: coll.Name()},
+			{Key: "pipeline", Value: stages},
+			{Key: "cursor", Value: bson.D{}},
+		}
+	default:
+		return "", fmt.Errorf(`type must be "find" or "aggregate"`)
+	}
+
+	ctx, cancel := opCtx()
+	defer cancel()
+
+	var res bson.D
+	cmd := bson.D{{Key: "explain", Value: plan}, {Key: "verbosity", Value: verbosity}}
+	if err := coll.Database().RunCommand(ctx, cmd).Decode(&res); err != nil {
+		return "", err
+	}
+	return jsonText(res)
 }

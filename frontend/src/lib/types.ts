@@ -104,6 +104,40 @@ export interface SQLResult {
   mql: Record<string, unknown>
 }
 
+export type TransferFormat = "json" | "csv"
+
+export interface ExportResult {
+  filename: string
+  contentType: string
+  content: string
+  count: number
+}
+
+export interface ImportResult {
+  insertedCount: number
+}
+
+export interface CopyResult {
+  copied: number
+  targetDatabase: string
+  targetCollection: string
+  indexesCopied?: number
+  warnings?: string[]
+}
+
+export type ExplainVerbosity = "queryPlanner" | "executionStats" | "allPlansExecution"
+
+export interface ExplainRequest {
+  type: "find" | "aggregate"
+  filter?: unknown
+  sort?: unknown
+  projection?: unknown
+  pipeline?: unknown
+  skip?: number
+  limit?: number
+  verbosity?: ExplainVerbosity
+}
+
 export interface AuthStatus {
   enabled: boolean
   authenticated: boolean

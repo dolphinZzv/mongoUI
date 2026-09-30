@@ -5,13 +5,18 @@ import type {
   CollectionInfo,
   Connection,
   ConnectionInput,
+  CopyResult,
   DatabaseList,
   DeleteRequest,
+  ExplainRequest,
+  ExportResult,
   FindRequest,
   FindResult,
+  ImportResult,
   MongoDocument,
   SchemaResult,
   SQLResult,
+  TransferFormat,
   UpdateRequest,
 } from "@/lib/types"
 
@@ -152,6 +157,47 @@ export const api = {
     request<AggregateResult>(
       `/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/aggregate`,
       { method: "POST", body: JSON.stringify({ pipeline, limit }) },
+    ),
+  explain: (id: string, db: string, col: string, req: ExplainRequest) =>
+    request<Record<string, unknown>>(
+      `/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/explain`,
+      { method: "POST", body: JSON.stringify(req) },
+    ),
+  exportDocuments: (
+    id: string,
+    db: string,
+    col: string,
+    req: { format: TransferFormat; filter?: unknown; sort?: unknown; projection?: unknown; limit?: number },
+  ) =>
+    request<ExportResult>(
+      `/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/export`,
+      { method: "POST", body: JSON.stringify(req) },
+    ),
+  importDocuments: (
+    id: string,
+    db: string,
+    col: string,
+    req: { format: TransferFormat; content: string; drop?: boolean },
+  ) =>
+    request<ImportResult>(
+      `/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/import`,
+      { method: "POST", body: JSON.stringify(req) },
+    ),
+  copyCollection: (
+    id: string,
+    db: string,
+    col: string,
+    req: {
+      targetDatabase: string
+      targetCollection: string
+      filter?: unknown
+      dropTarget?: boolean
+      copyIndexes?: boolean
+    },
+  ) =>
+    request<CopyResult>(
+      `/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/copy`,
+      { method: "POST", body: JSON.stringify(req) },
     ),
 
   // SQL -------------------------------------------------------------------------

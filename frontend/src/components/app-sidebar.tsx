@@ -125,6 +125,10 @@ export function AppSidebar({
   )
   const [collections, setCollections] = React.useState<Record<string, CollectionInfo[]>>({})
   const [loadingCols, setLoadingCols] = React.useState<Record<string, boolean>>({})
+  // Remember which loads failed so the effects below do not retry them forever
+  // (e.g. a 409 "connection is not active" after the user disconnects).
+  const [failedDbs, setFailedDbs] = React.useState<Record<string, boolean>>({})
+  const [failedCols, setFailedCols] = React.useState<Record<string, boolean>>({})
   const [busyConn, setBusyConn] = React.useState<Record<string, boolean>>({})
   const [filter, setFilter] = React.useState("")
   const [pinned, setPinned] = React.useState<Set<string>>(() => readPinned())
@@ -138,7 +142,14 @@ export function AppSidebar({
     try {
       const res = await api.listDatabases(connectionId)
       setDatabases((prev) => ({ ...prev, [connectionId]: res.databases }))
+      setFailedDbs((prev) => {
+        if (!prev[connectionId]) return prev
+        const next = { ...prev }
+        delete next[connectionId]
+        return next
+      })
     } catch (err) {
+      setFailedDbs((prev) => ({ ...prev, [connectionId]: true }))
       toast.error(err instanceof Error ? err.message : t("sidebar.listDatabasesFailed"))
     } finally {
       setLoadingDbs((prev) => ({ ...prev, [connectionId]: false }))
@@ -151,7 +162,14 @@ export function AppSidebar({
     try {
       const res = await api.listCollections(connectionId, database)
       setCollections((prev) => ({ ...prev, [key]: res }))
+      setFailedCols((prev) => {
+        if (!prev[key]) return prev
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
     } catch (err) {
+      setFailedCols((prev) => ({ ...prev, [key]: true }))
       toast.error(err instanceof Error ? err.message : t("sidebar.listCollectionsFailed"))
     } finally {
       setLoadingCols((prev) => ({ ...prev, [key]: false }))
@@ -167,37 +185,54 @@ export function AppSidebar({
   React.useEffect(() => {
     if (!filtering) return
     for (const connection of connections) {
-      if (connection.connected && !databases[connection.id] && !loadingDbs[connection.id]) {
+      if (connection.connected && !failedDbs[connection.id] && !databases[connection.id] && !loadingDbs[connection.id]) {
         void loadDatabases(connection.id)
       }
     }
-  }, [filtering, connections, databases, loadingDbs, loadDatabases])
+  }, [filtering, connections, databases, loadingDbs, failedDbs, loadDatabases])
 
   React.useEffect(() => {
     if (!filtering) return
     for (const connection of connections) {
+      if (!connection.connected) continue
       const dbs = databases[connection.id]
       if (!dbs) continue
       for (const database of dbs) {
         const key = dbKey(connection.id, database.name)
-        if (!collections[key] && !loadingCols[key]) {
+        if (!failedCols[key] && !collections[key] && !loadingCols[key]) {
           void loadCollections(connection.id, database.name)
         }
       }
     }
-  }, [filtering, connections, databases, collections, loadingCols, loadCollections])
+  }, [filtering, connections, databases, collections, loadingCols, failedCols, loadCollections])
 
   // Load databases for expanded, connected connections.
   React.useEffect(() => {
     for (const connection of connections) {
-      if (connection.connected && expandedConns[connection.id] && !databases[connection.id] && !loadingDbs[connection.id]) {
+      if (connection.connected && expandedConns[connection.id] && !failedDbs[connection.id] && !databases[connection.id] && !loadingDbs[connection.id]) {
         void loadDatabases(connection.id)
       }
     }
-    // Drop cached data of disconnected connections.
-    const stale = Object.keys(databases).filter(
-      (id) => !connections.some((c) => c.id === id && c.connected),
-    )
+    // Drop cached data and failure flags of disconnected connections.
+    const disconnected = connections.filter((c) => !c.connected).map((c) => c.id)
+    const stale = Object.keys(databases).filter((id) => disconnected.includes(id))
+    if (disconnected.length > 0) {
+      setFailedDbs((prev) => {
+        if (!disconnected.some((id) => prev[id])) return prev
+        const next = { ...prev }
+        for (const id of disconnected) delete next[id]
+        return next
+      })
+      setFailedCols((prev) => {
+        const doomed = Object.keys(prev).filter((key) =>
+          disconnected.some((id) => key.startsWith(`${id}::`)),
+        )
+        if (doomed.length === 0) return prev
+        const next = { ...prev }
+        for (const key of doomed) delete next[key]
+        return next
+      })
+    }
     if (stale.length > 0) {
       setDatabases((prev) => {
         const next = { ...prev }
@@ -212,17 +247,19 @@ export function AppSidebar({
         return next
       })
     }
-  }, [connections, expandedConns, databases, loadingDbs, loadDatabases])
+  }, [connections, expandedConns, databases, loadingDbs, failedDbs, loadDatabases])
 
-  // Load collections for expanded databases.
+  // Load collections for expanded databases, but only while their connection is
+  // live; a disconnected connection must not keep retrying (and toasting).
   React.useEffect(() => {
     for (const [key, open] of Object.entries(expandedDbs)) {
       if (!open) continue
-      if (collections[key] || loadingCols[key]) continue
+      if (failedCols[key] || collections[key] || loadingCols[key]) continue
       const [connectionId, database] = key.split("::")
+      if (!connections.some((c) => c.id === connectionId && c.connected)) continue
       void loadCollections(connectionId, database)
     }
-  }, [expandedDbs, collections, loadingCols, loadCollections])
+  }, [connections, expandedDbs, collections, loadingCols, failedCols, loadCollections])
 
   React.useEffect(() => {
     try {

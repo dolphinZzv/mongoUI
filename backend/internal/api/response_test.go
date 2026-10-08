@@ -62,12 +62,21 @@ func TestToExtJSONArray(t *testing.T) {
 }
 
 func TestToExtJSONNilSlice(t *testing.T) {
-	raw, err := toExtJSON([]bson.D{})
+	var nilSlice []bson.D
+	raw, err := toExtJSON(nilSlice)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.HasPrefix(strings.TrimSpace(string(raw)), "[") {
-		t.Fatalf("expected an array, got %s", raw)
+	if got := strings.TrimSpace(string(raw)); got != "[]" {
+		t.Fatalf("nil slice should serialize to an empty array, got %s", got)
+	}
+
+	raw, err = toExtJSON([]bson.D{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := strings.TrimSpace(string(raw)); got != "[]" {
+		t.Fatalf("empty slice should serialize to an empty array, got %s", got)
 	}
 }
 

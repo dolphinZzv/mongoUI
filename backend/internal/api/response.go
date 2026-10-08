@@ -73,6 +73,12 @@ func toExtJSON(v any) (json.RawMessage, error) {
 	}
 	rv := reflect.ValueOf(v)
 	if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
+		// A nil slice marshals to JSON null, which callers cannot distinguish
+		// from a failed/empty response. Emit an empty array instead so list
+		// endpoints always return an array, even when there are no documents.
+		if rv.Kind() == reflect.Slice && rv.IsNil() {
+			return json.RawMessage("[]"), nil
+		}
 		wrapped, err := bson.MarshalExtJSON(bson.D{{Key: "v", Value: v}}, false, false)
 		if err != nil {
 			return nil, err

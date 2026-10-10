@@ -72,6 +72,19 @@ const en: Record<string, string> = {
   "agent.serverMcpReadonly":
     "Start the server with -mcp-readonly to expose read tools only; the local agent can also use mongoui mcp over stdio.",
 
+  // settings menu
+  "settings.button": "Settings",
+  "settings.title": "Settings",
+  "mcp.title": "Server MCP",
+  "mcp.enable": "Enable MCP server",
+  "mcp.enableHint": "Serve the Model Context Protocol endpoint.",
+  "mcp.read": "Read tools",
+  "mcp.readHint": "Browse, query, aggregate, explain and SQL.",
+  "mcp.write": "Write tools",
+  "mcp.writeHint": "Insert, update, delete, collections and indexes.",
+  "mcp.disabledHint": "Turn MCP on to choose tool groups.",
+  "mcp.updateFailed": "Failed to update MCP settings",
+
   // sidebar
   "sidebar.filter": "Filter connections, databases, collections…",
   "sidebar.filterAria": "Filter connections, databases and collections",
@@ -479,6 +492,19 @@ const zh: Record<string, string> = {
     "外部 agent（Claude Desktop、Cursor 等）可以通过 Model Context Protocol 操作 mongoUI：",
   "agent.serverMcpReadonly":
     "用 -mcp-readonly 启动可只暴露只读工具；本地 agent 也可用 stdio 方式 `mongoui mcp`。",
+
+  // 设置菜单
+  "settings.button": "设置",
+  "settings.title": "设置",
+  "mcp.title": "服务端 MCP",
+  "mcp.enable": "开启 MCP 服务",
+  "mcp.enableHint": "对外提供 Model Context Protocol 端点。",
+  "mcp.read": "读分组工具",
+  "mcp.readHint": "浏览、查询、聚合、执行计划与 SQL。",
+  "mcp.write": "写分组工具",
+  "mcp.writeHint": "插入、更新、删除、集合与索引管理。",
+  "mcp.disabledHint": "开启 MCP 后可选择工具分组。",
+  "mcp.updateFailed": "更新 MCP 设置失败",
 
   // sidebar
   "sidebar.filter": "过滤连接、数据库、集合…",

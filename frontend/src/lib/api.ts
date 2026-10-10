@@ -13,6 +13,7 @@ import type {
   FindRequest,
   FindResult,
   ImportResult,
+  MCPSettings,
   MongoDocument,
   SchemaResult,
   SQLResult,
@@ -221,6 +222,11 @@ export const api = {
       body: JSON.stringify({ code }),
     }),
   authLogout: () => request<{ authenticated: boolean }>("/auth/logout", { method: "POST" }),
+
+  // MCP -------------------------------------------------------------------------
+  mcpSettings: () => request<MCPSettings>("/mcp"),
+  updateMcpSettings: (input: Partial<MCPSettings>) =>
+    request<MCPSettings>("/mcp", { method: "PUT", body: JSON.stringify(input) }),
 
   // indexes ---------------------------------------------------------------------
   listIndexes: (id: string, db: string, col: string) =>

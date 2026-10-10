@@ -20,39 +20,71 @@ import (
 	"mongoui/internal/sqlmongo"
 )
 
+// toolGroup identifies the read/write group a tool belongs to. Groups can be
+// enabled or disabled independently (see config.MCPSettings).
+type toolGroup string
+
+const (
+	readGroup  toolGroup = "read"
+	writeGroup toolGroup = "write"
+)
+
 type tool struct {
 	name        string
 	description string
 	inputSchema map[string]any
-	write       bool
+	group       toolGroup
 	run         func(*Server, map[string]any) (string, error)
 }
 
-// callTool dispatches a tool by name, rejecting write tools in read-only mode.
+// toolGroup returns the group a tool belongs to. Tools default to the read
+// group; only write tools set the field explicitly.
+func (t tool) toolGroup() toolGroup {
+	if t.group == writeGroup {
+		return writeGroup
+	}
+	return readGroup
+}
+
+// callTool dispatches a tool by name, rejecting tools whose group is disabled.
 func (s *Server) callTool(name string, args map[string]any) (string, error) {
 	for _, t := range tools {
 		if t.name != name {
 			continue
 		}
-		if t.write && s.readOnly {
-			return "", fmt.Errorf("tool %q is disabled: the MCP server is running in read-only mode", name)
+		group := t.toolGroup()
+		if !s.groupEnabled(group) {
+			return "", fmt.Errorf("tool %q is disabled: the MCP %s group is turned off", name, group)
 		}
 		return t.run(s, args)
 	}
 	return "", fmt.Errorf("unknown tool: %s", name)
 }
 
-// toolDefs returns the advertised tools, hiding write tools in read-only mode.
+// toolDefs returns the advertised tools, hiding groups that are disabled. Each
+// definition carries its group (and the standard readOnlyHint annotation) so
+// clients can reason about read vs write tools.
 func (s *Server) toolDefs() []map[string]any {
+	cfg := s.settings.GetMCP()
 	defs := make([]map[string]any, 0, len(tools))
 	for _, t := range tools {
-		if t.write && s.readOnly {
-			continue
+		group := t.toolGroup()
+		switch group {
+		case readGroup:
+			if !cfg.Read {
+				continue
+			}
+		case writeGroup:
+			if !cfg.Write {
+				continue
+			}
 		}
 		defs = append(defs, map[string]any{
 			"name":        t.name,
 			"description": t.description,
 			"inputSchema": t.inputSchema,
+			"group":       string(group),
+			"annotations": map[string]any{"readOnlyHint": group == readGroup},
 		})
 	}
 	return defs
@@ -176,7 +208,7 @@ var tools = []tool{
 			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
 			"documents": arrP("documents to insert"),
 		}, "connectionId", "database", "collection", "documents"),
-		write: true,
+		group: writeGroup,
 		run:   toolInsert,
 	},
 	{
@@ -187,7 +219,7 @@ var tools = []tool{
 			"filter": objP("which documents to update"), "update": objP("update document or replacement"),
 			"many": boolP("update all matches (default first match)"), "upsert": boolP("insert when nothing matches"),
 		}, "connectionId", "database", "collection", "filter", "update"),
-		write: true,
+		group: writeGroup,
 		run:   toolUpdate,
 	},
 	{
@@ -197,7 +229,7 @@ var tools = []tool{
 			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
 			"filter": objP("which documents to delete"), "many": boolP("delete all matches"),
 		}, "connectionId", "database", "collection", "filter"),
-		write: true,
+		group: writeGroup,
 		run:   toolDelete,
 	},
 	{
@@ -207,7 +239,7 @@ var tools = []tool{
 			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
 			"capped": boolP("create a capped collection"), "size": numP("capped size in bytes"), "max": numP("max documents"),
 		}, "connectionId", "database", "collection"),
-		write: true,
+		group: writeGroup,
 		run:   toolCreateCollection,
 	},
 	{
@@ -216,7 +248,7 @@ var tools = []tool{
 		inputSchema: obj(map[string]any{
 			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
 		}, "connectionId", "database", "collection"),
-		write: true,
+		group: writeGroup,
 		run:   toolDropCollection,
 	},
 	{
@@ -225,7 +257,7 @@ var tools = []tool{
 		inputSchema: obj(map[string]any{
 			"connectionId": connProp(), "database": strP("database name"),
 		}, "connectionId", "database"),
-		write: true,
+		group: writeGroup,
 		run:   toolDropDatabase,
 	},
 	{
@@ -235,7 +267,7 @@ var tools = []tool{
 			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
 			"keys": objP("index key spec"), "options": objP("index options"),
 		}, "connectionId", "database", "collection", "keys"),
-		write: true,
+		group: writeGroup,
 		run:   toolCreateIndex,
 	},
 	{
@@ -245,7 +277,7 @@ var tools = []tool{
 			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
 			"name": strP("index name"),
 		}, "connectionId", "database", "collection", "name"),
-		write: true,
+		group: writeGroup,
 		run:   toolDropIndex,
 	},
 	{
@@ -688,10 +720,10 @@ func toolAggregate(s *Server, args map[string]any) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("pipeline[%d]: %w", i, err)
 		}
-		if s.readOnly {
+		if !s.groupEnabled(writeGroup) {
 			for _, e := range stage {
 				if e.Key == "$out" || e.Key == "$merge" {
-					return "", fmt.Errorf("$out and $merge are disabled in read-only mode")
+					return "", fmt.Errorf("$out and $merge are disabled while the MCP write group is off")
 				}
 			}
 		}

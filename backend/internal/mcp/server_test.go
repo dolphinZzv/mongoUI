@@ -20,7 +20,18 @@ func newTestServer(t *testing.T, readOnly bool, token string) (*Server, *config.
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}
-	return New(store, mongoclient.NewManager(), "test", token, readOnly), store
+	settings := config.NewSettings(config.MCPSettings{Enabled: true, Read: true, Write: !readOnly})
+	return New(store, mongoclient.NewManager(), "test", token, settings), store
+}
+
+// newTestServerWithConfig builds a server with explicit MCP settings.
+func newTestServerWithConfig(t *testing.T, cfg config.MCPSettings, token string) (*Server, *config.Store) {
+	t.Helper()
+	store, err := config.NewStore(filepath.Join(t.TempDir(), "connections.json"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	return New(store, mongoclient.NewManager(), "test", token, config.NewSettings(cfg)), store
 }
 
 // call runs one JSON-RPC message and returns the decoded response.
@@ -105,7 +116,7 @@ func TestReadOnlyHidesAndRejectsWrites(t *testing.T) {
 		t.Fatalf("expected isError, got %v", result)
 	}
 	text := result["content"].([]any)[0].(map[string]any)["text"].(string)
-	if !strings.Contains(text, "read-only") {
+	if !strings.Contains(text, "write group") {
 		t.Fatalf("unexpected error text: %s", text)
 	}
 }
@@ -224,5 +235,78 @@ func TestStdioRoundTrip(t *testing.T) {
 	}
 	if !strings.Contains(lines[1], "mongoui_list_connections") {
 		t.Fatalf("tools/list response missing: %s", lines[1])
+	}
+}
+
+func TestReadGroupOnlyHidesWrites(t *testing.T) {
+	s, _ := newTestServerWithConfig(t, config.MCPSettings{Enabled: true, Read: true, Write: false}, "")
+	names := toolNames(t, s)
+	if !has(names, "mongoui_find") || !has(names, "mongoui_sql") {
+		t.Fatalf("read tools missing: %v", names)
+	}
+	if has(names, "mongoui_insert") || has(names, "mongoui_drop_database") {
+		t.Fatalf("write tools advertised with write group off: %v", names)
+	}
+
+	resp := call(t, s, "tools/call", map[string]any{
+		"name":      "mongoui_insert",
+		"arguments": map[string]any{"connectionId": "x", "database": "d", "collection": "c", "documents": []any{}},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] != true {
+		t.Fatalf("expected isError, got %v", result)
+	}
+}
+
+func TestGroupsAreIndependent(t *testing.T) {
+	// Write group can be enabled while the read group is off.
+	s, _ := newTestServerWithConfig(t, config.MCPSettings{Enabled: true, Read: false, Write: true}, "")
+	names := toolNames(t, s)
+	if has(names, "mongoui_find") || has(names, "mongoui_sql") {
+		t.Fatalf("read tools advertised with read group off: %v", names)
+	}
+	if !has(names, "mongoui_insert") {
+		t.Fatalf("write tool missing with write group on: %v", names)
+	}
+}
+
+func TestToolDefinitionsCarryGroup(t *testing.T) {
+	s, _ := newTestServerWithConfig(t, config.MCPSettings{Enabled: true, Read: true, Write: true}, "")
+	resp := call(t, s, "tools/list", nil)
+	list := resp["result"].(map[string]any)["tools"].([]any)
+	byName := map[string]map[string]any{}
+	for _, item := range list {
+		tool := item.(map[string]any)
+		byName[tool["name"].(string)] = tool
+	}
+	if got := byName["mongoui_find"]["group"]; got != string(readGroup) {
+		t.Fatalf("mongoui_find group = %v, want read", got)
+	}
+	if got := byName["mongoui_insert"]["group"]; got != string(writeGroup) {
+		t.Fatalf("mongoui_insert group = %v, want write", got)
+	}
+	ann, _ := byName["mongoui_find"]["annotations"].(map[string]any)
+	if ann["readOnlyHint"] != true {
+		t.Fatalf("mongoui_find readOnlyHint = %v", ann["readOnlyHint"])
+	}
+}
+
+func TestDisabledServerRejectsTransports(t *testing.T) {
+	s, _ := newTestServerWithConfig(t, config.MCPSettings{Enabled: false, Read: true, Write: false}, "")
+
+	ts := httptest.NewServer(s.HTTPHandler())
+	defer ts.Close()
+	body := `{"jsonrpc":"2.0","id":1,"method":"initialize"}`
+	resp, err := http.Post(ts.URL, "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 when disabled, got %d", resp.StatusCode)
+	}
+
+	if err := s.ServeStdio(context.Background(), strings.NewReader(""), &bytes.Buffer{}); err == nil {
+		t.Fatal("expected stdio to refuse to start while disabled")
 	}
 }

@@ -3,7 +3,7 @@
 mongoUI 内置 **Model Context Protocol** server，AI Agent 可以通过 MCP 直接操作 MongoDB（浏览库/集合、查询、聚合、SQL、增删改、索引管理），而无需自行连接数据库。
 
 - [1. 快速接入](#1-快速接入)
-- [2. 只读模式](#2-只读模式)
+- [2. 开关与工具分组](#2-开关与工具分组)
 - [3. 工具参考](#3-工具参考)
 - [4. 示例](#4-示例)
 - [5. 原始 JSON-RPC / curl](#5-原始-json-rpc--curl)
@@ -80,30 +80,36 @@ mongoui                 # 启动服务，默认 0.0.0.0:8080
 
 ---
 
-## 2. 只读模式
+## 2. 开关与工具分组
 
-MCP 可以整体以**只读**运行，此时写工具不会出现在 `tools/list` 中，直接调用也会被拒绝：
+MCP 工具分为**读**与**写**两组，可以在界面右上角的「设置」菜单里配置，无需改命令行：
 
-```bash
-mongoui -mcp-readonly                 # HTTP
-mongoui mcp -read-only                # stdio
-MONGOUI_MCP_READONLY=1 mongoui        # 环境变量
-```
+| 开关 | 默认 | 说明 |
+| --- | --- | --- |
+| 开启 MCP 服务 | 开 | 关闭后 HTTP `/mcp` 返回 404，`mongoui mcp`（stdio）也会拒绝启动 |
+| 读分组工具 | 开 | 列出连接、浏览库/集合、查询、聚合、SQL、执行计划、索引列表 |
+| 写分组工具 | 关 | 增删改、建库/建集合、索引管理；需显式开启 |
 
-此外，连接配置里的 **只读模式** 也会生效：标记为只读的连接即使用写工具也会返回错误。两层保护可以独立使用：
+开启 MCP 时**默认只开读分组**；写分组不会出现在 `tools/list` 中，直接调用也会被拒绝。设置保存在 `<data>/settings.json`，stdio 与 HTTP 共用。
 
-- 只想让 agent 查询：整个 MCP 用 `-mcp-readonly`。
+每个工具定义都会带上 `group`（`read` / `write`）以及标准的 `annotations.readOnlyHint`，方便客户端区分。
+
+此外，连接配置里的**只读模式**也会生效：标记为只读的连接即使用写工具也会返回错误。两层保护可以独立使用：
+
+- 只想让 agent 查询：保持写分组关闭（默认）。
 - 只限制某个连接：给该连接打开只读。
 
-只读模式下 `mongoui_aggregate` 仍会拒绝 `$out` / `$merge` 这类写管道。
+只读分组下 `mongoui_aggregate` 仍会拒绝 `$out` / `$merge` 这类写管道。
+
+> 兼容参数：`-mcp-readonly` / `MONGOUI_MCP_READONLY=1` 仍可用，等价于关闭写分组。
 
 ---
 
 ## 3. 工具参考
 
-共 21 个工具（只读模式下暴露 13 个）。
+共 21 个工具，分属于读 / 写两组（写分组默认关闭）。
 
-### 只读工具
+### 只读工具（读分组）
 
 | 工具 | 参数 | 说明 |
 | --- | --- | --- |
@@ -121,7 +127,7 @@ MONGOUI_MCP_READONLY=1 mongoui        # 环境变量
 | `mongoui_explain` | `connectionId`, `database`, `collection`, `type?`, `filter?`, `sort?`, `projection?`, `pipeline?`, `limit?`, `verbosity?` | 执行计划（find / 聚合） |
 | `mongoui_list_indexes` | `connectionId`, `database`, `collection` | 索引列表 |
 
-### 写工具（只读模式下隐藏）
+### 写工具（写分组，默认关闭，需在界面开启）
 
 | 工具 | 参数 |
 | --- | --- |
@@ -233,9 +239,9 @@ curl -s http://localhost:8080/mcp \
 | `command not found: mongoui` | 未安装或不在 `PATH` |
 | HTTP `401 unauthorized` | 服务端开启了 `MONGOUI_MCP_TOKEN`，需带 `Authorization: Bearer <token>` |
 | 开启 TOTP 后 MCP 返回 401 / 无鉴权 | `/mcp` 不受网页登录会话保护，请设置 `MONGOUI_MCP_TOKEN` |
-| HTTP `405` | `GET /mcp` 不支持；请用 `POST` |
+| 写工具不存在 | 写分组已关闭（默认），请在界面「设置」里开启 |
+| HTTP `404` | MCP 服务已在界面「设置」里关闭；确认 `GET /mcp` 不支持（请用 `POST`） |
 | `connection is not active` | 先调用 `mongoui_connect` |
 | `unknown connection "..."` | 连接 id 不对，先 `mongoui_list_connections` |
-| 写工具不存在 | 服务端运行在只读模式（`-mcp-readonly` / `MONGOUI_MCP_READONLY=1`） |
 | `connection ... is marked read-only` | 该连接配置了只读模式，请在网页端关闭或换一个连接 |
 | 网页看不到 agent 的改动 | 两者使用同一个 `-data` 目录 / 同一个运行中的 server；刷新网页 |

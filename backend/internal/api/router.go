@@ -24,12 +24,20 @@ type API struct {
 	version    string
 	mcpHandler http.Handler
 	auth       *auth.Manager
+	settings   *config.Settings
 }
 
 // New builds an API instance. mcpHandler, when non-nil, is mounted at /mcp;
-// authManager, when non-nil, guards the data API with TOTP sessions.
-func New(store *config.Store, mgr *mongoclient.Manager, uiEmbedded bool, version string, mcpHandler http.Handler, authManager *auth.Manager) *API {
-	return &API{store: store, mgr: mgr, uiEmbedded: uiEmbedded, version: version, mcpHandler: mcpHandler, auth: authManager}
+// authManager, when non-nil, guards the data API with TOTP sessions. settings
+// holds the server-wide MCP preferences exposed by /api/mcp.
+func New(store *config.Store, mgr *mongoclient.Manager, uiEmbedded bool, version string, mcpHandler http.Handler, authManager *auth.Manager, settings ...*config.Settings) *API {
+	var s *config.Settings
+	if len(settings) > 0 && settings[0] != nil {
+		s = settings[0]
+	} else {
+		s = config.NewSettings(config.DefaultMCPSettings())
+	}
+	return &API{store: store, mgr: mgr, uiEmbedded: uiEmbedded, version: version, mcpHandler: mcpHandler, auth: authManager, settings: s}
 }
 
 // Router returns the fully configured HTTP handler.
@@ -72,6 +80,9 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 			if a.auth != nil {
 				r.Use(a.auth.Middleware)
 			}
+
+			r.Get("/mcp", a.getMCPSettings)
+			r.Put("/mcp", a.updateMCPSettings)
 
 			r.Route("/connections", func(r chi.Router) {
 				r.Get("/", a.listConnections)

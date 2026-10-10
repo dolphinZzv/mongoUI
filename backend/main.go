@@ -124,6 +124,22 @@ func main() {
 		log.Fatalf("failed to load connection store: %v", err)
 	}
 
+	settings, err := config.LoadSettings(filepath.Join(*dataDir, "settings.json"), config.DefaultMCPSettings())
+	if err != nil {
+		log.Fatalf("failed to load settings: %v", err)
+	}
+	// Legacy -mcp-readonly flag: keep it working by forcing the read group on
+	// and the write group off. The UI remains the primary way to configure MCP.
+	if *mcpReadOnly {
+		cfg := settings.GetMCP()
+		cfg.Enabled = true
+		cfg.Read = true
+		cfg.Write = false
+		if err := settings.SetMCP(cfg); err != nil {
+			log.Fatalf("failed to persist MCP settings: %v", err)
+		}
+	}
+
 	authManager, err := auth.New(*dataDir, cipher, key)
 	if err != nil {
 		log.Fatalf("failed to load auth state: %v", err)
@@ -151,7 +167,7 @@ func main() {
 		log.Printf("TOTP not configured yet; open the UI to set it up")
 	}
 
-	handler := api.New(store, mgr, uiEmbedded, version, mcp.New(store, mgr, version, *mcpToken, *mcpReadOnly).HTTPHandler(), authManager).Router(webHandler)
+	handler := api.New(store, mgr, uiEmbedded, version, mcp.New(store, mgr, version, *mcpToken, settings).HTTPHandler(), authManager, settings).Router(webHandler)
 
 	if (*tlsCert == "") != (*tlsKey == "") {
 		log.Printf("warning: both -tls-cert and -tls-key are required for HTTPS; serving plain HTTP")
@@ -221,10 +237,25 @@ func runMCP(args []string) int {
 		fmt.Fprintf(os.Stderr, "failed to load connection store: %v\n", err)
 		return 1
 	}
+	settings, err := config.LoadSettings(filepath.Join(*dataDir, "settings.json"), config.DefaultMCPSettings())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load settings: %v\n", err)
+		return 1
+	}
+	if *readOnly {
+		cfg := settings.GetMCP()
+		cfg.Enabled = true
+		cfg.Read = true
+		cfg.Write = false
+		if err := settings.SetMCP(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to persist MCP settings: %v\n", err)
+			return 1
+		}
+	}
 	mgr := mongoclient.NewManager()
 	defer mgr.CloseAll()
 
-	srv := mcp.New(store, mgr, version, "", *readOnly)
+	srv := mcp.New(store, mgr, version, "", settings)
 	if err := srv.ServeStdio(context.Background(), os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "mcp server: %v\n", err)
 		return 1

@@ -150,6 +150,12 @@ export interface AuthSetup {
   qr: string
 }
 
+export interface MCPSettings {
+  enabled: boolean
+  read: boolean
+  write: boolean
+}
+
 export type Selection =
   | { kind: "welcome" }
   | { kind: "connection"; connectionId: string }

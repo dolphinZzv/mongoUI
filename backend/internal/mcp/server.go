@@ -13,6 +13,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -32,14 +33,36 @@ type Server struct {
 	mgr      *mongoclient.Manager
 	version  string
 	token    string
-	readOnly bool
+	settings *config.Settings
 }
 
 // New creates an MCP server backed by the given connection store and manager.
 // When token is non-empty, the HTTP transport requires a matching bearer token.
-// When readOnly is true, write tools are hidden from tools/list and rejected.
-func New(store *config.Store, mgr *mongoclient.Manager, version, token string, readOnly bool) *Server {
-	return &Server{store: store, mgr: mgr, version: version, token: token, readOnly: readOnly}
+// settings controls whether the server is enabled and which tool groups are
+// exposed. It may be nil, in which case safe defaults are used.
+func New(store *config.Store, mgr *mongoclient.Manager, version, token string, settings *config.Settings) *Server {
+	if settings == nil {
+		settings = config.NewSettings(config.DefaultMCPSettings())
+	}
+	return &Server{store: store, mgr: mgr, version: version, token: token, settings: settings}
+}
+
+// enabled reports whether the MCP server capability is switched on.
+func (s *Server) enabled() bool {
+	return s.settings.GetMCP().Enabled
+}
+
+// groupEnabled reports whether a tool group is exposed.
+func (s *Server) groupEnabled(group toolGroup) bool {
+	cfg := s.settings.GetMCP()
+	switch group {
+	case readGroup:
+		return cfg.Read
+	case writeGroup:
+		return cfg.Write
+	default:
+		return false
+	}
 }
 
 // --- JSON-RPC plumbing ------------------------------------------------------
@@ -85,7 +108,7 @@ func (s *Server) handle(raw []byte) []byte {
 				"serverInfo":      map[string]any{"name": "mongoui", "version": s.version},
 				"instructions": "MongoUI MCP server. Call mongoui_list_connections first to get a " +
 					"connectionId, then mongoui_connect before reading or writing data. " +
-					"Read-only connections reject write tools.",
+					"Tools are grouped into read and write groups; read-only connections reject write tools.",
 			},
 		})
 	case "ping":
@@ -138,6 +161,9 @@ func encode(v any) []byte {
 // ServeStdio reads newline-delimited JSON-RPC from in and writes responses to
 // out. Logs go to stderr so stdout stays a clean protocol channel.
 func (s *Server) ServeStdio(_ context.Context, in io.Reader, out io.Writer) error {
+	if !s.enabled() {
+		return errors.New("MCP server is disabled; enable it in the UI settings (or edit settings.json)")
+	}
 	log.SetOutput(os.Stderr)
 	log.SetPrefix("mongoui-mcp: ")
 	log.Printf("MCP server started (stdio)")
@@ -181,6 +207,10 @@ func (s *Server) ServeStdio(_ context.Context, in io.Reader, out io.Writer) erro
 //	GET    /mcp : not supported (405)
 func (s *Server) HTTPHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.enabled() {
+			http.Error(w, "MCP server is disabled", http.StatusNotFound)
+			return
+		}
 		if !s.authorized(r) {
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)

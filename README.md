@@ -39,7 +39,7 @@
 | 登录 | 首次启动引导开启 TOTP 两步验证，之后所有 API 需登录（签名会话 Cookie） |
 | 运维 | 守护进程后台运行（`-daemon` / `-stop` / `-status`）、一键安装脚本、`mongoui update` 自更新 |
 | 浏览器 Agent | WebMCP（`navigator.modelContext`）+ `window.mongouiAgent`，把连接 / 查询 / 聚合 / 索引等操作暴露给浏览器内 agent，**默认关闭**、需显式开启 |
-| MCP | 内置 Model Context Protocol server（stdio / HTTP），把连接、查询、聚合、SQL、增删改、索引等暴露给外部 Agent；支持整体只读模式 |
+| MCP | 内置 Model Context Protocol server（stdio / HTTP），把连接、查询、聚合、SQL、增删改、索引等暴露给外部 Agent；工具分读 / 写两组，可在界面中开关 |
 
 所有 BSON 值均以 **MongoDB Extended JSON**（relaxed 模式）在前后端之间传输，因此 `ObjectId`、`Date`、`Decimal128`、`Long`、`Binary` 等类型都能无损保留：
 
@@ -239,7 +239,7 @@ mongoui update -version v0.2.0
 
 ## 浏览器 Agent（WebMCP）
 
-MongoUI 可以把一组操作暴露给**浏览器内的 agent**，让它直接读取 / 操作当前服务，无需额外部署 MCP server。该能力**默认关闭**：需在右上角的 **Agent** 中手动开启，关闭后立即注销工具。
+MongoUI 可以把一组操作暴露给**浏览器内的 agent**，让它直接读取 / 操作当前服务，无需额外部署 MCP server。该能力**默认关闭**：需在右上角的 **设置** 菜单中手动开启，关闭后立即注销工具。
 
 - **WebMCP**：当浏览器提供实验性的 `navigator.modelContext`（如 Edge）时自动注册工具。
 - **兜底通道**：开启后始终暴露 `window.mongouiAgent`，扩展 / 书签 / 控制台均可调用：
@@ -277,7 +277,9 @@ mongoUI 内置 MCP server，外部 AI Agent（Claude Desktop、Cursor、Cline �
 }
 ```
 
-**只读模式**：用 `-mcp-readonly`（或 `MONGOUI_MCP_READONLY=1`）启动后，写工具不会出现在 `tools/list` 中，直接调用也会被拒绝；连接自身的「只读模式」同样生效，两层保护可独立使用。
+**工具分组与开关**：MCP 工具分为**读**与**写**两组，可在界面右上角的「设置」菜单里一键开关服务端 MCP，并分别控制读、写分组；**开启 MCP 时默认只开读分组**，写分组需要显式开启。设置保存在 `<data>/settings.json`，stdio 与 HTTP 共用。连接自身的「只读模式」同样生效，两层保护可独立使用。
+
+旧的 `-mcp-readonly`（或 `MONGOUI_MCP_READONLY=1`）仍然兼容，等价于关闭写分组。
 
 详见 [docs/mcp.md](docs/mcp.md)。
 
@@ -299,7 +301,7 @@ mongoUI 内置 MCP server，外部 AI Agent（Claude Desktop、Cursor、Cline �
 | `-addr` | `MONGOUI_ADDR` | `:8080` | HTTP 监听地址 |
 | `-data` | `MONGOUI_DATA` | `data` | 连接配置存储目录（`connections.json`） |
 | `-web` | — | 空 | 从指定目录提供前端资源（覆盖内嵌版本） |
-| `-mcp-readonly` | `MONGOUI_MCP_READONLY` | 关 | MCP 只读模式（不暴露写工具） |
+| `-mcp-readonly` | `MONGOUI_MCP_READONLY` | 关 | 兼容参数：等价于在界面里关闭写分组（不暴露写工具） |
 | `-mcp-token` | `MONGOUI_MCP_TOKEN` | 空 | `/mcp` 的 Bearer 令牌（非空时校验） |
 | `-tls-cert` | `MONGOUI_TLS_CERT` | 空 | TLS 证书；与 `-tls-key` 同时设置时启用 HTTPS |
 | `-tls-key` | `MONGOUI_TLS_KEY` | 空 | TLS 私钥 |
@@ -334,7 +336,7 @@ mongoUI 内置 MCP server，外部 AI Agent（Claude Desktop、Cursor、Cline �
 - 请求体限制 32MB，聚合结果默认限量，服务端设置了读/写/空闲超时，响应带 `X-Content-Type-Options` / `X-Frame-Options` / `Referrer-Policy`。
 - 连接列表接口对 **URI 密码与 SSH 凭据做了脱敏**（密码显示为 `xxxxxxxx`、SSH 密钥清空）；完整凭据仅在打开编辑弹窗时按单个连接获取，保存时会用完整值回写，不会丢失。
 - 首次启动会**强制引导设置 TOTP 两步验证**（见下），之后所有 `/api/*` 需要登录会话（`/api/health` 除外）。
-- `/mcp` 端点同样默认无鉴权，对外暴露时请设置 `MONGOUI_MCP_TOKEN`（或 `-mcp-token`），并可用 `-mcp-readonly` 限制为只读。
+- `/mcp` 端点同样默认无鉴权，对外暴露时请设置 `MONGOUI_MCP_TOKEN`（或 `-mcp-token`），并可在界面里关闭写分组或整体关闭 MCP。
 
 ## 持续集成与发布
 

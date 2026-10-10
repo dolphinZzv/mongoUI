@@ -1,18 +1,16 @@
 import * as React from "react"
-import { Database, Leaf, Loader2, LogOut, Menu, PanelLeft, PanelLeftClose, Plus, Server, Table2, X } from "lucide-react"
+import { Database, Leaf, Loader2, Menu, PanelLeft, PanelLeftClose, Plus, Server, Table2, X } from "lucide-react"
 import { toast } from "sonner"
 
-import { AgentToggle } from "@/components/agent-toggle"
 import { AppSidebar } from "@/components/app-sidebar"
 import { useAuth } from "@/components/auth-gate"
 import { CollectionView } from "@/components/collection-view"
 import { ConnectionDialog } from "@/components/connection-dialog"
 import { ConnectionOverview } from "@/components/connection-overview"
-import { LanguageToggle } from "@/components/language-toggle"
+import { SettingsMenu } from "@/components/settings-menu"
 import { Button } from "@/components/ui/button"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { ThemeToggle } from "@/components/theme-toggle"
 import { useAgentTools } from "@/hooks/useAgentTools"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
@@ -346,22 +344,7 @@ export default function App() {
               )}
             </div>
             <div className="ml-auto flex items-center gap-2">
-              <LanguageToggle />
-              {authEnabled ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  title={t("auth.signOut")}
-                  aria-label={t("auth.signOut")}
-                  onClick={() => {
-                    void api.authLogout().then(() => window.location.reload())
-                  }}
-                >
-                  <LogOut />
-                </Button>
-              ) : null}
-              <AgentToggle />
-              <ThemeToggle />
+              <SettingsMenu authEnabled={authEnabled} />
             </div>
           </header>
           <main className="min-h-0 flex-1">{renderContent()}</main>

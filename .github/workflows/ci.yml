@@ -137,6 +137,8 @@ jobs:
         run: ./bin/mongoui -version
 
       - name: Smoke test the embedded UI
+        env:
+          MONGOUI_DISABLE_AUTOUPDATE: "1"
         run: |
           set -euo pipefail
           ./bin/mongoui -addr 127.0.0.1:18099 -data /tmp/mongoui-ci &

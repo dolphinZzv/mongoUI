@@ -61,6 +61,34 @@ archives:
     files:
       - README.md
 
+# Homebrew formula with a `brew services` definition. It is pushed to a tap
+# when HOMEBREW_TAP_GITHUB_TOKEN is configured; otherwise the formula is still
+# generated under dist/ but not uploaded, so a missing tap never fails a
+# release. One-time setup: create <owner>/homebrew-tap and add the token as a
+# repository secret.
+brews:
+  - name: mongoui
+    ids:
+      - mongoui
+    repository:
+      owner: dolphinZzv
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    skip_upload: '{{ if .Env.HOMEBREW_TAP_GITHUB_TOKEN }}false{{ else }}true{{ end }}'
+    directory: Formula
+    homepage: https://github.com/dolphinZzv/mongoUI
+    description: "Lightweight, self-hosted MongoDB web admin console"
+    install: |
+      bin.install "mongoui"
+    service: |
+      run [opt_bin/"mongoui", "-addr", "127.0.0.1:8080", "-data", var/"mongoui"]
+      working_dir var
+      log_path var/"log/mongoui.log"
+      error_log_path var/"log/mongoui.log"
+      keep_alive true
+    test: |
+      system "#{bin}/mongoui", "-version"
+
 checksum:
   name_template: checksums.txt
   algorithm: sha256

@@ -21,6 +21,7 @@ import (
 
 	"mongoui/internal/api"
 	"mongoui/internal/auth"
+	"mongoui/internal/autoupdate"
 	"mongoui/internal/config"
 	"mongoui/internal/daemon"
 	"mongoui/internal/mcp"
@@ -167,7 +168,21 @@ func main() {
 		log.Printf("TOTP not configured yet; open the UI to set it up")
 	}
 
-	handler := api.New(store, mgr, uiEmbedded, version, mcp.New(store, mgr, version, *mcpToken, settings).HTTPHandler(), authManager, settings).Router(webHandler)
+	updaterEnabled := update.IsReleaseVersion(version) && !envBool("MONGOUI_DISABLE_AUTOUPDATE")
+	var updater *autoupdate.Updater
+	if updaterEnabled {
+		updater = autoupdate.New(version, envOr("MONGOUI_REPO", update.DefaultRepo), settings)
+		updater.Start()
+		defer updater.Stop()
+	} else {
+		log.Printf("automatic updates disabled (version %q)", version)
+	}
+
+	apiServer := api.New(store, mgr, uiEmbedded, version, mcp.New(store, mgr, version, *mcpToken, settings).HTTPHandler(), authManager, settings)
+	if updater != nil {
+		apiServer.SetUpdater(updater)
+	}
+	handler := apiServer.Router(webHandler)
 
 	if (*tlsCert == "") != (*tlsKey == "") {
 		log.Printf("warning: both -tls-cert and -tls-key are required for HTTPS; serving plain HTTP")

@@ -12,6 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"mongoui/internal/auth"
+	"mongoui/internal/autoupdate"
 	"mongoui/internal/config"
 	"mongoui/internal/mongoclient"
 )
@@ -25,6 +26,7 @@ type API struct {
 	mcpHandler http.Handler
 	auth       *auth.Manager
 	settings   *config.Settings
+	updater    *autoupdate.Updater
 }
 
 // New builds an API instance. mcpHandler, when non-nil, is mounted at /mcp;
@@ -38,6 +40,13 @@ func New(store *config.Store, mgr *mongoclient.Manager, uiEmbedded bool, version
 		s = config.NewSettings(config.DefaultMCPSettings())
 	}
 	return &API{store: store, mgr: mgr, uiEmbedded: uiEmbedded, version: version, mcpHandler: mcpHandler, auth: authManager, settings: s}
+}
+
+// SetUpdater attaches the self-updater so the update endpoints can report and
+// trigger it. It may be nil (e.g. in tests), in which case those endpoints
+// report that the updater is unavailable.
+func (a *API) SetUpdater(u *autoupdate.Updater) {
+	a.updater = u
 }
 
 // Router returns the fully configured HTTP handler.
@@ -84,6 +93,11 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 			r.Get("/mcp", a.getMCPSettings)
 			r.Put("/mcp", a.updateMCPSettings)
 
+			r.Get("/update", a.getUpdate)
+			r.Put("/update", a.updateUpdateSettings)
+			r.Post("/update/check", a.checkUpdate)
+			r.Post("/update/install", a.installUpdate)
+
 			r.Route("/connections", func(r chi.Router) {
 				r.Get("/", a.listConnections)
 				r.Post("/", a.createConnection)
@@ -126,6 +140,7 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 
 							r.Get("/indexes", a.listIndexes)
 							r.Post("/indexes", a.createIndex)
+							r.Patch("/indexes/{name}", a.updateIndex)
 							r.Delete("/indexes/{name}", a.dropIndex)
 						})
 					})

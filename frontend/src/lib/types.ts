@@ -156,6 +156,43 @@ export interface MCPSettings {
   write: boolean
 }
 
+export interface UpdateSettings {
+  auto: boolean
+  intervalMinutes: number
+}
+
+export interface UpdateStatus {
+  current: string
+  latest: string
+  updateAvailable: boolean
+  installedVersion: string
+  restartRequired: boolean
+  lastChecked: string
+  lastError?: string
+}
+
+export interface UpdateState {
+  settings: UpdateSettings
+  status: UpdateStatus | null
+}
+
+export interface IndexInfo {
+  v?: number
+  key: Record<string, unknown>
+  name: string
+  unique?: boolean
+  sparse?: boolean
+  hidden?: boolean
+  expireAfterSeconds?: number
+  partialFilterExpression?: unknown
+  collation?: unknown
+  weights?: Record<string, number>
+  default_language?: string
+  language_override?: string
+  wildcardProjection?: unknown
+  [key: string]: unknown
+}
+
 export type Selection =
   | { kind: "welcome" }
   | { kind: "connection"; connectionId: string }

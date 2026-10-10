@@ -13,11 +13,15 @@ import type {
   FindRequest,
   FindResult,
   ImportResult,
+  IndexInfo,
   MCPSettings,
   MongoDocument,
   SchemaResult,
   SQLResult,
   TransferFormat,
+  UpdateSettings,
+  UpdateState,
+  UpdateStatus,
   UpdateRequest,
 } from "@/lib/types"
 
@@ -228,15 +232,33 @@ export const api = {
   updateMcpSettings: (input: Partial<MCPSettings>) =>
     request<MCPSettings>("/mcp", { method: "PUT", body: JSON.stringify(input) }),
 
+  // self-update -----------------------------------------------------------------
+  getUpdate: () => request<UpdateState>("/update"),
+  updateUpdateSettings: (input: Partial<UpdateSettings>) =>
+    request<UpdateSettings>("/update", { method: "PUT", body: JSON.stringify(input) }),
+  checkUpdate: () => request<UpdateStatus>("/update/check", { method: "POST" }),
+  installUpdate: () => request<UpdateStatus>("/update/install", { method: "POST" }),
+
   // indexes ---------------------------------------------------------------------
   listIndexes: (id: string, db: string, col: string) =>
-    request<MongoDocument[]>(
+    request<IndexInfo[]>(
       `/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/indexes`,
     ),
   createIndex: (id: string, db: string, col: string, keys: unknown, options: unknown) =>
     request<{ name: string }>(
       `/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/indexes`,
       { method: "POST", body: JSON.stringify({ keys, options }) },
+    ),
+  updateIndex: (
+    id: string,
+    db: string,
+    col: string,
+    name: string,
+    update: { hidden?: boolean; expireAfterSeconds?: number },
+  ) =>
+    request<{ updated: string }>(
+      `/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/indexes/${enc(name)}`,
+      { method: "PATCH", body: JSON.stringify(update) },
     ),
   dropIndex: (id: string, db: string, col: string, name: string) =>
     request<{ dropped: string }>(

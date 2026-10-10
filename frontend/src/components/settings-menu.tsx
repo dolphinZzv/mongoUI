@@ -4,10 +4,13 @@ import {
   CheckIcon,
   ChevronDownIcon,
   CopyIcon,
+  DownloadIcon,
   Languages,
+  Loader2,
   LogOut,
   MonitorIcon,
   MoonIcon,
+  RefreshCw,
   Settings2Icon,
   SunIcon,
 } from "lucide-react"
@@ -26,12 +29,19 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { api } from "@/lib/api"
 import { copyToClipboard } from "@/lib/clipboard"
 import { LOCALES, useI18n } from "@/lib/i18n"
 import { useTheme, type Theme } from "@/lib/theme"
-import type { MCPSettings } from "@/lib/types"
+import type { MCPSettings, UpdateSettings, UpdateState } from "@/lib/types"
 import { agentToolList, setAgentEnabled, useAgentEnabled, webMcpAvailable } from "@/lib/webmcp"
 
 interface SettingsMenuProps {
@@ -52,6 +62,8 @@ export function SettingsMenu({ authEnabled }: SettingsMenuProps) {
   const [mcp, setMcp] = React.useState<MCPSettings | null>(null)
   const [saving, setSaving] = React.useState(false)
   const [copied, setCopied] = React.useState(false)
+  const [update, setUpdate] = React.useState<UpdateState | null>(null)
+  const [updateBusy, setUpdateBusy] = React.useState<"check" | "install" | null>(null)
 
   const mcpUrl = typeof window === "undefined" ? "/mcp" : `${window.location.origin}/mcp`
 
@@ -63,9 +75,48 @@ export function SettingsMenu({ authEnabled }: SettingsMenuProps) {
     }
   }, [])
 
+  const refreshUpdate = React.useCallback(async () => {
+    try {
+      setUpdate(await api.getUpdate())
+    } catch {
+      /* the API may be unavailable before the first render */
+    }
+  }, [])
+
   React.useEffect(() => {
     void refreshMCP()
-  }, [refreshMCP])
+    void refreshUpdate()
+  }, [refreshMCP, refreshUpdate])
+
+  const updateSettings = update?.settings ?? null
+
+  const saveUpdateSettings = async (patch: Partial<UpdateSettings>) => {
+    try {
+      const settings = await api.updateUpdateSettings(patch)
+      setUpdate((prev) => ({ settings, status: prev?.status ?? null }))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("update.failed"))
+    }
+  }
+
+  const runUpdateAction = async (action: "check" | "install") => {
+    setUpdateBusy(action)
+    try {
+      const status = action === "install" ? await api.installUpdate() : await api.checkUpdate()
+      setUpdate((prev) => (prev ? { ...prev, status } : prev))
+      if (status.restartRequired) {
+        toast.success(t("update.installed", { version: status.installedVersion }))
+      } else if (status.updateAvailable) {
+        toast.info(t("update.available"))
+      } else {
+        toast.success(t("update.upToDate"))
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("update.failed"))
+    } finally {
+      setUpdateBusy(null)
+    }
+  }
 
   const updateMCP = async (patch: Partial<MCPSettings>) => {
     setSaving(true)
@@ -88,6 +139,8 @@ export function SettingsMenu({ authEnabled }: SettingsMenuProps) {
   const mcpEnabled = Boolean(mcp?.enabled)
   const readEnabled = Boolean(mcp?.read)
   const writeEnabled = Boolean(mcp?.write)
+  const updateStatus = update?.status ?? null
+  const autoUpdate = updateSettings?.auto ?? true
 
   const languageOptions = React.useMemo(
     () => LOCALES.map((option) => ({ ...option })),
@@ -183,6 +236,86 @@ export function SettingsMenu({ authEnabled }: SettingsMenuProps) {
           </code>
           <Button variant="ghost" size="icon-sm" onClick={copyMCP} title={t("common.copy")}>
             {copied ? <CheckIcon className="text-emerald-600" /> : <CopyIcon />}
+          </Button>
+        </div>
+
+        <DropdownMenuSeparator />
+
+        {/* Automatic updates -------------------------------------------------- */}
+        <DropdownMenuLabel className="flex items-center gap-2">
+          <RefreshCw className="size-4" /> {t("update.title")}
+        </DropdownMenuLabel>
+        <div className="flex items-center justify-between gap-3 px-2 py-1.5">
+          <div className="space-y-0.5">
+            <p className="text-sm">{t("update.auto")}</p>
+            <p className="text-muted-foreground text-xs">{t("update.autoHint")}</p>
+          </div>
+          <Switch
+            checked={autoUpdate}
+            disabled={update === null}
+            onCheckedChange={(checked) => void saveUpdateSettings({ auto: checked })}
+          />
+        </div>
+        {autoUpdate ? (
+          <div className="flex items-center justify-between gap-3 px-2 py-1.5">
+            <p className="text-sm">{t("update.interval")}</p>
+            <Select
+              value={String(updateSettings?.intervalMinutes ?? 10)}
+              onValueChange={(value) =>
+                void saveUpdateSettings({ intervalMinutes: Number(value) })
+              }
+            >
+              <SelectTrigger size="sm" className="w-24">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[5, 10, 15, 30, 60].map((minutes) => (
+                  <SelectItem key={minutes} value={String(minutes)}>
+                    {minutes} min
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
+        <div className="space-y-1 px-2 py-1.5 text-xs">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-muted-foreground">{t("update.current")}</span>
+            <span className="font-mono">{updateStatus?.current || "—"}</span>
+            <span className="text-muted-foreground">·</span>
+            <span className="text-muted-foreground">{t("update.latest")}</span>
+            <span className="font-mono">{updateStatus?.latest || "—"}</span>
+          </div>
+          {updateStatus?.restartRequired ? (
+            <p className="text-amber-600 dark:text-amber-400">
+              {t("update.installed", { version: updateStatus.installedVersion })}
+            </p>
+          ) : updateStatus?.updateAvailable ? (
+            <p className="text-amber-600 dark:text-amber-400">{t("update.available")}</p>
+          ) : updateStatus?.lastError ? (
+            <p className="text-destructive">{t("update.error", { error: updateStatus.lastError })}</p>
+          ) : updateStatus?.lastChecked ? (
+            <p className="text-emerald-600 dark:text-emerald-400">{t("update.upToDate")}</p>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-2 px-2 pb-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={updateBusy !== null || update === null}
+            onClick={() => void runUpdateAction("check")}
+          >
+            {updateBusy === "check" ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+            {t("update.check")}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={updateBusy !== null || !updateStatus?.updateAvailable}
+            onClick={() => void runUpdateAction("install")}
+          >
+            {updateBusy === "install" ? <Loader2 className="animate-spin" /> : <DownloadIcon />}
+            {t("update.install")}
           </Button>
         </div>
 

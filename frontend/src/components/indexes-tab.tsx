@@ -1,19 +1,20 @@
 import * as React from "react"
-import { KeyRound, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react"
+import {
+  Eye,
+  EyeOff,
+  KeyRound,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/confirm-dialog"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
+import { IndexEditorDialog } from "@/components/index-editor-dialog"
 import {
   Table,
   TableBody,
@@ -22,11 +23,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { JsonEditor } from "@/components/json-editor"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { isPlainObject, formatValue } from "@/lib/mongo"
-import type { MongoDocument } from "@/lib/types"
+import type { IndexInfo } from "@/lib/types"
 
 interface IndexesTabProps {
   connectionId: string
@@ -42,14 +42,20 @@ function describeKeys(value: unknown): string {
     .join(", ")
 }
 
-function indexProperties(index: MongoDocument): string[] {
-  const props: string[] = []
-  if (index.unique) props.push("unique")
-  if (index.sparse) props.push("sparse")
-  if (index.expireAfterSeconds !== undefined) props.push(`ttl ${String(index.expireAfterSeconds)}s`)
-  if (index.partialFilterExpression) props.push("partial")
-  if (index.hidden) props.push("hidden")
-  return props
+function indexBadges(index: IndexInfo): string[] {
+  const badges: string[] = []
+  if (index.unique) badges.push("unique")
+  if (index.sparse) badges.push("sparse")
+  if (index.expireAfterSeconds !== undefined) badges.push(`ttl ${String(index.expireAfterSeconds)}s`)
+  if (index.partialFilterExpression) badges.push("partial")
+  if (index.hidden) badges.push("hidden")
+  if (isPlainObject(index.key)) {
+    const values = Object.values(index.key).map((value) => String(value))
+    if (values.includes("text")) badges.push("text")
+    if (values.includes("2dsphere") || values.includes("2d")) badges.push("geo")
+    if (values.includes("hashed")) badges.push("hashed")
+  }
+  return badges
 }
 
 export function IndexesTab({
@@ -59,13 +65,12 @@ export function IndexesTab({
   readOnly,
 }: IndexesTabProps) {
   const { t } = useI18n()
-  const [indexes, setIndexes] = React.useState<MongoDocument[]>([])
+  const [indexes, setIndexes] = React.useState<IndexInfo[]>([])
   const [loading, setLoading] = React.useState(false)
-  const [createOpen, setCreateOpen] = React.useState(false)
-  const [keys, setKeys] = React.useState('{\n  "field": 1\n}')
-  const [options, setOptions] = React.useState("{}")
-  const [busy, setBusy] = React.useState(false)
+  const [editorOpen, setEditorOpen] = React.useState(false)
+  const [editing, setEditing] = React.useState<IndexInfo | null>(null)
   const [dropTarget, setDropTarget] = React.useState<string | null>(null)
+  const [busyAction, setBusyAction] = React.useState<string | null>(null)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -77,35 +82,34 @@ export function IndexesTab({
     } finally {
       setLoading(false)
     }
-  }, [connectionId, database, collection])
+  }, [connectionId, database, collection, t])
 
   React.useEffect(() => {
     void load()
   }, [load])
 
-  const handleCreate = async (event: React.FormEvent) => {
-    event.preventDefault()
-    let parsedKeys: unknown
-    let parsedOptions: unknown
+  const openCreate = () => {
+    setEditing(null)
+    setEditorOpen(true)
+  }
+
+  const openEdit = (index: IndexInfo) => {
+    setEditing(index)
+    setEditorOpen(true)
+  }
+
+  const toggleHidden = async (index: IndexInfo) => {
+    setBusyAction(index.name)
     try {
-      parsedKeys = JSON.parse(keys)
-      parsedOptions = JSON.parse(options || "{}")
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("indexes.invalidJson"))
-      return
-    }
-    setBusy(true)
-    try {
-      await api.createIndex(connectionId, database, collection, parsedKeys, parsedOptions)
-      toast.success(t("indexes.created"))
-      setCreateOpen(false)
-      setKeys('{\n  "field": 1\n}')
-      setOptions("{}")
+      await api.updateIndex(connectionId, database, collection, index.name, {
+        hidden: !index.hidden,
+      })
+      toast.success(index.hidden ? t("indexes.unhidden") : t("indexes.hiddenToast"))
       await load()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("indexes.createFailed"))
+      toast.error(err instanceof Error ? err.message : t("indexes.updateFailed"))
     } finally {
-      setBusy(false)
+      setBusyAction(null)
     }
   }
 
@@ -113,7 +117,7 @@ export function IndexesTab({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b p-3">
         <span className="text-sm font-medium">
-          {indexes.length} index{indexes.length === 1 ? "" : "es"}
+          {t(indexes.length === 1 ? "indexes.countOne" : "indexes.count", { count: indexes.length })}
         </span>
         <Button variant="outline" size="icon-sm" onClick={() => void load()} title={t("common.refresh")}>
           <RefreshCw className={loading ? "animate-spin" : undefined} />
@@ -122,9 +126,9 @@ export function IndexesTab({
           size="sm"
           className="ml-auto"
           disabled={readOnly}
-          onClick={() => setCreateOpen(true)}
+          onClick={openCreate}
         >
-          <Plus /> Create index
+          <Plus /> {t("indexes.createTitle")}
         </Button>
       </div>
 
@@ -135,7 +139,7 @@ export function IndexesTab({
               <TableHead>{t("indexes.name")}</TableHead>
               <TableHead>{t("indexes.keys")}</TableHead>
               <TableHead>{t("indexes.properties")}</TableHead>
-              <TableHead className="w-12" />
+              <TableHead className="w-28 text-right">{t("common.actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -147,41 +151,70 @@ export function IndexesTab({
               </TableRow>
             ) : null}
             {indexes.map((index) => {
-              const name = String(index.name ?? "")
+              const name = index.name
               const isDefault = name === "_id_"
-              const props = indexProperties(index)
+              const badges = indexBadges(index)
+              const busy = busyAction === name
               return (
                 <TableRow key={name}>
                   <TableCell className="font-mono text-xs">
                     <span className="flex items-center gap-2">
-                      {isDefault ? <KeyRound className="text-amber-500 dark:text-amber-400 size-3.5" /> : null}
+                      {isDefault ? (
+                        <KeyRound className="size-3.5 text-amber-500 dark:text-amber-400" />
+                      ) : null}
                       {name}
                     </span>
                   </TableCell>
                   <TableCell className="font-mono text-xs">{describeKeys(index.key)}</TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
-                      {props.length === 0 ? (
+                      {badges.length === 0 ? (
                         <span className="text-muted-foreground text-xs">—</span>
                       ) : (
-                        props.map((prop) => (
-                          <Badge key={prop} variant="secondary">
-                            {prop}
+                        badges.map((badge) => (
+                          <Badge key={badge} variant={badge === "hidden" ? "outline" : "secondary"}>
+                            {badge}
                           </Badge>
                         ))
                       )}
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      disabled={readOnly || isDefault}
-                      title={isDefault ? t("indexes.cannotDrop") : t("indexes.drop")}
-                      onClick={() => setDropTarget(name)}
-                    >
-                      <Trash2 />
-                    </Button>
+                    <div className="flex items-center justify-end gap-0.5">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        disabled={readOnly || isDefault || busy}
+                        title={index.hidden ? t("indexes.unhide") : t("indexes.hide")}
+                        onClick={() => void toggleHidden(index)}
+                      >
+                        {busy ? (
+                          <Loader2 className="animate-spin" />
+                        ) : index.hidden ? (
+                          <EyeOff />
+                        ) : (
+                          <Eye />
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        disabled={readOnly}
+                        title={t("indexes.edit")}
+                        onClick={() => openEdit(index)}
+                      >
+                        <Pencil />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        disabled={readOnly || isDefault}
+                        title={isDefault ? t("indexes.cannotDrop") : t("indexes.drop")}
+                        onClick={() => setDropTarget(name)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               )
@@ -190,48 +223,21 @@ export function IndexesTab({
         </Table>
       </div>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="sm:max-w-xl">
-          <form onSubmit={handleCreate}>
-            <DialogHeader>
-              <DialogTitle>{t("indexes.createTitle")}</DialogTitle>
-              <DialogDescription>
-                Specify the index keys and any options using Extended JSON.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="space-y-1">
-                <Label>{t("indexes.keys")}</Label>
-                <JsonEditor value={keys} onChange={setKeys} allowEmpty={false} rows={4} />
-              </div>
-              <div className="space-y-1">
-                <Label>{t("indexes.options")}</Label>
-                <JsonEditor
-                  value={options}
-                  onChange={setOptions}
-                  rows={4}
-                  placeholder='{ "unique": true, "name": "email_unique" }'
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="ghost" onClick={() => setCreateOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={busy}>
-                {busy ? <Loader2 className="animate-spin" /> : <Plus />}
-                Create
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <IndexEditorDialog
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        connectionId={connectionId}
+        database={database}
+        collection={collection}
+        index={editing}
+        onSaved={() => void load()}
+      />
 
       <ConfirmDialog
         open={dropTarget !== null}
         onOpenChange={(open) => !open && setDropTarget(null)}
         title={t("indexes.dropTitle", { name: dropTarget ?? "" })}
-        description="The index will be removed from the collection."
+        description={t("indexes.dropDesc")}
         confirmLabel={t("indexes.dropLabel")}
         onConfirm={async () => {
           if (!dropTarget) return

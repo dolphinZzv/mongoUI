@@ -116,3 +116,57 @@ func (a *API) dropIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	ok(w, map[string]any{"dropped": name})
 }
+
+type updateIndexRequest struct {
+	Hidden             *bool  `json:"hidden"`
+	ExpireAfterSeconds *int64 `json:"expireAfterSeconds"`
+}
+
+// updateIndex changes the options MongoDB allows modifying in place via collMod:
+// whether the index is hidden and its TTL. Everything else (keys, unique,
+// sparse, partial filter, collation, ...) requires dropping and recreating the
+// index, which the UI performs explicitly.
+func (a *API) updateIndex(w http.ResponseWriter, r *http.Request) {
+	if !a.requireWrite(w, r) {
+		return
+	}
+	coll, err := a.dbCollection(r)
+	if err != nil {
+		a.dbErr(w, err)
+		return
+	}
+	name := chi.URLParam(r, "name")
+	if name == "" {
+		badRequest(w, errors.New("index name is required"))
+		return
+	}
+	var req updateIndexRequest
+	if err := decodeJSON(r, &req); err != nil {
+		badRequest(w, err)
+		return
+	}
+	if req.Hidden == nil && req.ExpireAfterSeconds == nil {
+		badRequest(w, errors.New("provide hidden and/or expireAfterSeconds"))
+		return
+	}
+
+	index := bson.D{{Key: "name", Value: name}}
+	if req.Hidden != nil {
+		index = append(index, bson.E{Key: "hidden", Value: *req.Hidden})
+	}
+	if req.ExpireAfterSeconds != nil {
+		index = append(index, bson.E{Key: "expireAfterSeconds", Value: *req.ExpireAfterSeconds})
+	}
+	cmd := bson.D{
+		{Key: "collMod", Value: coll.Name()},
+		{Key: "index", Value: index},
+	}
+
+	ctx, cancel := withTimeout(r)
+	defer cancel()
+	if err := coll.Database().RunCommand(ctx, cmd).Err(); err != nil {
+		a.dbErr(w, err)
+		return
+	}
+	ok(w, map[string]any{"updated": name})
+}

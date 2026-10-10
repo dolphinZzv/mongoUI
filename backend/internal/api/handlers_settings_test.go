@@ -63,3 +63,46 @@ func TestMCPSettingsEndpoints(t *testing.T) {
 		t.Fatalf("settings not persisted: %#v", got)
 	}
 }
+
+func TestUpdateSettingsEndpoints(t *testing.T) {
+	store, err := config.NewStore(filepath.Join(t.TempDir(), "connections.json"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	settings := config.NewSettings(config.DefaultMCPSettings())
+	handler := New(store, mongoclient.NewManager(), true, "test", nil, nil, settings).Router(nil)
+
+	status, env := doJSON(t, handler, "GET", "/api/update", "")
+	if status != 200 {
+		t.Fatalf("GET status = %d", status)
+	}
+	data := dataOf(t, env)
+	if data["status"] != nil {
+		t.Fatalf("status should be nil without an updater: %#v", data["status"])
+	}
+	prefs, ok := data["settings"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing settings: %#v", data)
+	}
+	if prefs["auto"] != true || prefs["intervalMinutes"].(float64) != 10 {
+		t.Fatalf("unexpected defaults: %#v", prefs)
+	}
+
+	status, env = doJSON(t, handler, "PUT", "/api/update", `{"auto":false,"intervalMinutes":15}`)
+	if status != 200 {
+		t.Fatalf("PUT status = %d", status)
+	}
+	if got := settings.GetUpdate(); got.Auto || got.IntervalMinutes != 15 {
+		t.Fatalf("update settings not stored: %#v", got)
+	}
+
+	status, _ = doJSON(t, handler, "PUT", "/api/update", `{"intervalMinutes":1}`)
+	if status != 400 {
+		t.Fatalf("too-small interval: status %d, want 400", status)
+	}
+
+	status, _ = doJSON(t, handler, "POST", "/api/update/check", "")
+	if status != 503 {
+		t.Fatalf("check without updater: status %d, want 503", status)
+	}
+}

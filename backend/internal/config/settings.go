@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 // MCPSettings controls the server-side MCP capability. Tools are grouped into
@@ -24,17 +25,41 @@ func DefaultMCPSettings() MCPSettings {
 	return MCPSettings{Enabled: true, Read: true, Write: false}
 }
 
+// UpdateSettings controls the automatic self-updater.
+type UpdateSettings struct {
+	// Auto enables the periodic update check/install.
+	Auto bool `json:"auto"`
+	// IntervalMinutes is how often to check, defaulting to 10 minutes.
+	IntervalMinutes int `json:"intervalMinutes"`
+}
+
+// DefaultUpdateSettings enables automatic updates every 10 minutes.
+func DefaultUpdateSettings() UpdateSettings {
+	return UpdateSettings{Auto: true, IntervalMinutes: 10}
+}
+
+// UpdateInterval enforces sane bounds so a misconfigured value cannot hammer
+// the GitHub API (minimum 5 minutes).
+func (u UpdateSettings) UpdateInterval() time.Duration {
+	minutes := u.IntervalMinutes
+	if minutes < 5 {
+		minutes = 5
+	}
+	return time.Duration(minutes) * time.Minute
+}
+
 // Settings persists server-wide preferences that are not connection specific.
 type Settings struct {
-	mu   sync.RWMutex
-	path string
-	MCP  MCPSettings `json:"mcp"`
+	mu     sync.RWMutex
+	path   string
+	MCP    MCPSettings    `json:"mcp"`
+	Update UpdateSettings `json:"update"`
 }
 
 // NewSettings returns an in-memory settings holder. Updates are not persisted
 // when no path has been configured.
 func NewSettings(mcp MCPSettings) *Settings {
-	return &Settings{MCP: mcp}
+	return &Settings{MCP: mcp, Update: DefaultUpdateSettings()}
 }
 
 // LoadSettings loads settings from path, falling back to def when the file does
@@ -70,6 +95,25 @@ func (s *Settings) GetMCP() MCPSettings {
 func (s *Settings) SetMCP(mcp MCPSettings) error {
 	s.mu.Lock()
 	s.MCP = mcp
+	s.mu.Unlock()
+
+	if s.path == "" {
+		return nil
+	}
+	return s.persist()
+}
+
+// GetUpdate returns a copy of the automatic-update settings.
+func (s *Settings) GetUpdate() UpdateSettings {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Update
+}
+
+// SetUpdate replaces the automatic-update settings and persists them.
+func (s *Settings) SetUpdate(update UpdateSettings) error {
+	s.mu.Lock()
+	s.Update = update
 	s.mu.Unlock()
 
 	if s.path == "" {

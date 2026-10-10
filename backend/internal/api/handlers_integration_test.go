@@ -241,3 +241,75 @@ func TestIntegrationReadOnlyImportRejected(t *testing.T) {
 		t.Fatalf("import on read-only connection: status %d, want 403", status)
 	}
 }
+
+func TestIntegrationIndexEditor(t *testing.T) {
+	handler, db := integrationAPI(t)
+	base := "/api/connections"
+	_, env := doJSON(t, handler, http.MethodGet, base+"/", "")
+	connID := env["data"].([]any)[0].(map[string]any)["id"].(string)
+	idxPath := fmt.Sprintf("%s/%s/databases/%s/collections/idx/indexes", base, connID, db)
+
+	// Create a unique index and a TTL index.
+	status, env := doJSON(t, handler, http.MethodPost, idxPath,
+		`{"keys":{"email":1},"options":{"name":"email_1","unique":true}}`)
+	if status != http.StatusOK {
+		t.Fatalf("create unique index: status %d body %#v", status, env)
+	}
+	status, env = doJSON(t, handler, http.MethodPost, idxPath,
+		`{"keys":{"createdAt":1},"options":{"name":"ttl_1","expireAfterSeconds":3600}}`)
+	if status != http.StatusOK {
+		t.Fatalf("create ttl index: status %d body %#v", status, env)
+	}
+
+	find := func() map[string]any {
+		t.Helper()
+		status, env := doJSON(t, handler, http.MethodGet, idxPath, "")
+		if status != http.StatusOK {
+			t.Fatalf("list indexes: status %d body %#v", status, env)
+		}
+		for _, item := range env["data"].([]any) {
+			index := item.(map[string]any)
+			if index["name"] == "email_1" || index["name"] == "ttl_1" {
+				return index
+			}
+		}
+		return nil
+	}
+
+	// Hide the unique index in place.
+	status, env = doJSON(t, handler, http.MethodPatch, idxPath+"/email_1", `{"hidden":true}`)
+	if status != http.StatusOK {
+		t.Fatalf("hide index: status %d body %#v", status, env)
+	}
+	if got := find(); got == nil || got["name"] != "email_1" || got["hidden"] != true {
+		t.Fatalf("email_1 not hidden: %#v", got)
+	}
+
+	// Update the TTL in place.
+	status, env = doJSON(t, handler, http.MethodPatch, idxPath+"/ttl_1", `{"expireAfterSeconds":60}`)
+	if status != http.StatusOK {
+		t.Fatalf("update ttl: status %d body %#v", status, env)
+	}
+	// The list is a flat slice; scan again for the TTL index.
+	_, env = doJSON(t, handler, http.MethodGet, idxPath, "")
+	for _, item := range env["data"].([]any) {
+		index := item.(map[string]any)
+		if index["name"] == "ttl_1" {
+			if index["expireAfterSeconds"].(float64) != 60 {
+				t.Fatalf("ttl not updated: %#v", index)
+			}
+		}
+	}
+
+	// An update without any field is rejected.
+	status, _ = doJSON(t, handler, http.MethodPatch, idxPath+"/email_1", `{}`)
+	if status != http.StatusBadRequest {
+		t.Fatalf("empty update: status %d, want 400", status)
+	}
+
+	// Drop the unique index.
+	status, env = doJSON(t, handler, http.MethodDelete, idxPath+"/email_1", "")
+	if status != http.StatusOK {
+		t.Fatalf("drop index: status %d body %#v", status, env)
+	}
+}

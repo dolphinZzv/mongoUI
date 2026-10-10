@@ -26,7 +26,7 @@
 | 文档操作 | 过滤器编辑器（MongoDB 语法高亮、操作符 / 字段名自动补全、常用过滤模板）、排序、投影、分页；插入（支持批量数组）、整文档编辑替换、单条 / 批量 / 按条件删除；行选择批量删除、复制 JSON |
 | 聚合管道 | 多行 JSON 编辑器 + 常用模板，表格 / JSON 两种结果视图 |
 | SQL 查询 | 用 SQL 查询 MongoDB，自动翻译为 find / aggregation，支持 WHERE / IN / LIKE / GROUP BY / HAVING / DISTINCT / 聚合函数，并展示生成的 MQL |
-| 索引 | 查看索引（键、唯一、稀疏、TTL、部分索引等）、创建、删除 |
+| 索引 | 完整的索引编辑器：可视化构建复合键（升/降序、text、hashed、2dsphere、2d）、唯一 / 稀疏 / 隐藏 / TTL / 部分索引 / collation / 全文权重等选项，附原始 JSON 模式；支持创建、按需重建编辑、隐藏 / 取消隐藏、TTL 原地修改与删除 |
 | Schema 分析 | 抽样文档统计字段覆盖率与类型分布 |
 | 统计信息 | `collStats` / `dbStats` 关键指标卡片 + 原始 JSON |
 | 服务器信息 | 版本、构建信息、运行时长、数据库总大小 |
@@ -37,7 +37,7 @@
 | 查询可视化 | 把 find / SQL / 聚合结果切换为图表（柱状 / 折线 / 面积 / 饼图），自选 X 轴、数值字段与聚合方式（计数 / 求和 / 平均 / 最大 / 最小）；纯 SVG 无额外依赖 |
 | 主题 / i18n | 明亮 / 暗黑 / 跟随系统三种模式；中文 / English 双语，顶栏切换并自动跟随浏览器语言，偏好保存在浏览器 |
 | 登录 | 首次启动引导开启 TOTP 两步验证，之后所有 API 需登录（签名会话 Cookie） |
-| 运维 | 守护进程后台运行（`-daemon` / `-stop` / `-status`）、一键安装脚本、`mongoui update` 自更新 |
+| 运维 | 守护进程后台运行（`-daemon` / `-stop` / `-status`）、一键安装脚本、Homebrew formula（`brew services`）、内置自动更新（默认每 10 分钟，可在界面关闭）与 `mongoui update` 手动自更新 |
 | 浏览器 Agent | WebMCP（`navigator.modelContext`）+ `window.mongouiAgent`，把连接 / 查询 / 聚合 / 索引等操作暴露给浏览器内 agent，**默认关闭**、需显式开启 |
 | MCP | 内置 Model Context Protocol server（stdio / HTTP），把连接、查询、聚合、SQL、增删改、索引等暴露给外部 Agent；工具分读 / 写两组，可在界面中开关 |
 
@@ -224,9 +224,32 @@ mongoui -stop                               # 停止
 
 Windows 不支持 `-daemon`，请使用 NSSM、任务计划程序或 Windows 服务。
 
+## Homebrew（macOS / Linuxbrew）
+
+发布产物同时生成带 `brew services` 定义的 Homebrew formula，安装后可直接常驻后台：
+
+```bash
+brew tap dolphinZzv/tap
+brew install mongoui
+brew services start mongoui     # 后台常驻，默认 127.0.0.1:8080，数据在 $(brew --prefix)/var/mongoui
+brew services stop mongoui
+```
+
+> 首次发布 tap 前需要一次性配置：创建一个名为 `homebrew-tap` 的仓库，并把拥有 `contents:write` 权限的 PAT 作为 `HOMEBREW_TAP_GITHUB_TOKEN` secret 加入本仓库。未配置该 secret 时，发布流程会跳过 Homebrew（重新生成 formula 但不推送），不会导致发布失败。
+>
+> 未使用 tap 时也可以直接下载二进制，见上一节。
+
 ## 自动更新
 
-二进制内置自更新命令，会查询 GitHub Releases、校验 SHA-256 并原子替换自身：
+服务内置定时自更新：**默认每 10 分钟**检查一次 GitHub Releases，发现新版本会自动下载、校验 SHA-256 并原子替换二进制。可在界面右上角 **设置 → Updates** 中关闭，或调整检查间隔（最小 5 分钟）。新版本安装后需重启进程才会生效，界面会显示 “restart to apply”。
+
+配置保存在 `<data>/settings.json` 的 `update` 字段：
+
+```json
+{ "update": { "auto": true, "intervalMinutes": 10 } }
+```
+
+也可以手动更新：
 
 ```bash
 mongoui update            # 更新到最新版本

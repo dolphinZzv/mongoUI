@@ -30,6 +30,53 @@ const userAgent = "mongoui-updater"
 
 var httpClient = &http.Client{Timeout: 120 * time.Second}
 
+// LatestTag returns the tag name of the newest published release.
+func LatestTag(repo string) (string, error) {
+	if repo == "" {
+		repo = DefaultRepo
+	}
+	rel, err := fetchRelease(repo, "")
+	if err != nil {
+		return "", err
+	}
+	return rel.TagName, nil
+}
+
+// Newer reports whether latest is a newer version than current.
+func Newer(latest, current string) bool {
+	return isNewer(normalizeVersion(latest), normalizeVersion(current))
+}
+
+// IsReleaseVersion reports whether v looks like a published release, so the
+// automatic updater should run. Development and CI builds (empty, "dev",
+// "ci", snapshots, ...) are excluded.
+func IsReleaseVersion(v string) bool {
+	v = strings.ToLower(strings.TrimSpace(v))
+	v = strings.TrimPrefix(v, "v")
+	switch v {
+	case "", "dev", "none", "unknown", "ci", "snapshot":
+		return false
+	}
+	for _, r := range v {
+		if r >= '0' && r <= '9' {
+			return true
+		}
+	}
+	return false
+}
+
+// Install downloads and installs the given target version (or the latest when
+// target is empty), replacing the running binary.
+func Install(repo, current, target string, out io.Writer) error {
+	return Run(Options{
+		Repo:           repo,
+		CurrentVersion: current,
+		TargetVersion:  target,
+		CheckOnly:      false,
+		Out:            out,
+	})
+}
+
 // Options configures a Run call.
 type Options struct {
 	Repo           string

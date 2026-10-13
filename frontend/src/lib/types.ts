@@ -138,13 +138,31 @@ export interface ExplainRequest {
   verbosity?: ExplainVerbosity
 }
 
+export type AuthRole = "admin" | "readwrite" | "readonly"
+
 export interface AuthStatus {
   enabled: boolean
   authenticated: boolean
   needsSetup: boolean
+  username?: string
+  role?: AuthRole
 }
 
 export interface AuthSetup {
+  secret: string
+  otpauthUrl: string
+  qr: string
+}
+
+export interface AuthUser {
+  id: string
+  username: string
+  role: AuthRole
+  createdAt: string
+}
+
+export interface AuthUserSetup {
+  id: string
   secret: string
   otpauthUrl: string
   qr: string

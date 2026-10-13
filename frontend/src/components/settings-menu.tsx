@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Settings2Icon,
   SunIcon,
+  Users,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -37,6 +38,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { useAuth } from "@/components/auth-gate"
+import { UsersDialog } from "@/components/users-dialog"
 import { api } from "@/lib/api"
 import { copyToClipboard } from "@/lib/clipboard"
 import { LOCALES, useI18n } from "@/lib/i18n"
@@ -56,6 +59,8 @@ interface SettingsMenuProps {
 export function SettingsMenu({ authEnabled }: SettingsMenuProps) {
   const { t, locale, setLocale } = useI18n()
   const { theme, setTheme } = useTheme()
+  const { role } = useAuth()
+  const [usersOpen, setUsersOpen] = React.useState(false)
   const agentEnabled = useAgentEnabled()
   const agentTools = React.useMemo(() => agentToolList(), [])
   const webmcp = React.useMemo(() => webMcpAvailable(), [])
@@ -153,6 +158,7 @@ export function SettingsMenu({ authEnabled }: SettingsMenuProps) {
   ]
 
   return (
+    <>
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
@@ -364,6 +370,11 @@ export function SettingsMenu({ authEnabled }: SettingsMenuProps) {
         {authEnabled ? (
           <>
             <DropdownMenuSeparator />
+            {role === "admin" ? (
+              <DropdownMenuItem onSelect={() => setUsersOpen(true)}>
+                <Users /> {t("users.title")}
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem
               onSelect={() => {
                 void api.authLogout().then(() => window.location.reload())
@@ -375,5 +386,7 @@ export function SettingsMenu({ authEnabled }: SettingsMenuProps) {
         ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
+    <UsersDialog open={usersOpen} onOpenChange={setUsersOpen} />
+    </>
   )
 }

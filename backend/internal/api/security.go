@@ -12,6 +12,9 @@ import (
 // errReadOnly is returned when a write is attempted on a read-only connection.
 var errReadOnly = errors.New("connection is read-only; write operations are disabled")
 
+// errReadOnlyAccount is returned when a read-only account attempts a write.
+var errReadOnlyAccount = errors.New("read-only account; write operations are disabled")
+
 // ensureWritable rejects writes for connections flagged read-only, so the flag
 // is enforced by the server rather than only hidden in the UI.
 func (a *API) ensureWritable(r *http.Request) error {
@@ -28,6 +31,10 @@ func (a *API) ensureWritable(r *http.Request) error {
 // requireWrite writes the appropriate error and reports whether the request may
 // proceed with a write.
 func (a *API) requireWrite(w http.ResponseWriter, r *http.Request) bool {
+	if a.auth != nil && !a.auth.CanWrite(r) {
+		fail(w, http.StatusForbidden, errReadOnlyAccount)
+		return false
+	}
 	err := a.ensureWritable(r)
 	if err == nil {
 		return true

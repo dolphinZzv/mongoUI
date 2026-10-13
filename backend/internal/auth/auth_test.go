@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -24,6 +25,21 @@ func newTestManager(t *testing.T) *Manager {
 	return m
 }
 
+func requestWithSession(m *Manager, userID string) *http.Request {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: m.newSession(userID)})
+	return req
+}
+
+func newCode(t *testing.T, secret string) string {
+	t.Helper()
+	code, err := totp.GenerateCode(secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return code
+}
+
 func TestSetupAndLoginFlow(t *testing.T) {
 	m := newTestManager(t)
 	if m.Enabled() {
@@ -38,33 +54,33 @@ func TestSetupAndLoginFlow(t *testing.T) {
 		t.Fatalf("unexpected setup payload: %q %q %q", secret, uri, qr)
 	}
 
-	code, err := totp.GenerateCode(secret, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := m.ConfirmSetup("000000"); err == nil {
+	if _, err := m.ConfirmSetup("000000"); err == nil {
 		t.Fatal("expected an invalid code to be rejected")
 	}
-	if err := m.ConfirmSetup(code); err != nil {
+	adminID, err := m.ConfirmSetup(newCode(t, secret))
+	if err != nil {
 		t.Fatalf("confirm: %v", err)
 	}
 	if !m.Enabled() {
 		t.Fatal("should be enabled after confirm")
 	}
 
-	if !m.validSession(m.newSession()) {
+	if _, ok := m.validSession(m.newSession(adminID)); !ok {
 		t.Fatal("fresh session should be valid")
 	}
-	if m.validSession("nope.nope") {
+	if _, ok := m.validSession("nope.nope"); ok {
 		t.Fatal("forged session accepted")
 	}
 
-	if err := m.Login("000000"); err == nil {
+	if _, err := m.Login("admin", "000000"); err == nil {
 		t.Fatal("expected invalid login code")
 	}
-	code2, _ := totp.GenerateCode(secret, time.Now())
-	if err := m.Login(code2); err != nil {
+	user, err := m.Login("admin", newCode(t, secret))
+	if err != nil {
 		t.Fatalf("login: %v", err)
+	}
+	if user.Role != RoleAdmin {
+		t.Fatalf("expected admin role, got %q", user.Role)
 	}
 }
 
@@ -81,8 +97,8 @@ func TestMiddleware(t *testing.T) {
 	}
 
 	secret, _, _, _ := m.BeginSetup()
-	code, _ := totp.GenerateCode(secret, time.Now())
-	if err := m.ConfirmSetup(code); err != nil {
+	adminID, err := m.ConfirmSetup(newCode(t, secret))
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -94,12 +110,74 @@ func TestMiddleware(t *testing.T) {
 	}
 
 	// Enabled, valid session cookie: 200.
-	req := httptest.NewRequest(http.MethodGet, "/api/connections", nil)
-	req.AddCookie(&http.Cookie{Name: cookieName, Value: m.newSession()})
 	rec = httptest.NewRecorder()
-	guarded.ServeHTTP(rec, req)
+	guarded.ServeHTTP(rec, requestWithSession(m, adminID))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("authenticated = %d, want 200", rec.Code)
+	}
+}
+
+func TestRolesEnforced(t *testing.T) {
+	m := newTestManager(t)
+	adminSecret, _, _, _ := m.BeginSetup()
+	adminID, err := m.ConfirmSetup(newCode(t, adminSecret))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	id, secret, _, _, err := m.BeginUserSetup("viewer", RoleReadOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewer, err := m.ConfirmUserSetup(id, newCode(t, secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	admin := requestWithSession(m, adminID)
+	readonly := requestWithSession(m, viewer.ID)
+
+	if role, ok := m.Role(admin); !ok || role != RoleAdmin {
+		t.Fatalf("admin role = %q ok=%v", role, ok)
+	}
+	if !m.CanWrite(admin) || !m.IsAdmin(admin) {
+		t.Fatal("admin should be able to write and manage users")
+	}
+	if role, ok := m.Role(readonly); !ok || role != RoleReadOnly {
+		t.Fatalf("viewer role = %q ok=%v", role, ok)
+	}
+	if m.CanWrite(readonly) {
+		t.Fatal("read-only account should not be able to write")
+	}
+	if m.IsAdmin(readonly) {
+		t.Fatal("read-only account should not be an admin")
+	}
+}
+
+func TestLastAdminProtection(t *testing.T) {
+	m := newTestManager(t)
+	secret, _, _, _ := m.BeginSetup()
+	adminID, err := m.ConfirmSetup(newCode(t, secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.UpdateUserRole(adminID, RoleReadOnly); err == nil {
+		t.Fatal("expected the last admin to be protected from demotion")
+	}
+	if err := m.DeleteUser(adminID); err == nil {
+		t.Fatal("expected the last admin to be protected from deletion")
+	}
+
+	id, secret2, _, _, err := m.BeginUserSetup("admin2", RoleAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.ConfirmUserSetup(id, newCode(t, secret2)); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.UpdateUserRole(adminID, RoleReadWrite); err != nil {
+		t.Fatalf("demoting with two admins should succeed: %v", err)
 	}
 }
 
@@ -116,8 +194,7 @@ func TestPersistenceEncryptsSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	secret, _, _, _ := m.BeginSetup()
-	code, _ := totp.GenerateCode(secret, time.Now())
-	if err := m.ConfirmSetup(code); err != nil {
+	if _, err := m.ConfirmSetup(newCode(t, secret)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -136,9 +213,33 @@ func TestPersistenceEncryptsSecret(t *testing.T) {
 	if !reloaded.Enabled() {
 		t.Fatal("not enabled after reload")
 	}
-	code2, _ := totp.GenerateCode(secret, time.Now())
-	if err := reloaded.Login(code2); err != nil {
+	if _, err := reloaded.Login("admin", newCode(t, secret)); err != nil {
 		t.Fatalf("login after reload: %v", err)
+	}
+}
+
+func TestLegacyConfigMigrates(t *testing.T) {
+	dir := t.TempDir()
+	key := []byte("test-master-key")
+	keyOTP, err := totp.Generate(totp.GenerateOpts{Issuer: issuerName, AccountName: "admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := fmt.Sprintf(`{"enabled":true,"secret":%q}`, keyOTP.Secret())
+	if err := os.WriteFile(filepath.Join(dir, "auth.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := New(dir, nil, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	users := m.ListUsers()
+	if len(users) != 1 || users[0].Role != RoleAdmin || users[0].Username != "admin" {
+		t.Fatalf("legacy config not migrated: %#v", users)
+	}
+	if _, err := m.Login("admin", newCode(t, keyOTP.Secret())); err != nil {
+		t.Fatalf("login after migration: %v", err)
 	}
 }
 
@@ -148,8 +249,7 @@ func TestWrongMasterKeyFails(t *testing.T) {
 	cipher, _ := config.NewCipher(key)
 	m, _ := New(dir, cipher, key)
 	secret, _, _, _ := m.BeginSetup()
-	code, _ := totp.GenerateCode(secret, time.Now())
-	if err := m.ConfirmSetup(code); err != nil {
+	if _, err := m.ConfirmSetup(newCode(t, secret)); err != nil {
 		t.Fatal(err)
 	}
 

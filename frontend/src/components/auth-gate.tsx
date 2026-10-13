@@ -14,10 +14,12 @@ import { Label } from "@/components/ui/label"
 import { LanguageToggle } from "@/components/language-toggle"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
-import type { AuthSetup, AuthStatus } from "@/lib/types"
+import type { AuthSetup, AuthStatus, AuthRole } from "@/lib/types"
 
 interface AuthContextValue {
   enabled: boolean
+  username?: string
+  role?: AuthRole
 }
 
 const AuthContext = React.createContext<AuthContextValue>({ enabled: false })
@@ -71,7 +73,13 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   if (status.enabled && !status.authenticated) {
     return <LoginScreen onDone={refresh} />
   }
-  return <AuthContext.Provider value={{ enabled: status.enabled }}>{children}</AuthContext.Provider>
+  return (
+    <AuthContext.Provider
+      value={{ enabled: status.enabled, username: status.username, role: status.role }}
+    >
+      {children}
+    </AuthContext.Provider>
+  )
 }
 
 function AuthLayout({
@@ -185,6 +193,7 @@ function SetupScreen({ onDone }: { onDone: () => void }) {
 
 function LoginScreen({ onDone }: { onDone: () => void }) {
   const { t } = useI18n()
+  const [username, setUsername] = React.useState("")
   const [code, setCode] = React.useState("")
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState("")
@@ -194,7 +203,7 @@ function LoginScreen({ onDone }: { onDone: () => void }) {
     setBusy(true)
     setError("")
     try {
-      await api.authLogin(code.trim())
+      await api.authLogin(username.trim(), code.trim())
       onDone()
     } catch (err) {
       setError(err instanceof Error ? err.message : t("auth.invalidCode"))
@@ -207,6 +216,16 @@ function LoginScreen({ onDone }: { onDone: () => void }) {
     <AuthLayout title={t("auth.loginTitle")} description={t("auth.loginIntro")}>
       <form onSubmit={submit} className="space-y-4">
         <div className="space-y-1">
+          <Label htmlFor="login-username">{t("auth.usernameLabel")}</Label>
+          <Input
+            id="login-username"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            autoComplete="username"
+            autoFocus
+          />
+        </div>
+        <div className="space-y-1">
           <Label htmlFor="login-code">{t("auth.codeLabel")}</Label>
           <Input
             id="login-code"
@@ -215,11 +234,14 @@ function LoginScreen({ onDone }: { onDone: () => void }) {
             inputMode="numeric"
             autoComplete="one-time-code"
             className="font-mono tracking-[0.3em]"
-            autoFocus
           />
         </div>
         {error ? <p className="text-destructive text-xs">{error}</p> : null}
-        <Button type="submit" className="w-full" disabled={busy || code.length !== 6}>
+        <Button
+          type="submit"
+          className="w-full"
+          disabled={busy || code.length !== 6 || !username.trim()}
+        >
           {busy ? <Loader2 className="animate-spin" /> : <ShieldCheck />}
           {t("auth.login")}
         </Button>

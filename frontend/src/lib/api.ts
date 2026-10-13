@@ -1,8 +1,11 @@
 import type {
   AggregateResult,
   AuditEntry,
+  AuthRole,
   AuthSetup,
   AuthStatus,
+  AuthUser,
+  AuthUserSetup,
   CollectionInfo,
   Connection,
   ConnectionInput,
@@ -257,12 +260,30 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ code }),
     }),
-  authLogin: (code: string) =>
-    request<{ authenticated: boolean }>("/auth/login", {
+  authLogin: (username: string, code: string) =>
+    request<{ authenticated: boolean; username?: string; role?: AuthRole }>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, code }),
+    }),
+  authLogout: () => request<{ authenticated: boolean }>("/auth/logout", { method: "POST" }),
+  listAuthUsers: () => request<AuthUser[]>("/auth/users"),
+  createAuthUser: (username: string, role: AuthRole) =>
+    request<AuthUserSetup>("/auth/users", {
+      method: "POST",
+      body: JSON.stringify({ username, role }),
+    }),
+  confirmAuthUser: (id: string, code: string) =>
+    request<AuthUser>(`/auth/users/${enc(id)}/confirm`, {
       method: "POST",
       body: JSON.stringify({ code }),
     }),
-  authLogout: () => request<{ authenticated: boolean }>("/auth/logout", { method: "POST" }),
+  updateAuthUserRole: (id: string, role: AuthRole) =>
+    request<{ id: string; role: AuthRole }>(`/auth/users/${enc(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role }),
+    }),
+  deleteAuthUser: (id: string) =>
+    request<{ deleted: string }>(`/auth/users/${enc(id)}`, { method: "DELETE" }),
 
   // MCP -------------------------------------------------------------------------
   mcpSettings: () => request<MCPSettings>("/mcp"),

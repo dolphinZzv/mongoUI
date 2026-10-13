@@ -8,8 +8,20 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+func TestAuditLogPersistsTail(t *testing.T) {
+	dir := t.TempDir()
+	log := newAuditLog(dir)
+	for i := 0; i < 3; i++ {
+		log.add(auditEntry{ConnectionID: "c1", Operation: "insert"})
+	}
+	reopened := newAuditLog(dir)
+	if got := len(reopened.list("", 10)); got != 3 {
+		t.Fatalf("expected 3 restored entries, got %d", got)
+	}
+}
+
 func TestAuditLogRingBuffer(t *testing.T) {
-	log := newAuditLog()
+	log := newAuditLog("")
 	for i := 0; i < auditCapacity+50; i++ {
 		log.add(auditEntry{ConnectionID: "c1", Method: "POST", Operation: "insert"})
 	}
@@ -26,7 +38,7 @@ func TestAuditLogRingBuffer(t *testing.T) {
 }
 
 func TestAuditMiddlewareRecordsWrites(t *testing.T) {
-	api := &API{audit: newAuditLog()}
+	api := &API{audit: newAuditLog("")}
 	router := chi.NewRouter()
 	router.Use(api.auditMiddleware)
 	router.Post("/connections/{id}/databases/{db}/collections/{col}/insert", func(w http.ResponseWriter, _ *http.Request) {

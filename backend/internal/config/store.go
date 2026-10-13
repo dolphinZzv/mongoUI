@@ -74,6 +74,12 @@ func NewStoreWithSecret(path string, cipher *Cipher) (*Store, error) {
 	return s, nil
 }
 
+// Dir returns the directory holding the store file and the other on-disk state
+// (secret key, settings, audit log).
+func (s *Store) Dir() string {
+	return filepath.Dir(s.path)
+}
+
 func (s *Store) load() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

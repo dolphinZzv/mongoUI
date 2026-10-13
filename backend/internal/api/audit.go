@@ -1,7 +1,10 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -11,9 +14,15 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-// auditCapacity bounds the in-memory audit ring buffer so it can never grow
-// without limit (writes are frequent, entries are small).
-const auditCapacity = 1000
+const (
+	// auditCapacity bounds the in-memory audit ring buffer so it can never grow
+	// without limit (writes are frequent, entries are small).
+	auditCapacity = 1000
+	// auditMaxBytes caps the on-disk log; once exceeded it is rewritten from the
+	// bounded in-memory buffer, so the file stays small too.
+	auditMaxBytes = 1 << 20
+	auditFileName = "audit.jsonl"
+)
 
 type auditEntry struct {
 	Time         string `json:"time"`
@@ -29,10 +38,39 @@ type auditEntry struct {
 type auditLog struct {
 	mu      sync.Mutex
 	entries []auditEntry
+	// path is empty when persistence is disabled (e.g. in tests).
+	path string
 }
 
-func newAuditLog() *auditLog {
-	return &auditLog{entries: make([]auditEntry, 0, auditCapacity)}
+// newAuditLog creates a log persisted to <dataDir>/audit.jsonl. An empty
+// dataDir keeps it in memory only.
+func newAuditLog(dataDir string) *auditLog {
+	log := &auditLog{entries: make([]auditEntry, 0, auditCapacity)}
+	if dataDir != "" {
+		log.path = filepath.Join(dataDir, auditFileName)
+		log.load()
+	}
+	return log
+}
+
+// load reads the tail of the persisted log so entries survive a restart.
+func (l *auditLog) load() {
+	data, err := os.ReadFile(l.path)
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if line == "" {
+			continue
+		}
+		var entry auditEntry
+		if json.Unmarshal([]byte(line), &entry) == nil {
+			l.entries = append(l.entries, entry)
+		}
+	}
+	if len(l.entries) > auditCapacity {
+		l.entries = l.entries[len(l.entries)-auditCapacity:]
+	}
 }
 
 func (l *auditLog) add(entry auditEntry) {
@@ -45,6 +83,43 @@ func (l *auditLog) add(entry auditEntry) {
 	if len(l.entries) > auditCapacity {
 		l.entries = l.entries[len(l.entries)-auditCapacity:]
 	}
+	l.persist(entry)
+}
+
+// persist appends the entry as one JSON line, rotating the file first when it
+// has grown past auditMaxBytes.
+func (l *auditLog) persist(entry auditEntry) {
+	if l.path == "" {
+		return
+	}
+	if info, err := os.Stat(l.path); err == nil && info.Size() > auditMaxBytes {
+		l.rotate()
+	}
+	line, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+	file, err := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	_, _ = file.Write(append(line, '\n'))
+}
+
+// rotate rewrites the file from the bounded in-memory buffer.
+func (l *auditLog) rotate() {
+	tmp := l.path + ".tmp"
+	file, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	encoder := json.NewEncoder(file)
+	for _, entry := range l.entries {
+		_ = encoder.Encode(entry)
+	}
+	_ = file.Close()
+	_ = os.Rename(tmp, l.path)
 }
 
 // list returns entries newest-first, optionally filtered by connection.

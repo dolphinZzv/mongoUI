@@ -90,7 +90,7 @@ const en: Record<string, string> = {
   "audit.operation": "Operation",
   "audit.target": "Target",
   "audit.status": "Status",
-  "audit.inMemory": "Kept in memory; cleared when the server restarts.",
+  "audit.storage": "Persisted to the server's data directory (most recent entries only).",
   "audit.failed": "Could not load the audit log",
 
   // language / theme
@@ -717,7 +717,7 @@ const zh: Record<string, string> = {
   "audit.operation": "操作",
   "audit.target": "目标",
   "audit.status": "状态",
-  "audit.inMemory": "保存在内存中，服务重启后清空。",
+  "audit.storage": "持久化到服务端数据目录（仅保留最近若干条）。",
   "audit.failed": "无法加载审计日志",
 
   // language / theme

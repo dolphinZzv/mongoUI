@@ -129,7 +129,7 @@ export function AuditDialog({ open, onOpenChange, connections }: AuditDialogProp
         </div>
 
         <div className="text-muted-foreground flex items-center gap-2 text-xs">
-          <ScrollText className="size-3.5" /> {t("audit.inMemory")}
+          <ScrollText className="size-3.5" /> {t("audit.storage")}
         </div>
       </DialogContent>
     </Dialog>

@@ -40,7 +40,7 @@ func New(store *config.Store, mgr *mongoclient.Manager, uiEmbedded bool, version
 	} else {
 		s = config.NewSettings(config.DefaultMCPSettings())
 	}
-	return &API{store: store, mgr: mgr, uiEmbedded: uiEmbedded, version: version, mcpHandler: mcpHandler, auth: authManager, settings: s, audit: newAuditLog()}
+	return &API{store: store, mgr: mgr, uiEmbedded: uiEmbedded, version: version, mcpHandler: mcpHandler, auth: authManager, settings: s, audit: newAuditLog(store.Dir())}
 }
 
 // SetUpdater attaches the self-updater so the update endpoints can report and

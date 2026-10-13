@@ -2,18 +2,23 @@ import * as React from "react"
 import {
   Activity,
   ArrowDown,
+  ArrowLeft,
+  ArrowRight,
   ArrowUp,
   ArrowUpDown,
   BarChart3,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Columns3,
   Copy,
   Download,
   Ellipsis,
   Loader2,
   ListFilter,
   Pencil,
+  Pin,
+  PinOff,
   Play,
   Plus,
   RefreshCw,
@@ -37,6 +42,7 @@ import { RecentQueries } from "@/components/recent-queries"
 import { Label } from "@/components/ui/label"
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -60,6 +66,15 @@ import {
 import { JsonEditor } from "@/components/json-editor"
 import { api } from "@/lib/api"
 import { useRecentQueries } from "@/hooks/useRecentQueries"
+import { togglePinnedQuery, usePinnedQueries } from "@/lib/pinnedQueries"
+import {
+  COLUMN_MAX_WIDTH,
+  COLUMN_MIN_WIDTH,
+  columnPrefsKey,
+  readColumnPrefs,
+  writeColumnPrefs,
+  type ColumnPrefs,
+} from "@/lib/columnPrefs"
 import { useI18n } from "@/lib/i18n"
 import { copyToClipboard } from "@/lib/clipboard"
 import { classForType, collectColumns, documentId, formatValue, prettyJSON, valueType } from "@/lib/mongo"
@@ -135,6 +150,8 @@ export function DocumentsTab({
   const [explainOpen, setExplainOpen] = React.useState(false)
   const [chartOpen, setChartOpen] = React.useState(false)
   const [builderOpen, setBuilderOpen] = React.useState(false)
+  const prefsKey = columnPrefsKey(connectionId, database, collection)
+  const [prefs, setPrefs] = React.useState<ColumnPrefs>(() => readColumnPrefs(prefsKey))
 
   const {
     items: recentFilters,
@@ -144,6 +161,20 @@ export function DocumentsTab({
     toggleFavorite: toggleFavoriteFilter,
     removeFavorite: removeFavoriteFilter,
   } = useRecentQueries(`docs:${connectionId}:${database}:${collection}`)
+
+  const pinnedQueries = usePinnedQueries()
+  const pinnedFilter = filter.trim() || "{}"
+  const isFilterPinned = React.useMemo(
+    () =>
+      pinnedQueries.some(
+        (query) =>
+          query.connectionId === connectionId &&
+          query.database === database &&
+          query.collection === collection &&
+          query.filter === pinnedFilter,
+      ),
+    [pinnedQueries, connectionId, database, collection, pinnedFilter],
+  )
 
   const load = React.useCallback(
     async (opts?: {
@@ -232,7 +263,95 @@ export function DocumentsTab({
   }, [initialDocs])
 
   const documents = result?.documents ?? []
-  const columns = React.useMemo(() => collectColumns(documents), [documents])
+  const allColumns = React.useMemo(() => collectColumns(documents), [documents])
+  const hiddenSet = React.useMemo(() => new Set(prefs.hidden), [prefs.hidden])
+  // Visible columns, ordered by the saved preference (new columns appended).
+  const columns = React.useMemo(() => {
+    const present = allColumns.filter((column) => !hiddenSet.has(column))
+    const presentSet = new Set(present)
+    const ordered: string[] = []
+    const seen = new Set<string>()
+    for (const column of prefs.order) {
+      if (presentSet.has(column) && !seen.has(column)) {
+        ordered.push(column)
+        seen.add(column)
+      }
+    }
+    for (const column of present) {
+      if (!seen.has(column)) {
+        ordered.push(column)
+        seen.add(column)
+      }
+    }
+    return ordered
+  }, [allColumns, hiddenSet, prefs.order])
+
+  // Persist column preferences (debounced: widths change on every mousemove).
+  React.useEffect(() => {
+    const timer = window.setTimeout(() => writeColumnPrefs(prefsKey, prefs), 300)
+    return () => window.clearTimeout(timer)
+  }, [prefsKey, prefs])
+
+  const setColumnHidden = React.useCallback((column: string, hidden: boolean) => {
+    setPrefs((prev) => ({
+      ...prev,
+      hidden: hidden
+        ? Array.from(new Set([...prev.hidden, column]))
+        : prev.hidden.filter((candidate) => candidate !== column),
+    }))
+  }, [])
+
+  const showOnlyColumn = React.useCallback(
+    (column: string) => {
+      setPrefs((prev) => ({
+        ...prev,
+        hidden: allColumns.filter((candidate) => candidate !== column),
+      }))
+    },
+    [allColumns],
+  )
+
+  const resetColumns = React.useCallback(() => {
+    setPrefs({ order: [], hidden: [], widths: {} })
+  }, [])
+
+  const moveColumn = React.useCallback(
+    (column: string, direction: -1 | 1) => {
+      setPrefs((prev) => {
+        const current = columns.slice()
+        const index = current.indexOf(column)
+        const target = index + direction
+        if (index < 0 || target < 0 || target >= current.length) return prev
+        ;[current[index], current[target]] = [current[target], current[index]]
+        const rest = allColumns.filter((candidate) => !current.includes(candidate))
+        return { ...prev, order: [...current, ...rest] }
+      })
+    },
+    [columns, allColumns],
+  )
+
+  const startResize = React.useCallback((column: string, event: React.MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const header = (event.currentTarget as HTMLElement).closest("th")
+    const startWidth = header?.getBoundingClientRect().width ?? 160
+    const startX = event.clientX
+    const onMove = (moveEvent: MouseEvent) => {
+      const width = Math.min(
+        COLUMN_MAX_WIDTH,
+        Math.max(COLUMN_MIN_WIDTH, startWidth + (moveEvent.clientX - startX)),
+      )
+      setPrefs((prev) => ({ ...prev, widths: { ...prev.widths, [column]: Math.round(width) } }))
+    }
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", onUp)
+      document.body.style.userSelect = ""
+    }
+    document.body.style.userSelect = "none"
+    document.addEventListener("mousemove", onMove)
+    document.addEventListener("mouseup", onUp)
+  }, [])
 
   // Reflect the sort JSON in the table headers so columns can be toggled by
   // clicking. Only a single-key sort is represented in the header UI.
@@ -454,7 +573,7 @@ export function DocumentsTab({
                 }
               }}
               placeholder={t("docs.filterPlaceholder")}
-              suggestions={columns}
+              suggestions={allColumns}
             />
           </div>
           <RecentQueries
@@ -477,6 +596,53 @@ export function DocumentsTab({
           >
             <ListFilter />
           </Button>
+          <Button
+            variant={isFilterPinned ? "secondary" : "outline"}
+            size="icon"
+            onClick={() =>
+              togglePinnedQuery({ connectionId, database, collection, filter: pinnedFilter })
+            }
+            title={isFilterPinned ? t("filter.unpin") : t("filter.pin")}
+            aria-label={isFilterPinned ? t("filter.unpin") : t("filter.pin")}
+          >
+            {isFilterPinned ? <PinOff /> : <Pin />}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                title={t("docs.columns")}
+                aria-label={t("docs.columns")}
+              >
+                <Columns3 />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="max-h-72 w-56 overflow-auto">
+              <div className="flex items-center justify-between px-2 py-1">
+                <span className="text-xs font-medium">{t("docs.columns")}</span>
+                <button
+                  type="button"
+                  onClick={resetColumns}
+                  className="text-muted-foreground hover:text-foreground text-[11px]"
+                >
+                  {t("docs.resetColumns")}
+                </button>
+              </div>
+              <DropdownMenuSeparator />
+              {allColumns.map((column) => (
+                <DropdownMenuCheckboxItem
+                  key={column}
+                  checked={!hiddenSet.has(column)}
+                  onCheckedChange={(checked) => setColumnHidden(column, checked !== true)}
+                  onSelect={(event) => event.preventDefault()}
+                  className="font-mono text-xs"
+                >
+                  <span className="truncate">{column}</span>
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button onClick={() => void load({ skip: 0 })} disabled={loading}>
             {loading ? <Loader2 className="animate-spin" /> : <Play />}
             {t("common.run")}
@@ -577,29 +743,87 @@ export function DocumentsTab({
               </TableHead>
               {columns.map((column) => {
                 const direction = sortSpec?.column === column ? sortSpec.direction : undefined
+                const width = prefs.widths[column]
                 return (
-                  <TableHead key={column} className="group font-mono text-xs">
-                    <button
-                      type="button"
-                      onClick={() => toggleSort(column)}
-                      title={
-                        direction
-                          ? direction === 1
-                            ? t("docs.sortedAsc")
-                            : t("docs.sortedDesc")
-                          : t("docs.sortBy", { column })
-                      }
-                      className="hover:text-foreground -mx-1 flex items-center gap-1 rounded px-1"
-                    >
-                      <span className="truncate">{column}</span>
-                      {direction === 1 ? (
-                        <ArrowUp className="size-3 shrink-0" />
-                      ) : direction === -1 ? (
-                        <ArrowDown className="size-3 shrink-0" />
-                      ) : (
-                        <ArrowUpDown className="size-3 shrink-0 opacity-0 group-hover:opacity-60" />
-                      )}
-                    </button>
+                  <TableHead
+                    key={column}
+                    className="group relative font-mono text-xs"
+                    style={width ? { width, minWidth: width, maxWidth: width } : undefined}
+                  >
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => toggleSort(column)}
+                        title={
+                          direction
+                            ? direction === 1
+                              ? t("docs.sortedAsc")
+                              : t("docs.sortedDesc")
+                            : t("docs.sortBy", { column })
+                        }
+                        className="hover:text-foreground flex min-w-0 flex-1 items-center gap-1 rounded"
+                      >
+                        <span className="truncate">{column}</span>
+                        {direction === 1 ? (
+                          <ArrowUp className="size-3 shrink-0" />
+                        ) : direction === -1 ? (
+                          <ArrowDown className="size-3 shrink-0" />
+                        ) : (
+                          <ArrowUpDown className="size-3 shrink-0 opacity-0 group-hover:opacity-60" />
+                        )}
+                      </button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            title={t("docs.columnActions")}
+                            aria-label={t("docs.columnActions")}
+                            className="text-muted-foreground hover:text-foreground shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
+                          >
+                            <ChevronDown className="size-3" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-52">
+                          <DropdownMenuItem onSelect={() => toggleSort(column)}>
+                            {direction ? t("docs.clearSort") : t("docs.sortAsc")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() =>
+                              void copyToClipboard(column).then((ok) =>
+                                ok
+                                  ? toast.success(t("common.copied"))
+                                  : toast.error(t("common.copyFailed")),
+                              )
+                            }
+                          >
+                            <Copy /> {t("docs.copyField")}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onSelect={() => moveColumn(column, -1)}>
+                            <ArrowLeft /> {t("docs.moveLeft")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => moveColumn(column, 1)}>
+                            <ArrowRight /> {t("docs.moveRight")}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onSelect={() => setColumnHidden(column, true)}>
+                            {t("docs.hideColumn")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => showOnlyColumn(column)}>
+                            {t("docs.showOnly")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={resetColumns}>
+                            {t("docs.resetColumns")}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                    <div
+                      role="separator"
+                      aria-orientation="vertical"
+                      onMouseDown={(event) => startResize(column, event)}
+                      className="hover:bg-primary/40 absolute inset-y-0 right-0 w-1 cursor-col-resize"
+                    />
                   </TableHead>
                 )
               })}
@@ -669,7 +893,19 @@ export function DocumentsTab({
                     />
                   </TableCell>
                   {columns.map((column) => (
-                    <TableCell key={column} className="max-w-[320px] truncate">
+                    <TableCell
+                      key={column}
+                      className="max-w-[320px] truncate"
+                      style={
+                        prefs.widths[column]
+                          ? {
+                              width: prefs.widths[column],
+                              minWidth: prefs.widths[column],
+                              maxWidth: prefs.widths[column],
+                            }
+                          : undefined
+                      }
+                    >
                       <CellValue value={doc[column]} />
                     </TableCell>
                   ))}
@@ -865,13 +1101,13 @@ export function DocumentsTab({
         open={chartOpen}
         onOpenChange={setChartOpen}
         documents={documents}
-        columns={columns}
+        columns={allColumns}
         storageKey={`docs:${connectionId}:${database}:${collection}`}
       />
       <MongoQueryBuilder
         open={builderOpen}
         onOpenChange={setBuilderOpen}
-        fields={columns}
+        fields={allColumns}
         value={filter}
         projection={projection}
         onApply={(nextFilter, nextProjection) => {

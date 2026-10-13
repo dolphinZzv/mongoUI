@@ -252,6 +252,16 @@ const en: Record<string, string> = {
   "docs.sortBy": "Sort by {{column}}",
   "docs.sortedAsc": "Sorted ascending — click to change",
   "docs.sortedDesc": "Sorted descending — click to change",
+  "docs.columns": "Columns",
+  "docs.resetColumns": "Reset",
+  "docs.columnActions": "Column actions",
+  "docs.clearSort": "Clear sort",
+  "docs.sortAsc": "Sort ascending",
+  "docs.copyField": "Copy field name",
+  "docs.moveLeft": "Move left",
+  "docs.moveRight": "Move right",
+  "docs.hideColumn": "Hide column",
+  "docs.showOnly": "Show only this column",
 
   // sql tab
   "sql.template.all": "All",
@@ -797,6 +807,16 @@ const zh: Record<string, string> = {
   "docs.sortBy": "按 {{column}} 排序",
   "docs.sortedAsc": "已升序 —— 点击切换",
   "docs.sortedDesc": "已降序 —— 点击切换",
+  "docs.columns": "列",
+  "docs.resetColumns": "重置",
+  "docs.columnActions": "列操作",
+  "docs.clearSort": "清除排序",
+  "docs.sortAsc": "升序排序",
+  "docs.copyField": "复制字段名",
+  "docs.moveLeft": "左移",
+  "docs.moveRight": "右移",
+  "docs.hideColumn": "隐藏该列",
+  "docs.showOnly": "仅显示该列",
 
   // sql tab
   "sql.template.all": "全部",

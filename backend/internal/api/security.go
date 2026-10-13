@@ -62,6 +62,16 @@ func (a *API) requireWritableConnection(w http.ResponseWriter, id string) bool {
 	return true
 }
 
+// requireAdmin reports whether the caller may manage server-wide settings such
+// as accounts and scheduled backups. With auth disabled everyone is an admin.
+func (a *API) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if a.auth == nil || a.auth.IsAdmin(r) {
+		return true
+	}
+	fail(w, http.StatusForbidden, errors.New("admin access required"))
+	return false
+}
+
 // readOnly reports whether the connection in the URL is flagged read-only.
 func (a *API) readOnly(r *http.Request) bool {
 	c, ok := a.store.Get(chi.URLParam(r, "id"))

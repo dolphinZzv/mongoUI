@@ -6,6 +6,7 @@ import type {
   AuthStatus,
   AuthUser,
   AuthUserSetup,
+  BackupTask,
   CollectionInfo,
   Connection,
   ConnectionInput,
@@ -284,6 +285,25 @@ export const api = {
     }),
   deleteAuthUser: (id: string) =>
     request<{ deleted: string }>(`/auth/users/${enc(id)}`, { method: "DELETE" }),
+
+  // backups ---------------------------------------------------------------------
+  listBackups: () => request<{ tasks: BackupTask[] }>("/backups"),
+  createBackup: (task: {
+    name?: string
+    connectionId: string
+    database: string
+    collection: string
+    format?: string
+    intervalMinutes?: number
+    enabled?: boolean
+    filter?: unknown
+  }) => request<BackupTask>("/backups", { method: "POST", body: JSON.stringify(task) }),
+  updateBackup: (id: string, update: { enabled?: boolean; intervalMinutes?: number }) =>
+    request<BackupTask>(`/backups/${enc(id)}`, { method: "PATCH", body: JSON.stringify(update) }),
+  deleteBackup: (id: string) =>
+    request<{ deleted: string }>(`/backups/${enc(id)}`, { method: "DELETE" }),
+  runBackup: (id: string) =>
+    request<{ started: boolean }>(`/backups/${enc(id)}/run`, { method: "POST" }),
 
   // MCP -------------------------------------------------------------------------
   mcpSettings: () => request<MCPSettings>("/mcp"),

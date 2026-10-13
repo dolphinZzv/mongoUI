@@ -168,6 +168,23 @@ export interface AuthUserSetup {
   qr: string
 }
 
+export interface BackupTask {
+  id: string
+  name: string
+  connectionId: string
+  database: string
+  collection: string
+  format: "json" | "csv"
+  intervalMinutes: number
+  enabled: boolean
+  createdAt: string
+  lastRun?: string
+  lastStatus?: "ok" | "error"
+  lastError?: string
+  lastFile?: string
+  lastCount?: number
+}
+
 export interface MCPSettings {
   enabled: boolean
   read: boolean

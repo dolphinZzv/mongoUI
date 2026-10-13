@@ -4,6 +4,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   CopyIcon,
+  DatabaseBackup,
   DownloadIcon,
   Languages,
   Loader2,
@@ -39,6 +40,7 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { useAuth } from "@/components/auth-gate"
+import { BackupsDialog } from "@/components/backups-dialog"
 import { UsersDialog } from "@/components/users-dialog"
 import { api } from "@/lib/api"
 import { copyToClipboard } from "@/lib/clipboard"
@@ -61,6 +63,7 @@ export function SettingsMenu({ authEnabled }: SettingsMenuProps) {
   const { theme, setTheme } = useTheme()
   const { role } = useAuth()
   const [usersOpen, setUsersOpen] = React.useState(false)
+  const [backupsOpen, setBackupsOpen] = React.useState(false)
   const agentEnabled = useAgentEnabled()
   const agentTools = React.useMemo(() => agentToolList(), [])
   const webmcp = React.useMemo(() => webMcpAvailable(), [])
@@ -375,6 +378,11 @@ export function SettingsMenu({ authEnabled }: SettingsMenuProps) {
                 <Users /> {t("users.title")}
               </DropdownMenuItem>
             ) : null}
+            {role === "admin" ? (
+              <DropdownMenuItem onSelect={() => setBackupsOpen(true)}>
+                <DatabaseBackup /> {t("backups.title")}
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem
               onSelect={() => {
                 void api.authLogout().then(() => window.location.reload())
@@ -387,6 +395,7 @@ export function SettingsMenu({ authEnabled }: SettingsMenuProps) {
       </DropdownMenuContent>
     </DropdownMenu>
     <UsersDialog open={usersOpen} onOpenChange={setUsersOpen} />
+    <BackupsDialog open={backupsOpen} onOpenChange={setBackupsOpen} />
     </>
   )
 }

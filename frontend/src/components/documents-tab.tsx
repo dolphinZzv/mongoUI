@@ -1107,7 +1107,7 @@ export function DocumentsTab({
                 <Checkbox
                   checked={allSelected || allMatching}
                   onCheckedChange={(checked) => toggleAll(checked === true)}
-                  aria-label="Select all"
+                  aria-label={t("docs.selectAll")}
                 />
               </TableHead>
               {columns.map((column) => {
@@ -1245,7 +1245,7 @@ export function DocumentsTab({
                   colSpan={columns.length + 2}
                   className="text-muted-foreground h-32 text-center text-sm"
                 >
-                  No documents match this query.
+                  {t("docs.noDocuments")}
                 </TableCell>
               </TableRow>
             ) : null}
@@ -1273,7 +1273,7 @@ export function DocumentsTab({
                       checked={isSelected}
                       disabled={id === null}
                       onCheckedChange={(checked) => id && toggleOne(id, checked === true)}
-                      aria-label="Select row"
+                      aria-label={t("docs.selectRow")}
                     />
                   </TableCell>
                   {columns.map((column) => (
@@ -1310,7 +1310,7 @@ export function DocumentsTab({
                           disabled={readOnly}
                           onSelect={() => setEditing({ mode: "edit", document: doc })}
                         >
-                          <Pencil /> Edit document
+                          <Pencil /> {t("docs.editDocument")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onSelect={() => {
@@ -1321,7 +1321,7 @@ export function DocumentsTab({
                             )
                           }}
                         >
-                          <Copy /> Copy JSON
+                          <Copy /> {t("docs.copyJson")}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
@@ -1329,7 +1329,7 @@ export function DocumentsTab({
                           disabled={readOnly || !id}
                           onSelect={() => setConfirm({ type: "one", document: doc })}
                         >
-                          <Trash2 /> Delete
+                          <Trash2 /> {t("common.delete")}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -1389,7 +1389,7 @@ export function DocumentsTab({
           {total === 0 ? "0" : `${skip + 1}–${Math.min(skip + limit, total)}`} of {total}
         </span>
         <div className="flex items-center gap-2">
-          <span className="text-muted-foreground text-xs">Rows</span>
+          <span className="text-muted-foreground text-xs">{t("docs.pageSize")}</span>
           <Select
             value={String(limit)}
             onValueChange={(value) => {

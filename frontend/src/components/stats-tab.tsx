@@ -81,9 +81,9 @@ export function StatsTab({ connectionId, database, collection }: StatsTabProps) 
     <div className="scrollbar-thin h-full min-h-0 overflow-auto">
       <div className="flex items-center gap-3 border-b p-3">
         <BarChart3 className="text-muted-foreground size-4" />
-        <span className="text-sm font-medium">Collection statistics</span>
+        <span className="text-sm font-medium">{t("stats.title")}</span>
         <Button variant="outline" size="sm" className="ml-auto" onClick={() => void load()}>
-          {loading ? <Loader2 className="animate-spin" /> : <RefreshCw />} Refresh
+          {loading ? <Loader2 className="animate-spin" /> : <RefreshCw />} {t("common.refresh")}
         </Button>
       </div>
 
@@ -91,11 +91,11 @@ export function StatsTab({ connectionId, database, collection }: StatsTabProps) 
         <StatCard title={t("stats.documents")} value={count.toLocaleString()} />
         <StatCard title={t("stats.logicalSize")} value={formatBytes(size)} hint={`${size.toLocaleString()} bytes`} />
         <StatCard title={t("stats.storageSize")} value={formatBytes(storageSize)} />
-        <StatCard title="Avg. document" value={formatBytes(avgObjSize)} />
+        <StatCard title={t("stats.avgDocument")} value={formatBytes(avgObjSize)} />
         <StatCard title={t("stats.indexes")} value={String(nindexes)} hint={formatBytes(totalIndexSize)} />
         <StatCard
           title={t("stats.capped")}
-          value={stats.capped ? "Yes" : "No"}
+          value={stats.capped ? t("common.yes") : t("common.no")}
           hint={typeof stats.ns === "string" ? stats.ns : undefined}
         />
       </div>

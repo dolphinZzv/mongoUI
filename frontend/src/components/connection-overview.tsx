@@ -112,7 +112,7 @@ export function ConnectionOverview({ connection }: ConnectionOverviewProps) {
             <Card className="gap-0 py-4">
               <CardHeader className="px-4">
                 <CardTitle className="text-muted-foreground flex items-center gap-2 text-xs font-medium tracking-wide uppercase">
-                  <Server className="size-3.5" /> Version
+                  <Server className="size-3.5" /> {t("overview.version")}
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-4">
@@ -122,7 +122,7 @@ export function ConnectionOverview({ connection }: ConnectionOverviewProps) {
             <Card className="gap-0 py-4">
               <CardHeader className="px-4">
                 <CardTitle className="text-muted-foreground flex items-center gap-2 text-xs font-medium tracking-wide uppercase">
-                  <Database className="size-3.5" /> Databases
+                  <Database className="size-3.5" /> {t("overview.databases")}
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-4">
@@ -132,7 +132,7 @@ export function ConnectionOverview({ connection }: ConnectionOverviewProps) {
             <Card className="gap-0 py-4">
               <CardHeader className="px-4">
                 <CardTitle className="text-muted-foreground flex items-center gap-2 text-xs font-medium tracking-wide uppercase">
-                  <HardDrive className="size-3.5" /> Data size
+                  <HardDrive className="size-3.5" /> {t("overview.dataSize")}
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-4">
@@ -142,12 +142,12 @@ export function ConnectionOverview({ connection }: ConnectionOverviewProps) {
             <Card className="gap-0 py-4">
               <CardHeader className="px-4">
                 <CardTitle className="text-muted-foreground flex items-center gap-2 text-xs font-medium tracking-wide uppercase">
-                  Uptime
+                  {t("overview.uptime")}
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-4">
                 <p className="text-xl font-semibold">
-                  {uptime !== undefined ? `${Math.round(Number(uptime) / 60)} min` : "—"}
+                  {uptime !== undefined ? `${Math.round(Number(uptime) / 60)} ${t("overview.min")}` : "—"}
                 </p>
               </CardContent>
             </Card>
@@ -155,14 +155,14 @@ export function ConnectionOverview({ connection }: ConnectionOverviewProps) {
 
           <Card className="gap-0 py-0">
             <CardHeader className="border-b py-3">
-              <CardTitle className="text-sm">Databases</CardTitle>
+              <CardTitle className="text-sm">{t("overview.databases")}</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead>{t("overview.name")}</TableHead>
-                    <TableHead className="text-right">Size on disk</TableHead>
+                    <TableHead className="text-right">{t("overview.sizeOnDisk")}</TableHead>
                     <TableHead className="w-24" />
                   </TableRow>
                 </TableHeader>
@@ -191,7 +191,7 @@ export function ConnectionOverview({ connection }: ConnectionOverviewProps) {
                   {!loading && databases.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={3} className="text-muted-foreground h-20 text-center text-sm">
-                        No databases.
+                        {t("overview.noDatabases")}
                       </TableCell>
                     </TableRow>
                   ) : null}
@@ -203,17 +203,17 @@ export function ConnectionOverview({ connection }: ConnectionOverviewProps) {
           {buildInfo ? (
             <Card className="gap-0 py-0">
               <CardHeader className="border-b py-3">
-                <CardTitle className="text-sm">Build info</CardTitle>
+                <CardTitle className="text-sm">{t("overview.buildInfo")}</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-x-8 gap-y-2 p-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
-                <Info label="Version" value={display(pick(buildInfo, "version"))} />
-                <Info label="Git version" value={display(pick(buildInfo, "gitVersion"))} />
-                <Info label="Allocator" value={display(pick(buildInfo, "allocator"))} />
-                <Info label="JS engine" value={display(pick(buildInfo, "javascriptEngine"))} />
-                <Info label="Modules" value={display(pick(buildInfo, "modules"))} />
-                <Info label="Bits" value={display(pick(buildInfo, "bits"))} />
-                <Info label="Debug" value={display(pick(buildInfo, "debug"))} />
-                <Info label="Max BSON" value={display(pick(buildInfo, "maxBsonObjectSize"))} />
+                <Info label={t("overview.version")} value={display(pick(buildInfo, "version"))} />
+                <Info label={t("overview.build.gitVersion")} value={display(pick(buildInfo, "gitVersion"))} />
+                <Info label={t("overview.build.allocator")} value={display(pick(buildInfo, "allocator"))} />
+                <Info label={t("overview.build.jsEngine")} value={display(pick(buildInfo, "javascriptEngine"))} />
+                <Info label={t("overview.build.modules")} value={display(pick(buildInfo, "modules"))} />
+                <Info label={t("overview.build.bits")} value={display(pick(buildInfo, "bits"))} />
+                <Info label={t("overview.build.debug")} value={display(pick(buildInfo, "debug"))} />
+                <Info label={t("overview.build.maxBson")} value={display(pick(buildInfo, "maxBsonObjectSize"))} />
               </CardContent>
             </Card>
           ) : null}

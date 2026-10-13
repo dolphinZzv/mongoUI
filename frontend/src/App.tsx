@@ -25,6 +25,9 @@ import { ThemeProvider } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 import type { Connection, Selection } from "@/lib/types"
 
+const IS_MAC =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
+
 function useIsDesktop() {
   const [isDesktop, setIsDesktop] = React.useState(
     () => typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches,
@@ -479,7 +482,9 @@ export default function App() {
                 className="text-muted-foreground gap-2"
               >
                 <Search className="size-3.5" />
-                <kbd className="hidden font-mono text-[10px] sm:inline">⌘K</kbd>
+                <kbd className="hidden font-mono text-[10px] sm:inline">
+                  {IS_MAC ? "⌘K" : "Ctrl K"}
+                </kbd>
               </Button>
               <SettingsMenu authEnabled={authEnabled} />
             </div>

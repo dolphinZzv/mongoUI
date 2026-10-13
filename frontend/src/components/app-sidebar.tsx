@@ -1034,7 +1034,7 @@ export function AppSidebar({
             count: connections.length,
           })}
           <span className="text-muted-foreground/60">·</span>
-          <span title="Embedded front-end version">v{__APP_VERSION__}</span>
+          <span title={t("sidebar.embeddedVersion")}>v{__APP_VERSION__}</span>
         </span>
         <div className="flex items-center gap-1">
           <Button

@@ -63,7 +63,7 @@ export function SchemaTab({ connectionId, database, collection }: SchemaTabProps
           <TableHeader className="bg-background sticky top-0 z-10">
             <TableRow className="hover:bg-transparent">
               <TableHead>{t("schema.field")}</TableHead>
-              <TableHead className="w-48">Coverage</TableHead>
+              <TableHead className="w-48">{t("schema.coverage")}</TableHead>
               <TableHead>{t("schema.types")}</TableHead>
             </TableRow>
           </TableHeader>
@@ -71,7 +71,7 @@ export function SchemaTab({ connectionId, database, collection }: SchemaTabProps
             {!loading && (schema?.fields.length ?? 0) === 0 ? (
               <TableRow>
                 <TableCell colSpan={3} className="text-muted-foreground h-24 text-center text-sm">
-                  No documents to analyse.
+                  {t("schema.empty")}
                 </TableCell>
               </TableRow>
             ) : null}

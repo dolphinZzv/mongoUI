@@ -185,6 +185,12 @@ export interface BackupTask {
   lastCount?: number
 }
 
+export interface BackupFile {
+  name: string
+  size: number
+  modified: string
+}
+
 export interface MCPSettings {
   enabled: boolean
   read: boolean

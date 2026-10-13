@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Loader2, Play, Plus, RefreshCw, Trash2 } from "lucide-react"
+import { Download, History, Loader2, Play, Plus, RefreshCw, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -22,7 +22,8 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
-import type { BackupTask, Connection } from "@/lib/types"
+import { formatBytes } from "@/lib/mongo"
+import type { BackupFile, BackupTask, Connection } from "@/lib/types"
 
 interface BackupsDialogProps {
   open: boolean
@@ -43,6 +44,9 @@ export function BackupsDialog({ open, onOpenChange }: BackupsDialogProps) {
   const [interval, setIntervalMinutes] = React.useState("60")
   const [enabled, setEnabled] = React.useState(true)
   const [busy, setBusy] = React.useState(false)
+  const [openTaskId, setOpenTaskId] = React.useState<string | null>(null)
+  const [files, setFiles] = React.useState<BackupFile[]>([])
+  const [filesLoading, setFilesLoading] = React.useState(false)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -123,6 +127,24 @@ export function BackupsDialog({ open, onOpenChange }: BackupsDialogProps) {
     }
   }
 
+  const toggleHistory = async (task: BackupTask) => {
+    if (openTaskId === task.id) {
+      setOpenTaskId(null)
+      return
+    }
+    setOpenTaskId(task.id)
+    setFiles([])
+    setFilesLoading(true)
+    try {
+      const res = await api.listBackupFiles(task.id)
+      setFiles(res.files)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("backups.failed"))
+    } finally {
+      setFilesLoading(false)
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden sm:max-w-lg">
@@ -151,6 +173,14 @@ export function BackupsDialog({ open, onOpenChange }: BackupsDialogProps) {
                   </p>
                 </div>
                 <Switch checked={task.enabled} onCheckedChange={(value) => void toggle(task, value)} />
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => void toggleHistory(task)}
+                  title={t("backups.history")}
+                >
+                  <History />
+                </Button>
                 <Button variant="ghost" size="icon-sm" onClick={() => void run(task)} title={t("backups.runNow")}>
                   <Play />
                 </Button>
@@ -168,6 +198,38 @@ export function BackupsDialog({ open, onOpenChange }: BackupsDialogProps) {
                 {task.lastStatus === "ok" ? ` · ${task.lastCount ?? 0} docs` : null}
                 {task.lastStatus === "error" ? ` · ${task.lastError}` : null}
               </p>
+              {openTaskId === task.id ? (
+                <div className="mt-2 space-y-1 border-t pt-2">
+                  {filesLoading ? (
+                    <Loader2 className="text-muted-foreground mx-auto size-4 animate-spin" />
+                  ) : null}
+                  {!filesLoading && files.length === 0 ? (
+                    <p className="text-muted-foreground text-[11px]">{t("backups.noFiles")}</p>
+                  ) : null}
+                  {files.map((file) => (
+                    <div key={file.name} className="flex items-center gap-2 text-[11px]">
+                      <span
+                        className="text-muted-foreground min-w-0 flex-1 truncate font-mono"
+                        title={file.name}
+                      >
+                        {file.name}
+                      </span>
+                      <span className="text-muted-foreground shrink-0">{formatBytes(file.size)}</span>
+                      <span className="text-muted-foreground shrink-0">
+                        {new Date(file.modified).toLocaleString()}
+                      </span>
+                      <a
+                        href={`/api/backups/${encodeURIComponent(task.id)}/files/${encodeURIComponent(file.name)}`}
+                        download
+                        className="text-muted-foreground hover:text-foreground shrink-0"
+                        title={t("backups.download")}
+                      >
+                        <Download className="size-3.5" />
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ))}
         </div>

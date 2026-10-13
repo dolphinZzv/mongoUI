@@ -395,3 +395,85 @@ func (a *API) runBackup(w http.ResponseWriter, r *http.Request) {
 	go a.backups.run(*task)
 	ok(w, map[string]any{"started": true})
 }
+
+func (a *API) backupTaskExists(id string) bool {
+	a.backups.mu.Lock()
+	defer a.backups.mu.Unlock()
+	for _, task := range a.backups.tasks {
+		if task.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// backupFiles lists the files a task has produced, newest first.
+func (a *API) backupFiles(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAdmin(w, r) {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if !a.backupTaskExists(id) {
+		fail(w, http.StatusNotFound, errors.New("backup task not found"))
+		return
+	}
+	files := []map[string]any{}
+	if a.backups.dir == "" {
+		ok(w, map[string]any{"files": files})
+		return
+	}
+	entries, err := os.ReadDir(a.backups.dir)
+	if err != nil {
+		ok(w, map[string]any{"files": files})
+		return
+	}
+	prefix := id + "."
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), prefix) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, map[string]any{
+			"name":     entry.Name(),
+			"size":     info.Size(),
+			"modified": info.ModTime().UTC().Format(time.RFC3339),
+		})
+	}
+	sort.Slice(files, func(i, j int) bool {
+		return files[i]["modified"].(string) > files[j]["modified"].(string)
+	})
+	ok(w, map[string]any{"files": files})
+}
+
+// downloadBackup streams one produced file. The name is validated so it can
+// never escape the backups directory.
+func (a *API) downloadBackup(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAdmin(w, r) {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	name := chi.URLParam(r, "file")
+	if a.backups.dir == "" || !strings.HasPrefix(name, id+".") ||
+		strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+		badRequest(w, errors.New("invalid backup file"))
+		return
+	}
+	path := filepath.Join(a.backups.dir, name)
+	file, err := os.Open(path)
+	if err != nil {
+		fail(w, http.StatusNotFound, errors.New("backup file not found"))
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+name+"\"")
+	http.ServeContent(w, r, name, info.ModTime(), file)
+}

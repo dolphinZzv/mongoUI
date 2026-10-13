@@ -106,6 +106,8 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 			r.Patch("/backups/{id}", a.updateBackup)
 			r.Delete("/backups/{id}", a.deleteBackup)
 			r.Post("/backups/{id}/run", a.runBackup)
+			r.Get("/backups/{id}/files", a.backupFiles)
+			r.Get("/backups/{id}/files/{file}", a.downloadBackup)
 
 			r.Get("/mcp", a.getMCPSettings)
 			r.Put("/mcp", a.updateMCPSettings)

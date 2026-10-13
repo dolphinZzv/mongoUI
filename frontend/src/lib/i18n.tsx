@@ -481,6 +481,9 @@ const en: Record<string, string> = {
   "backups.created": "Backup created",
   "backups.deleted": "Backup deleted",
   "backups.running": "Backup started",
+  "backups.history": "Files",
+  "backups.download": "Download",
+  "backups.noFiles": "No backup files yet",
 
   "resource.createDatabase": "Create database",
   "resource.databaseName": "Database name",
@@ -1181,6 +1184,9 @@ const zh: Record<string, string> = {
   "backups.created": "已创建备份",
   "backups.deleted": "已删除备份",
   "backups.running": "备份已开始",
+  "backups.history": "历史文件",
+  "backups.download": "下载",
+  "backups.noFiles": "暂无备份文件",
 
   "resource.createDatabase": "创建数据库",
   "resource.databaseName": "数据库名",

@@ -6,6 +6,7 @@ import type {
   AuthStatus,
   AuthUser,
   AuthUserSetup,
+  BackupFile,
   BackupTask,
   CollectionInfo,
   Connection,
@@ -304,6 +305,7 @@ export const api = {
     request<{ deleted: string }>(`/backups/${enc(id)}`, { method: "DELETE" }),
   runBackup: (id: string) =>
     request<{ started: boolean }>(`/backups/${enc(id)}/run`, { method: "POST" }),
+  listBackupFiles: (id: string) => request<{ files: BackupFile[] }>(`/backups/${enc(id)}/files`),
 
   // MCP -------------------------------------------------------------------------
   mcpSettings: () => request<MCPSettings>("/mcp"),

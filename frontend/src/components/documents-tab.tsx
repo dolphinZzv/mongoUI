@@ -332,18 +332,26 @@ export function DocumentsTab({
     ) {
       return
     }
-    // Do not hijack an intentional text selection.
-    if (window.getSelection()?.toString()) return
+    const additive = event.metaKey || event.ctrlKey
+    const range = event.shiftKey
+
+    // A plain drag keeps the browser's native text selection so text can be
+    // selected and copied. Hold Ctrl/Cmd (or Shift) to drag-select rows.
+    if (!additive && !range) {
+      dragAnchorRef.current = index
+      dragBaseRef.current = new Set(selected)
+      dragMovedRef.current = false
+      return
+    }
 
     event.preventDefault()
     dragMovedRef.current = false
     dragHoverRef.current = index
 
-    if (event.shiftKey && dragAnchorRef.current !== null) {
+    if (range && dragAnchorRef.current !== null) {
       setSelected(new Set([...dragBaseRef.current, ...idsInRange(dragAnchorRef.current, index)]))
     } else {
-      const base =
-        event.metaKey || event.ctrlKey ? new Set(selected) : new Set<string>()
+      const base = additive ? new Set(selected) : new Set<string>()
       const id = documents[index] ? documentId(documents[index]) : null
       if (id) base.add(id)
       dragBaseRef.current = base
@@ -865,9 +873,11 @@ export function DocumentsTab({
         onOpenChange={setBuilderOpen}
         fields={columns}
         value={filter}
-        onApply={(next) => {
-          setFilter(next)
-          void load({ skip: 0, filter: next })
+        projection={projection}
+        onApply={(nextFilter, nextProjection) => {
+          setFilter(nextFilter)
+          setProjection(nextProjection)
+          void load({ skip: 0, filter: nextFilter, projection: nextProjection })
         }}
       />
     </div>

@@ -631,20 +631,43 @@ export function DocumentsTab({
     await load({})
   }
 
+  const restoreDocuments = React.useCallback(
+    async (docs: MongoDocument[]) => {
+      if (docs.length === 0) return
+      try {
+        await api.insert(connectionId, database, collection, docs)
+        toast.success(t("docs.restored", { count: docs.length }))
+        await load({})
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : t("docs.restoreFailed"))
+      }
+    },
+    [connectionId, database, collection, load, t],
+  )
+
   const runConfirm = async () => {
     if (!confirm) return
     if (confirm.type === "one") {
+      const doc = confirm.document
       await api.remove(connectionId, database, collection, {
-        filter: { _id: confirm.document._id },
+        filter: { _id: doc._id },
       })
-      toast.success(t("docs.deleted"))
+      toast.success(t("docs.deleted"), {
+        action: { label: t("common.undo"), onClick: () => void restoreDocuments([doc]) },
+      })
     } else if (confirm.type === "bulk") {
+      const docs = documents.filter((doc) => {
+        const id = documentId(doc)
+        return id !== null && selected.has(id)
+      })
       const ids = Array.from(selected).map((raw) => JSON.parse(raw))
       await api.remove(connectionId, database, collection, {
         filter: { _id: { $in: ids } },
         many: true,
       })
-      toast.success(t("docs.deletedMany", { count: ids.length }))
+      toast.success(t("docs.deletedMany", { count: ids.length }), {
+        action: { label: t("common.undo"), onClick: () => void restoreDocuments(docs) },
+      })
     } else {
       const parsed = JSON.parse(filter.trim() || "{}")
       const res = await api.remove(connectionId, database, collection, {

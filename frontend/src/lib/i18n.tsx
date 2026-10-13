@@ -24,6 +24,7 @@ const en: Record<string, string> = {
   "common.copy": "Copy",
   "common.copyJson": "Copy JSON",
   "common.copied": "Copied",
+  "common.undo": "Undo",
   "common.copyFailed": "Copy failed — select the text and copy manually",
   "common.loading": "Loading…",
   "common.actions": "Actions",
@@ -267,6 +268,8 @@ const en: Record<string, string> = {
   "docs.copyId": "Copy _id",
   "docs.copyDocument": "Copy document",
   "docs.copyAsSet": "Copy as $set update",
+  "docs.restored": "Restored {{count}} document(s)",
+  "docs.restoreFailed": "Restore failed",
 
   // sql tab
   "sql.template.all": "All",
@@ -584,6 +587,7 @@ const zh: Record<string, string> = {
   "common.copy": "复制",
   "common.copyJson": "复制 JSON",
   "common.copied": "已复制",
+  "common.undo": "撤销",
   "common.copyFailed": "复制失败，请手动选择文本复制",
   "common.loading": "加载中…",
   "common.actions": "操作",
@@ -827,6 +831,8 @@ const zh: Record<string, string> = {
   "docs.copyId": "复制 _id",
   "docs.copyDocument": "复制文档",
   "docs.copyAsSet": "复制为 $set 更新",
+  "docs.restored": "已恢复 {{count}} 条文档",
+  "docs.restoreFailed": "恢复失败",
 
   // sql tab
   "sql.template.all": "全部",

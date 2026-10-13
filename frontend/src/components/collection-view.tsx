@@ -4,16 +4,30 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { DocumentsTab } from "@/components/documents-tab"
+import { LazyMount, TabFallback } from "@/components/lazy-mount"
 import { copyToClipboard } from "@/lib/clipboard"
 import { useI18n } from "@/lib/i18n"
-import { CopyCollectionDialog } from "@/components/copy-collection-dialog"
-import { AggregationTab } from "@/components/aggregation-tab"
-import { DocumentsTab } from "@/components/documents-tab"
-import { IndexesTab } from "@/components/indexes-tab"
-import { SchemaTab } from "@/components/schema-tab"
-import { SqlTab } from "@/components/sql-tab"
-import { StatsTab } from "@/components/stats-tab"
 import type { DocsQueryState } from "@/lib/router"
+
+// The collection tabs other than Documents are loaded on first open, so the
+// initial bundle only carries the documents view.
+const SqlTab = React.lazy(() => import("@/components/sql-tab").then((m) => ({ default: m.SqlTab })))
+const AggregationTab = React.lazy(() =>
+  import("@/components/aggregation-tab").then((m) => ({ default: m.AggregationTab })),
+)
+const IndexesTab = React.lazy(() =>
+  import("@/components/indexes-tab").then((m) => ({ default: m.IndexesTab })),
+)
+const SchemaTab = React.lazy(() =>
+  import("@/components/schema-tab").then((m) => ({ default: m.SchemaTab })),
+)
+const StatsTab = React.lazy(() =>
+  import("@/components/stats-tab").then((m) => ({ default: m.StatsTab })),
+)
+const CopyCollectionDialog = React.lazy(() =>
+  import("@/components/copy-collection-dialog").then((m) => ({ default: m.CopyCollectionDialog })),
+)
 
 interface CollectionViewProps {
   connectionId: string
@@ -100,39 +114,51 @@ export function CollectionView({
           />
         </TabsContent>
         <TabsContent value="sql" className="min-h-0 flex-1">
-          <SqlTab connectionId={connectionId} database={database} collection={collection} />
+          <React.Suspense fallback={<TabFallback />}>
+            <SqlTab connectionId={connectionId} database={database} collection={collection} />
+          </React.Suspense>
         </TabsContent>
         <TabsContent value="aggregation" className="min-h-0 flex-1">
-          <AggregationTab
-            connectionId={connectionId}
-            database={database}
-            collection={collection}
-          />
+          <React.Suspense fallback={<TabFallback />}>
+            <AggregationTab
+              connectionId={connectionId}
+              database={database}
+              collection={collection}
+            />
+          </React.Suspense>
         </TabsContent>
         <TabsContent value="indexes" className="min-h-0 flex-1">
-          <IndexesTab
-            connectionId={connectionId}
-            database={database}
-            collection={collection}
-            readOnly={readOnly}
-          />
+          <React.Suspense fallback={<TabFallback />}>
+            <IndexesTab
+              connectionId={connectionId}
+              database={database}
+              collection={collection}
+              readOnly={readOnly}
+            />
+          </React.Suspense>
         </TabsContent>
         <TabsContent value="schema" className="min-h-0 flex-1">
-          <SchemaTab connectionId={connectionId} database={database} collection={collection} />
+          <React.Suspense fallback={<TabFallback />}>
+            <SchemaTab connectionId={connectionId} database={database} collection={collection} />
+          </React.Suspense>
         </TabsContent>
         <TabsContent value="stats" className="min-h-0 flex-1">
-          <StatsTab connectionId={connectionId} database={database} collection={collection} />
+          <React.Suspense fallback={<TabFallback />}>
+            <StatsTab connectionId={connectionId} database={database} collection={collection} />
+          </React.Suspense>
         </TabsContent>
       </Tabs>
 
-      <CopyCollectionDialog
-        open={copyOpen}
-        onOpenChange={setCopyOpen}
-        connectionId={connectionId}
-        database={database}
-        collection={collection}
-        onCopied={() => undefined}
-      />
+      <LazyMount active={copyOpen}>
+        <CopyCollectionDialog
+          open={copyOpen}
+          onOpenChange={setCopyOpen}
+          connectionId={connectionId}
+          database={database}
+          collection={collection}
+          onCopied={() => undefined}
+        />
+      </LazyMount>
     </div>
   )
 }

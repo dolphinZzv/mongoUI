@@ -35,5 +35,20 @@ export default defineConfig({
   build: {
     outDir: "dist",
     chunkSizeWarningLimit: 1600,
+    rollupOptions: {
+      output: {
+        // Split stable vendor code into its own long-cached chunks so the
+        // app chunk stays small and cacheable across deploys.
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined
+          if (id.includes("react-dom") || id.includes("scheduler") || /node_modules\/react\//.test(id)) {
+            return "react-vendor"
+          }
+          if (id.includes("@radix-ui")) return "radix-vendor"
+          if (id.includes("lucide-react")) return "icons-vendor"
+          return "vendor"
+        },
+      },
+    },
   },
 })

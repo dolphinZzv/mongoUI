@@ -34,8 +34,7 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ChartDialog } from "@/components/chart-dialog"
-import { ConfirmDialog } from "@/components/confirm-dialog"
+import { LazyMount } from "@/components/lazy-mount"
 import {
   Dialog,
   DialogContent,
@@ -45,12 +44,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { CopyCollectionDialog } from "@/components/copy-collection-dialog"
-import { DocumentDialog } from "@/components/document-dialog"
-import { ExportDialog, ImportDialog } from "@/components/data-transfer-dialog"
-import { ExplainDialog } from "@/components/explain-dialog"
 import { MongoFilterEditor } from "@/components/mongo-filter-editor"
-import { MongoQueryBuilder } from "@/components/mongo-query-builder"
 import { RecentQueries } from "@/components/recent-queries"
 import { Label } from "@/components/ui/label"
 import {
@@ -96,6 +90,31 @@ import { classForType, collectColumns, documentId, formatValue, prettyJSON, valu
 import { DOCS_QUERY_DEFAULTS, type DocsQueryState } from "@/lib/router"
 import { cn } from "@/lib/utils"
 import type { ExplainRequest, FindResult, MongoDocument } from "@/lib/types"
+
+const ChartDialog = React.lazy(() =>
+  import("@/components/chart-dialog").then((m) => ({ default: m.ChartDialog })),
+)
+const ConfirmDialog = React.lazy(() =>
+  import("@/components/confirm-dialog").then((m) => ({ default: m.ConfirmDialog })),
+)
+const CopyCollectionDialog = React.lazy(() =>
+  import("@/components/copy-collection-dialog").then((m) => ({ default: m.CopyCollectionDialog })),
+)
+const DocumentDialog = React.lazy(() =>
+  import("@/components/document-dialog").then((m) => ({ default: m.DocumentDialog })),
+)
+const ExportDialog = React.lazy(() =>
+  import("@/components/data-transfer-dialog").then((m) => ({ default: m.ExportDialog })),
+)
+const ImportDialog = React.lazy(() =>
+  import("@/components/data-transfer-dialog").then((m) => ({ default: m.ImportDialog })),
+)
+const ExplainDialog = React.lazy(() =>
+  import("@/components/explain-dialog").then((m) => ({ default: m.ExplainDialog })),
+)
+const MongoQueryBuilder = React.lazy(() =>
+  import("@/components/mongo-query-builder").then((m) => ({ default: m.MongoQueryBuilder })),
+)
 
 interface DocumentsTabProps {
   connectionId: string
@@ -1549,88 +1568,104 @@ export function DocumentsTab({
         </DialogContent>
       </Dialog>
 
-      <DocumentDialog
-        open={editing !== null}
-        onOpenChange={(open) => !open && setEditing(null)}
-        title={editing?.mode === "edit" ? t("docs.editTitle") : t("docs.insertTitle")}
-        description={editing?.mode === "edit" ? t("docs.editDesc") : t("docs.insertDesc")}
-        initialValue={
-          editing?.mode === "edit" && editing.document ? prettyJSON(editing.document) : "{\n  \n}"
-        }
-        submitLabel={editing?.mode === "edit" ? t("docs.saveChanges") : t("docs.insertAction")}
-        onSubmit={editing?.mode === "edit" ? handleUpdate : handleInsert}
-      />
+      <LazyMount active={editing !== null}>
+        <DocumentDialog
+          open={editing !== null}
+          onOpenChange={(open) => !open && setEditing(null)}
+          title={editing?.mode === "edit" ? t("docs.editTitle") : t("docs.insertTitle")}
+          description={editing?.mode === "edit" ? t("docs.editDesc") : t("docs.insertDesc")}
+          initialValue={
+            editing?.mode === "edit" && editing.document ? prettyJSON(editing.document) : "{\n  \n}"
+          }
+          submitLabel={editing?.mode === "edit" ? t("docs.saveChanges") : t("docs.insertAction")}
+          onSubmit={editing?.mode === "edit" ? handleUpdate : handleInsert}
+        />
+      </LazyMount>
 
-      <ConfirmDialog
-        open={confirm !== null}
-        onOpenChange={(open) => !open && setConfirm(null)}
-        title={
-          confirm?.type === "filter"
-            ? t("docs.deleteFilter")
-            : confirm?.type === "bulk"
-              ? t("docs.deleteSelectedMany", { count: selected.size })
-              : t("docs.deleteOne")
-        }
-        description={t("docs.deleteDesc")}
-        confirmLabel={t("common.delete")}
-        onConfirm={runConfirm}
-      />
+      <LazyMount active={confirm !== null}>
+        <ConfirmDialog
+          open={confirm !== null}
+          onOpenChange={(open) => !open && setConfirm(null)}
+          title={
+            confirm?.type === "filter"
+              ? t("docs.deleteFilter")
+              : confirm?.type === "bulk"
+                ? t("docs.deleteSelectedMany", { count: selected.size })
+                : t("docs.deleteOne")
+          }
+          description={t("docs.deleteDesc")}
+          confirmLabel={t("common.delete")}
+          onConfirm={runConfirm}
+        />
+      </LazyMount>
 
-      <ExportDialog
-        open={transfer === "export"}
-        onOpenChange={(open) => !open && setTransfer(null)}
-        connectionId={connectionId}
-        database={database}
-        collection={collection}
-        filter={filter}
-        sort={sort}
-        projection={projection}
-      />
-      <ImportDialog
-        open={transfer === "import"}
-        onOpenChange={(open) => !open && setTransfer(null)}
-        connectionId={connectionId}
-        database={database}
-        collection={collection}
-        onImported={() => void load({ skip: 0 })}
-      />
-      <ExplainDialog
-        open={explainOpen}
-        onOpenChange={setExplainOpen}
-        connectionId={connectionId}
-        database={database}
-        collection={collection}
-        request={explainRequest}
-      />
-      <CopyCollectionDialog
-        open={copyOpen}
-        onOpenChange={setCopyOpen}
-        connectionId={connectionId}
-        database={database}
-        collection={collection}
-        filter={filter}
-        onCopied={() => undefined}
-      />
-      <ChartDialog
-        open={chartOpen}
-        onOpenChange={setChartOpen}
-        documents={documents}
-        columns={allColumns}
-        storageKey={`docs:${connectionId}:${database}:${collection}`}
-      />
-      <MongoQueryBuilder
-        open={builderOpen}
-        onOpenChange={setBuilderOpen}
-        fields={allColumns}
-        fieldTypes={fieldTypes}
-        value={filter}
-        projection={projection}
-        onApply={(nextFilter, nextProjection) => {
-          setFilter(nextFilter)
-          setProjection(nextProjection)
-          void load({ skip: 0, filter: nextFilter, projection: nextProjection })
-        }}
-      />
+      <LazyMount active={transfer === "export"}>
+        <ExportDialog
+          open={transfer === "export"}
+          onOpenChange={(open) => !open && setTransfer(null)}
+          connectionId={connectionId}
+          database={database}
+          collection={collection}
+          filter={filter}
+          sort={sort}
+          projection={projection}
+        />
+      </LazyMount>
+      <LazyMount active={transfer === "import"}>
+        <ImportDialog
+          open={transfer === "import"}
+          onOpenChange={(open) => !open && setTransfer(null)}
+          connectionId={connectionId}
+          database={database}
+          collection={collection}
+          onImported={() => void load({ skip: 0 })}
+        />
+      </LazyMount>
+      <LazyMount active={explainOpen}>
+        <ExplainDialog
+          open={explainOpen}
+          onOpenChange={setExplainOpen}
+          connectionId={connectionId}
+          database={database}
+          collection={collection}
+          request={explainRequest}
+        />
+      </LazyMount>
+      <LazyMount active={copyOpen}>
+        <CopyCollectionDialog
+          open={copyOpen}
+          onOpenChange={setCopyOpen}
+          connectionId={connectionId}
+          database={database}
+          collection={collection}
+          filter={filter}
+          onCopied={() => undefined}
+        />
+      </LazyMount>
+      <LazyMount active={chartOpen}>
+        <ChartDialog
+          open={chartOpen}
+          onOpenChange={setChartOpen}
+          documents={documents}
+          columns={allColumns}
+          storageKey={`docs:${connectionId}:${database}:${collection}`}
+        />
+      </LazyMount>
+      <LazyMount active={builderOpen}>
+        <MongoQueryBuilder
+          open={builderOpen}
+          onOpenChange={setBuilderOpen}
+          fields={allColumns}
+          fieldTypes={fieldTypes}
+          value={filter}
+          projection={projection}
+          onApply={(nextFilter, nextProjection) => {
+            setFilter(nextFilter)
+            setProjection(nextProjection)
+            void load({ skip: 0, filter: nextFilter, projection: nextProjection })
+          }}
+        />
+      </LazyMount>
     </div>
   )
 }

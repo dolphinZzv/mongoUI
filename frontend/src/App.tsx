@@ -4,14 +4,8 @@ import { toast } from "sonner"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { CollectionTabs } from "@/components/collection-tabs"
-import { CommandPalette } from "@/components/command-palette"
-import { AuditDialog } from "@/components/audit-dialog"
-import { SlowQueriesDialog } from "@/components/slow-queries-dialog"
-import { GlobalSearchDialog } from "@/components/global-search-dialog"
 import { useAuth } from "@/components/auth-gate"
-import { CollectionView } from "@/components/collection-view"
-import { ConnectionDialog } from "@/components/connection-dialog"
-import { ConnectionOverview } from "@/components/connection-overview"
+import { LazyMount } from "@/components/lazy-mount"
 import { SettingsMenu } from "@/components/settings-menu"
 import { Button } from "@/components/ui/button"
 import { Toaster } from "@/components/ui/sonner"
@@ -24,6 +18,29 @@ import { readTabs, tabKey, writeTabs, type CollectionTab } from "@/lib/collectio
 import { ThemeProvider } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 import type { Connection, Selection } from "@/lib/types"
+
+// Loaded on demand so the first screen (sidebar + documents) stays small.
+const CollectionView = React.lazy(() =>
+  import("@/components/collection-view").then((m) => ({ default: m.CollectionView })),
+)
+const ConnectionOverview = React.lazy(() =>
+  import("@/components/connection-overview").then((m) => ({ default: m.ConnectionOverview })),
+)
+const ConnectionDialog = React.lazy(() =>
+  import("@/components/connection-dialog").then((m) => ({ default: m.ConnectionDialog })),
+)
+const CommandPalette = React.lazy(() =>
+  import("@/components/command-palette").then((m) => ({ default: m.CommandPalette })),
+)
+const GlobalSearchDialog = React.lazy(() =>
+  import("@/components/global-search-dialog").then((m) => ({ default: m.GlobalSearchDialog })),
+)
+const AuditDialog = React.lazy(() =>
+  import("@/components/audit-dialog").then((m) => ({ default: m.AuditDialog })),
+)
+const SlowQueriesDialog = React.lazy(() =>
+  import("@/components/slow-queries-dialog").then((m) => ({ default: m.SlowQueriesDialog })),
+)
 
 const IS_MAC =
   typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
@@ -314,21 +331,27 @@ export default function App() {
         )
       }
       return (
-        <CollectionView
-          connectionId={selection.connectionId}
-          database={selection.database}
-          collection={selection.collection}
-          readOnly={Boolean(selectedConnection?.readOnly)}
-          tab={tab}
-          docs={docs}
-          onDocsChange={handleDocsChange}
-          onTabChange={handleTabChange}
-        />
+        <React.Suspense fallback={<ContentFallback />}>
+          <CollectionView
+            connectionId={selection.connectionId}
+            database={selection.database}
+            collection={selection.collection}
+            readOnly={Boolean(selectedConnection?.readOnly)}
+            tab={tab}
+            docs={docs}
+            onDocsChange={handleDocsChange}
+            onTabChange={handleTabChange}
+          />
+        </React.Suspense>
       )
     }
 
     if (selection.kind === "connection" && selectedConnection) {
-      return <ConnectionOverview connection={selectedConnection} />
+      return (
+        <React.Suspense fallback={<ContentFallback />}>
+          <ConnectionOverview connection={selectedConnection} />
+        </React.Suspense>
+      )
     }
 
     return (
@@ -500,7 +523,8 @@ export default function App() {
         </div>
       </div>
 
-      <ConnectionDialog
+      <LazyMount active={dialogOpen}>
+        <ConnectionDialog
           open={dialogOpen}
           onOpenChange={setDialogOpen}
           connection={editingConnection}
@@ -509,6 +533,8 @@ export default function App() {
             navigate({ kind: "connection", connectionId: saved.id })
           }}
         />
+      </LazyMount>
+      <LazyMount active={paletteOpen}>
         <CommandPalette
           open={paletteOpen}
           onOpenChange={setPaletteOpen}
@@ -523,6 +549,8 @@ export default function App() {
           onAudit={() => setAuditOpen(true)}
           onProfile={() => setProfileOpen(true)}
         />
+      </LazyMount>
+      <LazyMount active={searchOpen}>
         <GlobalSearchDialog
           open={searchOpen}
           onOpenChange={setSearchOpen}
@@ -530,16 +558,29 @@ export default function App() {
           selection={selection}
           onOpenQuery={handleOpenQuery}
         />
+      </LazyMount>
+      <LazyMount active={auditOpen}>
         <AuditDialog open={auditOpen} onOpenChange={setAuditOpen} connections={connections} />
+      </LazyMount>
+      <LazyMount active={profileOpen}>
         <SlowQueriesDialog
           open={profileOpen}
           onOpenChange={setProfileOpen}
           connections={connections}
           selection={selection}
         />
-        <Toaster />
+      </LazyMount>
+      <Toaster />
       </TooltipProvider>
     </ThemeProvider>
+  )
+}
+
+function ContentFallback() {
+  return (
+    <div className="flex h-full items-center justify-center">
+      <Loader2 className="text-muted-foreground size-5 animate-spin" />
+    </div>
   )
 }
 

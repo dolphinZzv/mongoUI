@@ -40,14 +40,20 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { useAuth } from "@/components/auth-gate"
-import { BackupsDialog } from "@/components/backups-dialog"
-import { UsersDialog } from "@/components/users-dialog"
+import { LazyMount } from "@/components/lazy-mount"
 import { api } from "@/lib/api"
 import { copyToClipboard } from "@/lib/clipboard"
 import { LOCALES, useI18n } from "@/lib/i18n"
 import { useTheme, type Theme } from "@/lib/theme"
 import type { MCPSettings, UpdateSettings, UpdateState } from "@/lib/types"
 import { agentToolList, setAgentEnabled, useAgentEnabled, webMcpAvailable } from "@/lib/webmcp"
+
+const UsersDialog = React.lazy(() =>
+  import("@/components/users-dialog").then((m) => ({ default: m.UsersDialog })),
+)
+const BackupsDialog = React.lazy(() =>
+  import("@/components/backups-dialog").then((m) => ({ default: m.BackupsDialog })),
+)
 
 interface SettingsMenuProps {
   authEnabled: boolean
@@ -394,8 +400,12 @@ export function SettingsMenu({ authEnabled }: SettingsMenuProps) {
         ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
-    <UsersDialog open={usersOpen} onOpenChange={setUsersOpen} />
-    <BackupsDialog open={backupsOpen} onOpenChange={setBackupsOpen} />
+    <LazyMount active={usersOpen}>
+      <UsersDialog open={usersOpen} onOpenChange={setUsersOpen} />
+    </LazyMount>
+    <LazyMount active={backupsOpen}>
+      <BackupsDialog open={backupsOpen} onOpenChange={setBackupsOpen} />
+    </LazyMount>
     </>
   )
 }

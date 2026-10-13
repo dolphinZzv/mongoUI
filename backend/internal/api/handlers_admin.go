@@ -7,21 +7,46 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type copyRequest struct {
-	TargetDatabase   string          `json:"targetDatabase"`
-	TargetCollection string          `json:"targetCollection"`
-	Filter           json.RawMessage `json:"filter"`
-	DropTarget       bool            `json:"dropTarget"`
-	CopyIndexes      bool            `json:"copyIndexes"`
+	TargetConnectionID string            `json:"targetConnectionId"`
+	TargetDatabase     string            `json:"targetDatabase"`
+	TargetCollection   string            `json:"targetCollection"`
+	Filter             json.RawMessage   `json:"filter"`
+	DropTarget         bool              `json:"dropTarget"`
+	CopyIndexes        bool              `json:"copyIndexes"`
+	FieldMap           map[string]string `json:"fieldMap"`
+	ExcludeFields      []string          `json:"excludeFields"`
+}
+
+// transformDocument renames fields via fieldMap and drops excluded top-level
+// fields before a document is written to the target.
+func transformDocument(doc bson.D, fieldMap map[string]string, exclude map[string]bool) bson.D {
+	if len(fieldMap) == 0 && len(exclude) == 0 {
+		return doc
+	}
+	out := make(bson.D, 0, len(doc))
+	for _, element := range doc {
+		if exclude[element.Key] {
+			continue
+		}
+		key := element.Key
+		if mapped, ok := fieldMap[key]; ok && mapped != "" {
+			key = mapped
+		}
+		out = append(out, bson.E{Key: key, Value: element.Value})
+	}
+	return out
 }
 
 // copyCollection copies documents (optionally filtered) from one collection to
-// another, on the same connection. The target may live in another database.
+// another. The target may live in another database or connection, and fields
+// can be renamed or dropped on the way.
 func (a *API) copyCollection(w http.ResponseWriter, r *http.Request) {
 	if !a.requireWrite(w, r) {
 		return
@@ -58,11 +83,29 @@ func (a *API) copyCollection(w http.ResponseWriter, r *http.Request) {
 		a.dbErr(w, err)
 		return
 	}
+	targetClient := client
+	if targetConnectionID := strings.TrimSpace(req.TargetConnectionID); targetConnectionID != "" &&
+		targetConnectionID != chi.URLParam(r, "id") {
+		if !a.requireWritableConnection(w, targetConnectionID) {
+			return
+		}
+		targetClient, err = a.mgr.Get(targetConnectionID)
+		if err != nil {
+			a.dbErr(w, err)
+			return
+		}
+	}
 
 	ctx, cancel := withTimeout(r)
 	defer cancel()
 
-	target := client.Database(req.TargetDatabase).Collection(req.TargetCollection)
+	target := targetClient.Database(req.TargetDatabase).Collection(req.TargetCollection)
+	excludeSet := make(map[string]bool, len(req.ExcludeFields))
+	for _, field := range req.ExcludeFields {
+		if trimmed := strings.TrimSpace(field); trimmed != "" {
+			excludeSet[trimmed] = true
+		}
+	}
 	if req.DropTarget {
 		if err := target.Drop(ctx); err != nil && !isNamespaceNotFound(err) {
 			a.dbErr(w, err)
@@ -98,7 +141,7 @@ func (a *API) copyCollection(w http.ResponseWriter, r *http.Request) {
 			a.dbErr(w, err)
 			return
 		}
-		batch = append(batch, doc)
+		batch = append(batch, transformDocument(doc, req.FieldMap, excludeSet))
 		if len(batch) >= batchSize {
 			if err := flush(); err != nil {
 				a.dbErr(w, err)

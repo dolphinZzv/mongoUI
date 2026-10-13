@@ -227,11 +227,14 @@ export const api = {
     db: string,
     col: string,
     req: {
+      targetConnectionId?: string
       targetDatabase: string
       targetCollection: string
       filter?: unknown
       dropTarget?: boolean
       copyIndexes?: boolean
+      fieldMap?: Record<string, string>
+      excludeFields?: string[]
     },
   ) =>
     request<CopyResult>(

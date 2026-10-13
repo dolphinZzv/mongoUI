@@ -40,6 +40,21 @@ func (a *API) requireWrite(w http.ResponseWriter, r *http.Request) bool {
 	return false
 }
 
+// requireWritableConnection is requireWrite for an arbitrary connection id,
+// used when the target of a cross-connection copy is not the URL's connection.
+func (a *API) requireWritableConnection(w http.ResponseWriter, id string) bool {
+	connection, ok := a.store.Get(id)
+	if !ok {
+		fail(w, http.StatusNotFound, config.ErrNotFound)
+		return false
+	}
+	if connection.ReadOnly {
+		fail(w, http.StatusForbidden, errReadOnly)
+		return false
+	}
+	return true
+}
+
 // readOnly reports whether the connection in the URL is flagged read-only.
 func (a *API) readOnly(r *http.Request) bool {
 	c, ok := a.store.Get(chi.URLParam(r, "id"))

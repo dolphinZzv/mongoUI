@@ -156,6 +156,7 @@ export function DocumentsTab({
     row: number
     column: string
   } | null>(null)
+  const [activeRow, setActiveRow] = React.useState<number | null>(null)
   const prefsKey = columnPrefsKey(connectionId, database, collection)
   const [prefs, setPrefs] = React.useState<ColumnPrefs>(() => readColumnPrefs(prefsKey))
 
@@ -438,6 +439,89 @@ export function DocumentsTab({
       return next
     })
   }
+
+  const focusRow = React.useCallback(
+    (index: number | null) => {
+      if (index === null || documents.length === 0) {
+        setActiveRow(null)
+        return
+      }
+      const clamped = Math.max(0, Math.min(index, documents.length - 1))
+      setActiveRow(clamped)
+      requestAnimationFrame(() => {
+        document
+          .querySelector<HTMLElement>(`[data-row-index="${clamped}"]`)
+          ?.scrollIntoView({ block: "nearest" })
+      })
+    },
+    [documents.length],
+  )
+
+  // Keyboard shortcuts: j/k move the row cursor, Space selects, e edits,
+  // Delete removes the selection and "/" focuses the filter.
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      const target = event.target as HTMLElement
+      if (
+        target.isContentEditable ||
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT" ||
+        document.querySelector(
+          '[role="dialog"][data-state="open"], [role="menu"][data-state="open"], [data-cell-menu]',
+        )
+      ) {
+        return
+      }
+      switch (event.key) {
+        case "/":
+          event.preventDefault()
+          document
+            .querySelector<HTMLTextAreaElement>('[data-testid="mongo-filter-editor"]')
+            ?.focus()
+          break
+        case "j":
+          event.preventDefault()
+          focusRow(activeRow === null ? 0 : activeRow + 1)
+          break
+        case "k":
+          event.preventDefault()
+          focusRow(activeRow === null ? 0 : activeRow - 1)
+          break
+        case " ": {
+          if (activeRow === null) return
+          const doc = documents[activeRow]
+          const id = doc ? documentId(doc) : null
+          if (!id) return
+          event.preventDefault()
+          toggleOne(id, !selected.has(id))
+          break
+        }
+        case "e": {
+          if (activeRow === null || readOnly) return
+          const doc = documents[activeRow]
+          if (!doc) return
+          event.preventDefault()
+          setEditing({ mode: "edit", document: doc })
+          break
+        }
+        case "Delete":
+        case "Backspace":
+          if (selected.size === 0 || readOnly) return
+          event.preventDefault()
+          setConfirm({ type: "bulk" })
+          break
+        case "Escape":
+          setActiveRow(null)
+          break
+        default:
+          break
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [activeRow, documents, selected, readOnly, focusRow, toggleOne])
 
   // --- drag / box selection ---------------------------------------------------
   // Dragging across rows selects the range between the anchor row and the row
@@ -921,6 +1005,7 @@ export function DocumentsTab({
                   key={id ?? index}
                   data-row-index={index}
                   data-state={isSelected ? "selected" : undefined}
+                  className={cn(activeRow === index && "bg-accent/40 hover:bg-accent/40")}
                   onMouseDown={(event) => onRowMouseDown(index, event)}
                   onDoubleClick={() => {
                     if (dragMovedRef.current) {

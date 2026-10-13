@@ -169,6 +169,9 @@ export function DocumentsTab({
     column: string
   } | null>(null)
   const [activeRow, setActiveRow] = React.useState<number | null>(null)
+  const [allMatching, setAllMatching] = React.useState(false)
+  const [updateOpen, setUpdateOpen] = React.useState(false)
+  const [updateValue, setUpdateValue] = React.useState('{\n  "$set": {\n    \n  }\n}')
   const prefsKey = columnPrefsKey(connectionId, database, collection)
   const [prefs, setPrefs] = React.useState<ColumnPrefs>(() => readColumnPrefs(prefsKey))
   const viewsStoreKey = viewsKey(connectionId, database, collection)
@@ -237,6 +240,7 @@ export function DocumentsTab({
         setResult(res)
         setSkip(res.skip)
         setSelected(new Set())
+        setAllMatching(false)
         if (nextSkip === 0 && filterText.trim() && filterText.trim() !== "{}") {
           pushRecent(filterText.trim())
         }
@@ -457,6 +461,34 @@ export function DocumentsTab({
     })
   }
 
+  const runBulkUpdate = async () => {
+    let updateObj: unknown
+    try {
+      updateObj = JSON.parse(updateValue.trim() || "{}")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("docs.invalidJson"))
+      return
+    }
+    const ids = Array.from(selected).map((raw) => JSON.parse(raw))
+    const filterObj = allMatching
+      ? JSON.parse(filter.trim() || "{}")
+      : { _id: { $in: ids } }
+    setUpdateOpen(false)
+    try {
+      const res = await api.update(connectionId, database, collection, {
+        filter: filterObj,
+        update: updateObj,
+        many: true,
+      })
+      toast.success(t("docs.updatedMany", { count: res.modifiedCount }))
+      setSelected(new Set())
+      setAllMatching(false)
+      await load({ skip: 0 })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("docs.updateFailed"))
+    }
+  }
+
   // Reflect the sort JSON in the table headers so columns can be toggled by
   // clicking. Only a single-key sort is represented in the header UI.
   const sortSpec = React.useMemo(() => {
@@ -488,6 +520,7 @@ export function DocumentsTab({
   const pages = Math.max(1, Math.ceil(total / limit))
 
   const toggleAll = (checked: boolean) => {
+    setAllMatching(false)
     if (!checked) {
       setSelected(new Set())
       return
@@ -501,6 +534,7 @@ export function DocumentsTab({
   }
 
   const toggleOne = (id: string, checked: boolean) => {
+    setAllMatching(false)
     setSelected((prev) => {
       const next = new Set(prev)
       if (checked) next.add(id)
@@ -725,18 +759,27 @@ export function DocumentsTab({
         action: { label: t("common.undo"), onClick: () => void restoreDocuments([doc]) },
       })
     } else if (confirm.type === "bulk") {
-      const docs = documents.filter((doc) => {
-        const id = documentId(doc)
-        return id !== null && selected.has(id)
-      })
-      const ids = Array.from(selected).map((raw) => JSON.parse(raw))
-      await api.remove(connectionId, database, collection, {
-        filter: { _id: { $in: ids } },
-        many: true,
-      })
-      toast.success(t("docs.deletedMany", { count: ids.length }), {
-        action: { label: t("common.undo"), onClick: () => void restoreDocuments(docs) },
-      })
+      if (allMatching) {
+        const parsed = JSON.parse(filter.trim() || "{}")
+        const res = await api.remove(connectionId, database, collection, {
+          filter: parsed,
+          many: true,
+        })
+        toast.success(t("docs.deletedMany", { count: res.deletedCount }))
+      } else {
+        const docs = documents.filter((doc) => {
+          const id = documentId(doc)
+          return id !== null && selected.has(id)
+        })
+        const ids = Array.from(selected).map((raw) => JSON.parse(raw))
+        await api.remove(connectionId, database, collection, {
+          filter: { _id: { $in: ids } },
+          many: true,
+        })
+        toast.success(t("docs.deletedMany", { count: ids.length }), {
+          action: { label: t("common.undo"), onClick: () => void restoreDocuments(docs) },
+        })
+      }
     } else {
       const parsed = JSON.parse(filter.trim() || "{}")
       const res = await api.remove(connectionId, database, collection, {
@@ -1244,9 +1287,26 @@ export function DocumentsTab({
         </Table>
         </div>
 
-        {selected.size > 0 ? (
+        {selected.size > 0 || allMatching ? (
           <div className="bg-background/95 absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border px-3 py-1.5 text-sm whitespace-nowrap shadow-lg backdrop-blur">
-            <span className="text-muted-foreground">{t("docs.selected", { count: selected.size })}</span>
+            <span className="text-muted-foreground">
+              {allMatching
+                ? t("docs.selectedAllMatching", { count: total })
+                : t("docs.selected", { count: selected.size })}
+            </span>
+            {!allMatching && total > documents.length && selected.size === documents.length ? (
+              <Button variant="outline" size="sm" onClick={() => setAllMatching(true)}>
+                {t("docs.selectAllMatching", { count: total })}
+              </Button>
+            ) : null}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={readOnly}
+              onClick={() => setUpdateOpen(true)}
+            >
+              <Pencil /> {t("docs.updateSelected")}
+            </Button>
             <Button
               variant="destructive"
               size="sm"
@@ -1255,7 +1315,14 @@ export function DocumentsTab({
             >
               <Trash2 /> {t("docs.deleteSelected")}
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSelected(new Set())
+                setAllMatching(false)
+              }}
+            >
               {t("docs.clear")}
             </Button>
           </div>
@@ -1407,6 +1474,31 @@ export function DocumentsTab({
             <Button onClick={saveView} disabled={!viewName.trim()}>
               {t("common.save")}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={updateOpen} onOpenChange={setUpdateOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{t("docs.bulkUpdateTitle")}</DialogTitle>
+            <DialogDescription>
+              {allMatching
+                ? t("docs.bulkUpdateAllDesc", { count: total })
+                : t("docs.bulkUpdateDesc", { count: selected.size })}
+            </DialogDescription>
+          </DialogHeader>
+          <JsonEditor
+            value={updateValue}
+            onChange={setUpdateValue}
+            placeholder='{ "$set": { "status": "done" } }'
+            className="min-h-[8rem]"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUpdateOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={() => void runBulkUpdate()}>{t("docs.updateAction")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

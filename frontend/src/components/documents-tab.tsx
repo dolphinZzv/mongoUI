@@ -1074,9 +1074,9 @@ export function DocumentsTab({
         <Table>
           <TableHeader className="bg-background sticky top-0 z-10">
             <TableRow className="hover:bg-transparent">
-              <TableHead className="w-10">
+              <TableHead className="bg-background sticky left-0 z-20 w-10">
                 <Checkbox
-                  checked={allSelected}
+                  checked={allSelected || allMatching}
                   onCheckedChange={(checked) => toggleAll(checked === true)}
                   aria-label="Select all"
                 />
@@ -1087,7 +1087,11 @@ export function DocumentsTab({
                 return (
                   <TableHead
                     key={column}
-                    className="group relative font-mono text-xs"
+                    className={cn(
+                      "group relative font-mono text-xs",
+                      column === "_id" &&
+                        "bg-background sticky left-10 z-10 group-hover:bg-muted/50",
+                    )}
                     style={width ? { width, minWidth: width, maxWidth: width } : undefined}
                   >
                     <div className="flex items-center gap-1">
@@ -1224,7 +1228,8 @@ export function DocumentsTab({
                   key={id ?? index}
                   data-row-index={index}
                   data-state={isSelected ? "selected" : undefined}
-                  className={cn(activeRow === index && "bg-accent/40 hover:bg-accent/40")}
+                  className={cn("group", activeRow === index && "bg-accent/40 hover:bg-accent/40")}
+                  style={{ contentVisibility: "auto", containIntrinsicSize: "auto 2rem" }}
                   onMouseDown={(event) => onRowMouseDown(index, event)}
                   onDoubleClick={() => {
                     if (dragMovedRef.current) {
@@ -1234,7 +1239,7 @@ export function DocumentsTab({
                     if (!readOnly) setEditing({ mode: "edit", document: doc })
                   }}
                 >
-                  <TableCell>
+                  <TableCell className="bg-background sticky left-0 z-20 group-hover:bg-muted/50 group-data-[state=selected]:bg-muted">
                     <Checkbox
                       checked={isSelected}
                       disabled={id === null}
@@ -1246,7 +1251,11 @@ export function DocumentsTab({
                     <TableCell
                       key={column}
                       data-column={column}
-                      className="max-w-[320px] truncate"
+                      className={cn(
+                        "max-w-[320px] truncate",
+                        column === "_id" &&
+                          "bg-background sticky left-10 z-10 group-hover:bg-muted/50 group-data-[state=selected]:bg-muted",
+                      )}
                       style={
                         prefs.widths[column]
                           ? {

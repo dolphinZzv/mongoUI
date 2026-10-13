@@ -3,6 +3,7 @@ import { Database, Leaf, Loader2, Menu, PanelLeft, PanelLeftClose, Plus, ScanSea
 import { toast } from "sonner"
 
 import { AppSidebar } from "@/components/app-sidebar"
+import { CollectionTabs } from "@/components/collection-tabs"
 import { CommandPalette } from "@/components/command-palette"
 import { GlobalSearchDialog } from "@/components/global-search-dialog"
 import { useAuth } from "@/components/auth-gate"
@@ -17,6 +18,7 @@ import { useAgentTools } from "@/hooks/useAgentTools"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { DOCS_QUERY_DEFAULTS, useRouter, type DocsQueryState } from "@/lib/router"
+import { readTabs, tabKey, writeTabs, type CollectionTab } from "@/lib/collectionTabs"
 import { ThemeProvider } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 import type { Connection, Selection } from "@/lib/types"
@@ -49,6 +51,7 @@ export default function App() {
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [paletteOpen, setPaletteOpen] = React.useState(false)
   const [searchOpen, setSearchOpen] = React.useState(false)
+  const [tabs, setTabs] = React.useState<CollectionTab[]>(() => readTabs())
   const [editingConnection, setEditingConnection] = React.useState<Connection | null>(null)
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
   const isDesktop = useIsDesktop()
@@ -200,6 +203,78 @@ export default function App() {
     },
     [navigate],
   )
+
+  const activeTabKey = selection.kind === "collection" ? tabKey(selection) : null
+
+  // Record the active collection (with its tab and documents query) as an open
+  // tab, updating it as the router state changes.
+  React.useEffect(() => {
+    if (selection.kind !== "collection") return
+    const key = tabKey(selection)
+    setTabs((prev) => {
+      const existing = prev.find((entry) => entry.key === key)
+      if (existing) {
+        if (existing.tab === tab && existing.docs === docs) return prev
+        return prev.map((entry) => (entry.key === key ? { ...entry, tab, docs } : entry))
+      }
+      return [
+        ...prev,
+        {
+          key,
+          connectionId: selection.connectionId,
+          database: selection.database,
+          collection: selection.collection,
+          tab,
+          docs,
+        },
+      ]
+    })
+  }, [selection, tab, docs])
+
+  React.useEffect(() => {
+    writeTabs(tabs)
+  }, [tabs])
+
+  // Drop tabs whose connection no longer exists.
+  React.useEffect(() => {
+    if (loading) return
+    setTabs((prev) => {
+      const next = prev.filter((entry) =>
+        connections.some((connection) => connection.id === entry.connectionId),
+      )
+      return next.length === prev.length ? prev : next
+    })
+  }, [connections, loading])
+
+  const activateTab = (entry: CollectionTab) => {
+    navigate(
+      {
+        kind: "collection",
+        connectionId: entry.connectionId,
+        database: entry.database,
+        collection: entry.collection,
+      },
+      entry.tab,
+      { docs: entry.docs },
+    )
+  }
+
+  const closeTab = (target: CollectionTab) => {
+    const index = tabs.findIndex((entry) => entry.key === target.key)
+    const next = tabs.filter((entry) => entry.key !== target.key)
+    setTabs(next)
+    if (activeTabKey !== target.key) return
+    const neighbour = next[Math.min(index, next.length - 1)]
+    if (neighbour) activateTab(neighbour)
+    else navigate({ kind: "welcome" }, undefined, { replace: true })
+  }
+
+  const closeAllTabs = () => {
+    setTabs([])
+    if (selection.kind === "collection") {
+      navigate({ kind: "welcome" }, undefined, { replace: true })
+    }
+  }
 
   const renderContent = () => {
     if (selection.kind === "collection") {
@@ -405,6 +480,13 @@ export default function App() {
               <SettingsMenu authEnabled={authEnabled} />
             </div>
           </header>
+          <CollectionTabs
+            tabs={tabs}
+            activeKey={activeTabKey}
+            onActivate={activateTab}
+            onClose={closeTab}
+            onCloseAll={closeAllTabs}
+          />
           <main className="min-h-0 flex-1">{renderContent()}</main>
         </div>
       </div>

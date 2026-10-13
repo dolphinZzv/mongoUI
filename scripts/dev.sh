@@ -20,5 +20,5 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 cd "$ROOT/frontend"
-[[ -d node_modules ]] || npm install
-npm run dev
+[[ -d node_modules ]] || pnpm install
+pnpm run dev

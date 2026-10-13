@@ -43,13 +43,17 @@ DATE="${DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 
 if [[ "$skip_ui" -eq 0 ]]; then
   echo "==> Building front-end (version $VERSION)"
+  if ! command -v pnpm >/dev/null 2>&1; then
+    echo "error: pnpm is required. Install the toolchain with 'mise install'." >&2
+    exit 1
+  fi
   cd "$ROOT/frontend"
   if [[ ! -d node_modules ]]; then
-    npm install
+    pnpm install --frozen-lockfile
   fi
   # Bake the release version into the bundle so a stale embedded front-end is
   # immediately visible in the UI.
-  VITE_APP_VERSION="${VERSION#v}" npm run build
+  VITE_APP_VERSION="${VERSION#v}" pnpm run build
 
   echo "==> Staging assets for embedding"
   mkdir -p "$STAGE"

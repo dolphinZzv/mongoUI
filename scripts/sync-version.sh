@@ -21,7 +21,8 @@ if [[ -z "$version" ]]; then
 fi
 version="${version#v}"
 
-# Update package.json (only the top-level "version" field).
+# Update package.json (only the top-level "version" field). pnpm-lock.yaml does
+# not record the project's own version, so it needs no update.
 node - "$ROOT/frontend/package.json" "$version" <<'NODE'
 const fs = require("fs")
 const [file, version] = process.argv.slice(2)
@@ -30,14 +31,4 @@ json.version = version
 fs.writeFileSync(file, JSON.stringify(json, null, 2) + "\n")
 NODE
 
-# Update the two version fields in package-lock.json.
-node - "$ROOT/frontend/package-lock.json" "$version" <<'NODE'
-const fs = require("fs")
-const [file, version] = process.argv.slice(2)
-const json = JSON.parse(fs.readFileSync(file, "utf8"))
-json.version = version
-if (json.packages && json.packages[""]) json.packages[""].version = version
-fs.writeFileSync(file, JSON.stringify(json, null, 2) + "\n")
-NODE
-
-echo "frontend/package.json + package-lock.json -> $version"
+echo "frontend/package.json -> $version"

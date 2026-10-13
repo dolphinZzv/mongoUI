@@ -1,0 +1,14 @@
+# Toolchain versions for MongoUI.
+#
+# Install everything with:
+#   mise install
+#
+# mise reads this file automatically when you are inside the repository, so
+# `node`, `pnpm` and `go` below are the single source of truth for local
+# development, CI and the Docker build.
+[tools]
+node = "24"
+# Use the npm backend: the aqua build of pnpm 12 ships a tarball layout that
+# this mise/aqua registry version cannot match.
+"npm:pnpm" = "12.4.1"
+go = "1.26.9"

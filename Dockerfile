@@ -1,14 +1,16 @@
 # syntax=docker/dockerfile:1
 
 # --- Front-end build --------------------------------------------------------
-FROM node:22-alpine AS frontend
+FROM node:24-alpine AS frontend
 WORKDIR /src/frontend
-COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+# Activate the pnpm version pinned by "packageManager" in package.json.
+RUN corepack enable
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
 COPY frontend/ ./
 ARG APP_VERSION=dev
 # Strip a leading "v" so the UI shows "v0.2.8" once, not "vv0.2.8".
-RUN VITE_APP_VERSION="${APP_VERSION#v}" npm run build
+RUN VITE_APP_VERSION="${APP_VERSION#v}" pnpm run build
 
 # --- Backend build ----------------------------------------------------------
 FROM golang:1.26-alpine AS backend

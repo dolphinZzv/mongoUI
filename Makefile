@@ -13,10 +13,10 @@ help: ## Show available targets
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 install: ## Install front-end dependencies
-	cd frontend && npm install
+	cd frontend && pnpm install
 
 frontend: ## Build the front-end and stage it for embedding
-	cd frontend && VITE_APP_VERSION=$(VERSION) npm run build
+	cd frontend && VITE_APP_VERSION=$(VERSION) pnpm run build
 	find backend/web/dist -mindepth 1 ! -name .gitkeep -delete
 	cp -r frontend/dist/. backend/web/dist/
 	./scripts/gzip-assets.sh backend/web/dist
@@ -44,7 +44,7 @@ dev-backend: ## Run the API with live reload disabled (Vite proxies /api here)
 	cd backend && go run . -addr :8080 -data ../$(DATA)
 
 dev-frontend: ## Run the Vite dev server
-	cd frontend && npm run dev
+	cd frontend && pnpm run dev
 
 test: ## Run Go tests
 	cd backend && go test ./...

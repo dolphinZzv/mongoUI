@@ -1,8 +1,9 @@
 import * as React from "react"
-import { Database, Leaf, Loader2, Menu, PanelLeft, PanelLeftClose, Plus, Server, Table2, X } from "lucide-react"
+import { Database, Leaf, Loader2, Menu, PanelLeft, PanelLeftClose, Plus, Search, Server, Table2, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { AppSidebar } from "@/components/app-sidebar"
+import { CommandPalette } from "@/components/command-palette"
 import { useAuth } from "@/components/auth-gate"
 import { CollectionView } from "@/components/collection-view"
 import { ConnectionDialog } from "@/components/connection-dialog"
@@ -14,7 +15,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAgentTools } from "@/hooks/useAgentTools"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
-import { useRouter, type DocsQueryState } from "@/lib/router"
+import { DOCS_QUERY_DEFAULTS, useRouter, type DocsQueryState } from "@/lib/router"
 import { ThemeProvider } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 import type { Connection, Selection } from "@/lib/types"
@@ -45,6 +46,7 @@ export default function App() {
   const [loading, setLoading] = React.useState(true)
   const { selection, tab, docs, navigate } = useRouter()
   const [dialogOpen, setDialogOpen] = React.useState(false)
+  const [paletteOpen, setPaletteOpen] = React.useState(false)
   const [editingConnection, setEditingConnection] = React.useState<Connection | null>(null)
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
   const isDesktop = useIsDesktop()
@@ -106,6 +108,18 @@ export default function App() {
 
   // Expose the agent tools to WebMCP / window.mongouiAgent when the user opts in.
   useAgentTools()
+
+  // Cmd/Ctrl+K opens the command palette.
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault()
+        setPaletteOpen((prev) => !prev)
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [])
 
   const refreshConnections = React.useCallback(async () => {
     try {
@@ -173,6 +187,16 @@ export default function App() {
       navigate(selection, tab, { replace: true, docs: next })
     },
     [selection, tab, navigate],
+  )
+
+  // Open a collection from a query pinned in the sidebar, applying its filter.
+  const handleOpenQuery = React.useCallback(
+    (next: Selection, filter: string) => {
+      if (next.kind !== "collection") return
+      navigate(next, undefined, { docs: { ...DOCS_QUERY_DEFAULTS, filter } })
+      setSidebarOpen(false)
+    },
+    [navigate],
   )
 
   const renderContent = () => {
@@ -310,6 +334,7 @@ export default function App() {
             loading={loading}
             selection={selection}
             onSelect={handleSelect}
+            onOpenQuery={handleOpenQuery}
             onNewConnection={openNewConnection}
             onEditConnection={openEditConnection}
             onRefresh={() => void refreshConnections()}
@@ -356,6 +381,16 @@ export default function App() {
               )}
             </div>
             <div className="ml-auto flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPaletteOpen(true)}
+                title={t("palette.open")}
+                className="text-muted-foreground gap-2"
+              >
+                <Search className="size-3.5" />
+                <kbd className="hidden font-mono text-[10px] sm:inline">⌘K</kbd>
+              </Button>
               <SettingsMenu authEnabled={authEnabled} />
             </div>
           </header>
@@ -371,6 +406,17 @@ export default function App() {
             void refreshConnections()
             navigate({ kind: "connection", connectionId: saved.id })
           }}
+        />
+        <CommandPalette
+          open={paletteOpen}
+          onOpenChange={setPaletteOpen}
+          connections={connections}
+          selection={selection}
+          onSelect={handleSelect}
+          onOpenQuery={handleOpenQuery}
+          onTabChange={handleTabChange}
+          onNewConnection={openNewConnection}
+          onRefresh={() => void refreshConnections()}
         />
         <Toaster />
       </TooltipProvider>

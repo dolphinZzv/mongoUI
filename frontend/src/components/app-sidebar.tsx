@@ -37,7 +37,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
-import { removePinnedQuery, usePinnedQueries } from "@/lib/pinnedQueries"
+import { removePinnedQuery, renamePinnedQuery, usePinnedQueries, type PinnedQuery } from "@/lib/pinnedQueries"
 import { cn } from "@/lib/utils"
 import type { CollectionInfo, Connection, DatabaseInfo, Selection } from "@/lib/types"
 
@@ -496,12 +496,32 @@ export function AppSidebar({
       pinnedQueries.flatMap((query) => {
         const connection = connections.find((c) => c.id === query.connectionId)
         if (!connection) return []
-        return [
-          { query, label: `${connection.name} / ${query.database} / ${query.collection}` },
-        ]
+        return [{ query, connectionName: connection.name }]
       }),
     [pinnedQueries, connections],
   )
+
+  const [renamingKey, setRenamingKey] = React.useState<string | null>(null)
+  const [renameValue, setRenameValue] = React.useState("")
+  const skipRenameCommit = React.useRef(false)
+
+  const pinnedQueryKey = (query: PinnedQuery) =>
+    `q:${query.connectionId}:${query.database}:${query.collection}:${query.filter}`
+
+  const startRename = (query: PinnedQuery) => {
+    skipRenameCommit.current = false
+    setRenamingKey(pinnedQueryKey(query))
+    setRenameValue(query.name ?? query.collection)
+  }
+
+  const commitRename = (query: PinnedQuery) => {
+    setRenamingKey(null)
+    if (skipRenameCommit.current) {
+      skipRenameCommit.current = false
+      return
+    }
+    renamePinnedQuery(query, renameValue)
+  }
 
   return (
     <div className="bg-sidebar text-sidebar-foreground flex h-full min-h-0 flex-col border-r" data-testid="sidebar">
@@ -592,43 +612,82 @@ export function AppSidebar({
               <p className="text-muted-foreground px-1 pb-1 text-[10px] tracking-wide uppercase">
                 {t("sidebar.pinnedQueries")}
               </p>
-              {pinnedQueryItems.map(({ query, label }) => (
-                <div
-                  key={`q:${query.connectionId}:${query.database}:${query.collection}:${query.filter}`}
-                  className="group hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-1 rounded-md px-1 py-1"
-                >
-                  <Filter className="text-muted-foreground size-3.5 shrink-0" />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onOpenQuery(
-                        {
-                          kind: "collection",
-                          connectionId: query.connectionId,
-                          database: query.database,
-                          collection: query.collection,
-                        },
-                        query.filter,
-                      )
-                    }
-                    className="min-w-0 flex-1 text-left"
-                    title={`${label}\n${query.filter}`}
+              {pinnedQueryItems.map(({ query, connectionName }) => {
+                const key = pinnedQueryKey(query)
+                const defaultLabel = `${connectionName} / ${query.database} / ${query.collection}`
+                const label = query.name?.trim() || defaultLabel
+                return (
+                  <div
+                    key={key}
+                    className="group hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-1 rounded-md px-1 py-1"
                   >
-                    <span className="block truncate text-sm">{label}</span>
-                    <span className="text-muted-foreground block truncate font-mono text-[10px]">
-                      {query.filter}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => removePinnedQuery(query)}
-                    aria-label={t("sidebar.removePinnedQuery")}
-                    className="text-muted-foreground hover:text-foreground shrink-0 p-0.5 opacity-0 group-hover:opacity-100"
-                  >
-                    <PinOff className="size-3.5" />
-                  </button>
-                </div>
-              ))}
+                    <Filter className="text-muted-foreground size-3.5 shrink-0" />
+                    {renamingKey === key ? (
+                      <Input
+                        autoFocus
+                        value={renameValue}
+                        onChange={(event) => setRenameValue(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault()
+                            commitRename(query)
+                          } else if (event.key === "Escape") {
+                            event.preventDefault()
+                            skipRenameCommit.current = true
+                            setRenamingKey(null)
+                          }
+                        }}
+                        onBlur={() => commitRename(query)}
+                        placeholder={t("sidebar.renameQuery")}
+                        className="h-6 flex-1 text-xs"
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onOpenQuery(
+                            {
+                              kind: "collection",
+                              connectionId: query.connectionId,
+                              database: query.database,
+                              collection: query.collection,
+                            },
+                            query.filter,
+                          )
+                        }
+                        className="min-w-0 flex-1 text-left"
+                        title={`${defaultLabel}\n${query.filter}`}
+                      >
+                        <span className="block truncate text-sm">{label}</span>
+                        <span className="text-muted-foreground block truncate font-mono text-[10px]">
+                          {query.filter}
+                        </span>
+                      </button>
+                    )}
+                    {renamingKey !== key ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => startRename(query)}
+                          aria-label={t("sidebar.renameQuery")}
+                          title={t("sidebar.renameQuery")}
+                          className="text-muted-foreground hover:text-foreground shrink-0 p-0.5 opacity-0 group-hover:opacity-100"
+                        >
+                          <Pencil className="size-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removePinnedQuery(query)}
+                          aria-label={t("sidebar.removePinnedQuery")}
+                          className="text-muted-foreground hover:text-foreground shrink-0 p-0.5 opacity-0 group-hover:opacity-100"
+                        >
+                          <PinOff className="size-3.5" />
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                )
+              })}
             </div>
           ) : null}
           {loading && connections.length === 0 ? (

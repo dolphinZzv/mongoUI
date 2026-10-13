@@ -13,6 +13,8 @@ export interface PinnedQuery {
   database: string
   collection: string
   filter: string
+  /** Optional short label shown in the sidebar instead of the full path. */
+  name?: string
 }
 
 const STORAGE_KEY = "mongoui-pinned-queries"
@@ -82,6 +84,16 @@ export function togglePinnedQuery(query: PinnedQuery) {
 
 export function removePinnedQuery(query: PinnedQuery) {
   update(cache.filter((item) => !sameQuery(item, query)))
+}
+
+/** Renames a pinned query; an empty name falls back to the default label. */
+export function renamePinnedQuery(query: PinnedQuery, name: string) {
+  const trimmed = name.trim()
+  update(
+    cache.map((item) =>
+      sameQuery(item, query) ? { ...item, name: trimmed || undefined } : item,
+    ),
+  )
 }
 
 /** Reactive list of pinned queries. */

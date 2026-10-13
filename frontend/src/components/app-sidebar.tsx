@@ -3,6 +3,7 @@ import {
   ChevronRight,
   Database,
   Ellipsis,
+  Filter,
   Loader2,
   Pencil,
   Pin,
@@ -36,6 +37,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
+import { removePinnedQuery, usePinnedQueries } from "@/lib/pinnedQueries"
 import { cn } from "@/lib/utils"
 import type { CollectionInfo, Connection, DatabaseInfo, Selection } from "@/lib/types"
 
@@ -44,6 +46,8 @@ interface AppSidebarProps {
   loading: boolean
   selection: Selection
   onSelect: (selection: Selection) => void
+  /** Open a collection with a pinned filter applied. */
+  onOpenQuery: (selection: Selection, filter: string) => void
   onNewConnection: () => void
   onEditConnection: (connection: Connection) => void
   onRefresh: () => void
@@ -110,6 +114,7 @@ export function AppSidebar({
   loading,
   selection,
   onSelect,
+  onOpenQuery,
   onNewConnection,
   onEditConnection,
   onRefresh,
@@ -485,6 +490,19 @@ export function AppSidebar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pinned, connections, onSelect])
 
+  const pinnedQueries = usePinnedQueries()
+  const pinnedQueryItems = React.useMemo(
+    () =>
+      pinnedQueries.flatMap((query) => {
+        const connection = connections.find((c) => c.id === query.connectionId)
+        if (!connection) return []
+        return [
+          { query, label: `${connection.name} / ${query.database} / ${query.collection}` },
+        ]
+      }),
+    [pinnedQueries, connections],
+  )
+
   return (
     <div className="bg-sidebar text-sidebar-foreground flex h-full min-h-0 flex-col border-r" data-testid="sidebar">
       <div className="flex h-14 shrink-0 items-center gap-2 border-b px-3">
@@ -561,6 +579,50 @@ export function AppSidebar({
                     type="button"
                     onClick={() => togglePin(item.key)}
                     aria-label={t("sidebar.unpin")}
+                    className="text-muted-foreground hover:text-foreground shrink-0 p-0.5 opacity-0 group-hover:opacity-100"
+                  >
+                    <PinOff className="size-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {pinnedQueryItems.length > 0 && !filtering ? (
+            <div className="mb-2 space-y-0.5 border-b pb-2">
+              <p className="text-muted-foreground px-1 pb-1 text-[10px] tracking-wide uppercase">
+                {t("sidebar.pinnedQueries")}
+              </p>
+              {pinnedQueryItems.map(({ query, label }) => (
+                <div
+                  key={`q:${query.connectionId}:${query.database}:${query.collection}:${query.filter}`}
+                  className="group hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-1 rounded-md px-1 py-1"
+                >
+                  <Filter className="text-muted-foreground size-3.5 shrink-0" />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onOpenQuery(
+                        {
+                          kind: "collection",
+                          connectionId: query.connectionId,
+                          database: query.database,
+                          collection: query.collection,
+                        },
+                        query.filter,
+                      )
+                    }
+                    className="min-w-0 flex-1 text-left"
+                    title={`${label}\n${query.filter}`}
+                  >
+                    <span className="block truncate text-sm">{label}</span>
+                    <span className="text-muted-foreground block truncate font-mono text-[10px]">
+                      {query.filter}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removePinnedQuery(query)}
+                    aria-label={t("sidebar.removePinnedQuery")}
                     className="text-muted-foreground hover:text-foreground shrink-0 p-0.5 opacity-0 group-hover:opacity-100"
                   >
                     <PinOff className="size-3.5" />

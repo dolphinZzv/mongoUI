@@ -270,6 +270,13 @@ const en: Record<string, string> = {
   "docs.copyAsSet": "Copy as $set update",
   "docs.restored": "Restored {{count}} document(s)",
   "docs.restoreFailed": "Restore failed",
+  "views.title": "Saved views",
+  "views.saveCurrent": "Save current view…",
+  "views.empty": "No saved views",
+  "views.pin": "Pin to sidebar",
+  "views.saved": "View \"{{name}}\" saved",
+  "views.saveDesc": "Save the current filter, sort, projection and page size as a reusable view.",
+  "views.namePlaceholder": "View name",
 
   // sql tab
   "sql.template.all": "All",
@@ -833,6 +840,13 @@ const zh: Record<string, string> = {
   "docs.copyAsSet": "复制为 $set 更新",
   "docs.restored": "已恢复 {{count}} 条文档",
   "docs.restoreFailed": "恢复失败",
+  "views.title": "保存的视图",
+  "views.saveCurrent": "保存当前视图…",
+  "views.empty": "暂无保存的视图",
+  "views.pin": "固定到左侧",
+  "views.saved": "已保存视图「{{name}}」",
+  "views.saveDesc": "把当前的过滤、排序、投影和每页条数保存为可复用的视图。",
+  "views.namePlaceholder": "视图名称",
 
   // sql tab
   "sql.template.all": "全部",

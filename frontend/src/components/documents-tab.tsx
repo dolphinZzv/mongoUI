@@ -7,6 +7,8 @@ import {
   ArrowUp,
   ArrowUpDown,
   BarChart3,
+  Bookmark,
+  BookmarkPlus,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -32,6 +34,15 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ChartDialog } from "@/components/chart-dialog"
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import { CopyCollectionDialog } from "@/components/copy-collection-dialog"
 import { DocumentDialog } from "@/components/document-dialog"
 import { ExportDialog, ImportDialog } from "@/components/data-transfer-dialog"
@@ -75,6 +86,7 @@ import {
   writeColumnPrefs,
   type ColumnPrefs,
 } from "@/lib/columnPrefs"
+import { newViewId, readViews, viewsKey, writeViews, type SavedView } from "@/lib/savedViews"
 import { useI18n } from "@/lib/i18n"
 import { copyToClipboard } from "@/lib/clipboard"
 import { classForType, collectColumns, documentId, formatValue, prettyJSON, valueType } from "@/lib/mongo"
@@ -159,6 +171,10 @@ export function DocumentsTab({
   const [activeRow, setActiveRow] = React.useState<number | null>(null)
   const prefsKey = columnPrefsKey(connectionId, database, collection)
   const [prefs, setPrefs] = React.useState<ColumnPrefs>(() => readColumnPrefs(prefsKey))
+  const viewsStoreKey = viewsKey(connectionId, database, collection)
+  const [views, setViews] = React.useState<SavedView[]>(() => readViews(viewsStoreKey))
+  const [viewDialogOpen, setViewDialogOpen] = React.useState(false)
+  const [viewName, setViewName] = React.useState("")
 
   const {
     items: recentFilters,
@@ -299,6 +315,10 @@ export function DocumentsTab({
     return () => window.clearTimeout(timer)
   }, [prefsKey, prefs])
 
+  React.useEffect(() => {
+    writeViews(viewsStoreKey, views)
+  }, [viewsStoreKey, views])
+
   const setColumnHidden = React.useCallback((column: string, hidden: boolean) => {
     setPrefs((prev) => ({
       ...prev,
@@ -387,6 +407,55 @@ export function DocumentsTab({
     },
     [t],
   )
+
+  const applyView = React.useCallback(
+    (view: SavedView) => {
+      setFilter(view.filter)
+      setSort(view.sort)
+      setProjection(view.projection)
+      setLimit(view.limit)
+      void load({
+        skip: 0,
+        filter: view.filter,
+        sort: view.sort,
+        projection: view.projection,
+        limit: view.limit,
+      })
+    },
+    [load],
+  )
+
+  const saveView = () => {
+    const name = viewName.trim()
+    if (!name) return
+    setViews((prev) => [
+      ...prev,
+      {
+        id: newViewId(),
+        name,
+        filter: filter.trim() || "{}",
+        sort,
+        projection,
+        limit,
+      },
+    ])
+    setViewName("")
+    setViewDialogOpen(false)
+    toast.success(t("views.saved", { name }))
+  }
+
+  const deleteView = (id: string) => {
+    setViews((prev) => prev.filter((view) => view.id !== id))
+  }
+
+  const pinView = (view: SavedView) => {
+    togglePinnedQuery({
+      connectionId,
+      database,
+      collection,
+      filter: view.filter.trim() || "{}",
+    })
+  }
 
   // Reflect the sort JSON in the table headers so columns can be toggled by
   // clicking. Only a single-key sort is represented in the header UI.
@@ -784,6 +853,74 @@ export function DocumentsTab({
                 >
                   <span className="truncate">{column}</span>
                 </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                title={t("views.title")}
+                aria-label={t("views.title")}
+              >
+                <Bookmark />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-72">
+              <DropdownMenuItem
+                onSelect={() => {
+                  setViewName("")
+                  setViewDialogOpen(true)
+                }}
+              >
+                <BookmarkPlus /> {t("views.saveCurrent")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {views.length === 0 ? (
+                <DropdownMenuItem disabled>{t("views.empty")}</DropdownMenuItem>
+              ) : null}
+              {views.map((view) => (
+                <DropdownMenuItem
+                  key={view.id}
+                  onSelect={() => applyView(view)}
+                  className="font-mono text-xs"
+                >
+                  <Bookmark className="size-3.5 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate" title={`${view.name}\n${view.filter}`}>
+                    {view.name}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={t("views.pin")}
+                    title={t("views.pin")}
+                    className="text-muted-foreground hover:text-foreground shrink-0 rounded p-0.5"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      event.preventDefault()
+                      pinView(view)
+                    }}
+                  >
+                    <Pin className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t("common.delete")}
+                    title={t("common.delete")}
+                    className="text-muted-foreground hover:text-foreground shrink-0 rounded p-0.5"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      event.preventDefault()
+                      deleteView(view.id)
+                    }}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
@@ -1244,6 +1381,35 @@ export function DocumentsTab({
           </button>
         </div>
       ) : null}
+
+      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("views.saveCurrent")}</DialogTitle>
+            <DialogDescription>{t("views.saveDesc")}</DialogDescription>
+          </DialogHeader>
+          <Input
+            autoFocus
+            value={viewName}
+            onChange={(event) => setViewName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault()
+                saveView()
+              }
+            }}
+            placeholder={t("views.namePlaceholder")}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewDialogOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={saveView} disabled={!viewName.trim()}>
+              {t("common.save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <DocumentDialog
         open={editing !== null}

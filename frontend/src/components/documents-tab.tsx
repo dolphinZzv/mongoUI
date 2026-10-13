@@ -150,6 +150,12 @@ export function DocumentsTab({
   const [explainOpen, setExplainOpen] = React.useState(false)
   const [chartOpen, setChartOpen] = React.useState(false)
   const [builderOpen, setBuilderOpen] = React.useState(false)
+  const [cellMenu, setCellMenu] = React.useState<{
+    x: number
+    y: number
+    row: number
+    column: string
+  } | null>(null)
   const prefsKey = columnPrefsKey(connectionId, database, collection)
   const [prefs, setPrefs] = React.useState<ColumnPrefs>(() => readColumnPrefs(prefsKey))
 
@@ -352,6 +358,34 @@ export function DocumentsTab({
     document.addEventListener("mousemove", onMove)
     document.addEventListener("mouseup", onUp)
   }, [])
+
+  // Close the cell context menu on outside click / Escape.
+  React.useEffect(() => {
+    if (!cellMenu) return
+    const onDown = (event: MouseEvent) => {
+      if ((event.target as HTMLElement).closest("[data-cell-menu]")) return
+      setCellMenu(null)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setCellMenu(null)
+    }
+    document.addEventListener("mousedown", onDown)
+    document.addEventListener("keydown", onKey)
+    return () => {
+      document.removeEventListener("mousedown", onDown)
+      document.removeEventListener("keydown", onKey)
+    }
+  }, [cellMenu])
+
+  const copyCellMenu = React.useCallback(
+    (text: string) => {
+      setCellMenu(null)
+      void copyToClipboard(text).then((ok) =>
+        ok ? toast.success(t("common.copied")) : toast.error(t("common.copyFailed")),
+      )
+    },
+    [t],
+  )
 
   // Reflect the sort JSON in the table headers so columns can be toggled by
   // clicking. Only a single-key sort is represented in the header UI.
@@ -556,6 +590,9 @@ export function DocumentsTab({
     const id = documentId(doc)
     return id !== null && selected.has(id)
   })
+
+  const cellDoc = cellMenu ? documents[cellMenu.row] : undefined
+  const cellValue = cellDoc && cellMenu ? cellDoc[cellMenu.column] : undefined
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -831,6 +868,15 @@ export function DocumentsTab({
             </TableRow>
           </TableHeader>
           <TableBody
+            onContextMenu={(event) => {
+              const td = (event.target as HTMLElement).closest("td[data-column]")
+              const tr = (event.target as HTMLElement).closest("tr[data-row-index]")
+              const column = td?.getAttribute("data-column")
+              const raw = tr?.getAttribute("data-row-index")
+              if (!column || raw === null || raw === undefined) return
+              event.preventDefault()
+              setCellMenu({ x: event.clientX, y: event.clientY, row: Number(raw), column })
+            }}
             onMouseMove={(event) => {
               const tr = (event.target as HTMLElement).closest("tr")
               const raw = tr?.getAttribute("data-row-index")
@@ -895,6 +941,7 @@ export function DocumentsTab({
                   {columns.map((column) => (
                     <TableCell
                       key={column}
+                      data-column={column}
                       className="max-w-[320px] truncate"
                       style={
                         prefs.widths[column]
@@ -1034,6 +1081,61 @@ export function DocumentsTab({
           </DropdownMenu>
         </div>
       </div>
+
+      {cellMenu && cellDoc ? (
+        <div
+          data-cell-menu
+          style={{ top: cellMenu.y, left: cellMenu.x }}
+          className="bg-popover text-popover-foreground fixed z-50 min-w-44 rounded-md border p-1 shadow-md"
+        >
+          <button
+            type="button"
+            onClick={() => copyCellMenu(formatValue(cellValue))}
+            className="hover:bg-accent/50 flex w-full items-center rounded px-2 py-1.5 text-left text-sm"
+          >
+            {t("docs.copyValue")}
+          </button>
+          <button
+            type="button"
+            onClick={() => copyCellMenu(JSON.stringify(cellValue, null, 2))}
+            className="hover:bg-accent/50 flex w-full items-center rounded px-2 py-1.5 text-left text-sm"
+          >
+            {t("docs.copyValueJson")}
+          </button>
+          <button
+            type="button"
+            onClick={() => copyCellMenu(cellMenu.column)}
+            className="hover:bg-accent/50 flex w-full items-center rounded px-2 py-1.5 text-left text-sm"
+          >
+            {t("docs.copyField")}
+          </button>
+          <div className="bg-border -mx-1 my-1 h-px" />
+          {"_id" in cellDoc ? (
+            <button
+              type="button"
+              onClick={() => copyCellMenu(prettyJSON(cellDoc._id))}
+              className="hover:bg-accent/50 flex w-full items-center rounded px-2 py-1.5 text-left text-sm"
+            >
+              {t("docs.copyId")}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => copyCellMenu(prettyJSON(cellDoc))}
+            className="hover:bg-accent/50 flex w-full items-center rounded px-2 py-1.5 text-left text-sm"
+          >
+            {t("docs.copyDocument")}
+          </button>
+          <div className="bg-border -mx-1 my-1 h-px" />
+          <button
+            type="button"
+            onClick={() => copyCellMenu(prettyJSON({ $set: { [cellMenu.column]: cellValue } }))}
+            className="hover:bg-accent/50 flex w-full items-center rounded px-2 py-1.5 text-left text-sm"
+          >
+            {t("docs.copyAsSet")}
+          </button>
+        </div>
+      ) : null}
 
       <DocumentDialog
         open={editing !== null}

@@ -262,6 +262,11 @@ const en: Record<string, string> = {
   "docs.moveRight": "Move right",
   "docs.hideColumn": "Hide column",
   "docs.showOnly": "Show only this column",
+  "docs.copyValue": "Copy value",
+  "docs.copyValueJson": "Copy value as JSON",
+  "docs.copyId": "Copy _id",
+  "docs.copyDocument": "Copy document",
+  "docs.copyAsSet": "Copy as $set update",
 
   // sql tab
   "sql.template.all": "All",
@@ -817,6 +822,11 @@ const zh: Record<string, string> = {
   "docs.moveRight": "右移",
   "docs.hideColumn": "隐藏该列",
   "docs.showOnly": "仅显示该列",
+  "docs.copyValue": "复制值",
+  "docs.copyValueJson": "复制值为 JSON",
+  "docs.copyId": "复制 _id",
+  "docs.copyDocument": "复制文档",
+  "docs.copyAsSet": "复制为 $set 更新",
 
   // sql tab
   "sql.template.all": "全部",

@@ -14,7 +14,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAgentTools } from "@/hooks/useAgentTools"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
-import { useRouter } from "@/lib/router"
+import { useRouter, type DocsQueryState } from "@/lib/router"
 import { ThemeProvider } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 import type { Connection, Selection } from "@/lib/types"
@@ -43,7 +43,7 @@ export default function App() {
   const { enabled: authEnabled } = useAuth()
   const [connections, setConnections] = React.useState<Connection[]>([])
   const [loading, setLoading] = React.useState(true)
-  const { selection, tab, navigate } = useRouter()
+  const { selection, tab, docs, navigate } = useRouter()
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editingConnection, setEditingConnection] = React.useState<Connection | null>(null)
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
@@ -165,6 +165,16 @@ export default function App() {
     [selection, navigate],
   )
 
+  // Mirror the documents query/pagination into the URL so a refresh restores
+  // the exact page. Replacing avoids flooding the history with every edit.
+  const handleDocsChange = React.useCallback(
+    (next: DocsQueryState) => {
+      if (selection.kind !== "collection") return
+      navigate(selection, tab, { replace: true, docs: next })
+    },
+    [selection, tab, navigate],
+  )
+
   const renderContent = () => {
     if (selection.kind === "collection") {
       // On a deep link the view mounts before the (auto-)connect finishes;
@@ -202,6 +212,8 @@ export default function App() {
           collection={selection.collection}
           readOnly={Boolean(selectedConnection?.readOnly)}
           tab={tab}
+          docs={docs}
+          onDocsChange={handleDocsChange}
           onTabChange={handleTabChange}
         />
       )

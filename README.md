@@ -123,6 +123,7 @@ MCP 也暴露了 `mongoui_explain` 工具。
 | 集合标签页 | 上表 URL 后追加 `?tab=documents\|sql\|aggregation\|indexes\|schema\|stats` |
 
 - 直接打开深链接会按需自动连接该连接，并在左侧树里自动展开定位到对应集合。
+- 文档页的过滤条件、排序、投影、每页条数和页码同样写进 URL（`?filter=...&sort=...&projection=...&limit=...&skip=...`），刷新、分享链接、前进/后退都能恢复。
 - 侧边栏的展开状态保存在 `localStorage`，刷新后保持。
 - 主题与浏览器 Agent 开关同样保存在 `localStorage`。
 
@@ -131,8 +132,16 @@ MCP 也暴露了 `mongoui_explain` 工具。
 ### 环境要求
 
 - Go 1.26+
-- Node.js 20+
+- Node.js 24+ 与 pnpm 12+
 - 一个可访问的 MongoDB（本地、Docker 或 Atlas 均可）
+
+仓库根目录的 `mise.toml` 锁定了 Node、pnpm 与 Go 的版本，推荐用 [mise](https://mise.jdx.dev/) 一键安装（也适用于已有环境的版本对齐）：
+
+```bash
+mise install        # 按 mise.toml 安装 node / pnpm / go
+```
+
+> 不使用 mise 时，也可自行安装 Node 24+ 与 pnpm，并在 `frontend/` 下执行 `pnpm install`。
 
 ### 生产模式（单二进制）
 

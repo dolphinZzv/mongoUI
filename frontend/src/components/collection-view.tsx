@@ -13,6 +13,7 @@ import { IndexesTab } from "@/components/indexes-tab"
 import { SchemaTab } from "@/components/schema-tab"
 import { SqlTab } from "@/components/sql-tab"
 import { StatsTab } from "@/components/stats-tab"
+import type { DocsQueryState } from "@/lib/router"
 
 interface CollectionViewProps {
   connectionId: string
@@ -20,6 +21,8 @@ interface CollectionViewProps {
   collection: string
   readOnly: boolean
   tab?: string
+  docs?: DocsQueryState
+  onDocsChange?: (docs: DocsQueryState) => void
   onTabChange?: (tab: string) => void
 }
 
@@ -29,6 +32,8 @@ export function CollectionView({
   collection,
   readOnly,
   tab,
+  docs,
+  onDocsChange,
   onTabChange,
 }: CollectionViewProps) {
   const [copied, setCopied] = React.useState(false)
@@ -85,10 +90,13 @@ export function CollectionView({
 
         <TabsContent value="documents" className="min-h-0 flex-1">
           <DocumentsTab
+            key={`${connectionId}:${database}:${collection}`}
             connectionId={connectionId}
             database={database}
             collection={collection}
             readOnly={readOnly}
+            initialDocs={docs}
+            onDocsChange={onDocsChange}
           />
         </TabsContent>
         <TabsContent value="sql" className="min-h-0 flex-1">

@@ -12,6 +12,7 @@ import {
   Download,
   Ellipsis,
   Loader2,
+  ListFilter,
   Pencil,
   Play,
   Plus,
@@ -31,6 +32,7 @@ import { DocumentDialog } from "@/components/document-dialog"
 import { ExportDialog, ImportDialog } from "@/components/data-transfer-dialog"
 import { ExplainDialog } from "@/components/explain-dialog"
 import { MongoFilterEditor } from "@/components/mongo-filter-editor"
+import { MongoQueryBuilder } from "@/components/mongo-query-builder"
 import { RecentQueries } from "@/components/recent-queries"
 import { Label } from "@/components/ui/label"
 import {
@@ -61,6 +63,7 @@ import { useRecentQueries } from "@/hooks/useRecentQueries"
 import { useI18n } from "@/lib/i18n"
 import { copyToClipboard } from "@/lib/clipboard"
 import { classForType, collectColumns, documentId, formatValue, prettyJSON, valueType } from "@/lib/mongo"
+import { DOCS_QUERY_DEFAULTS, type DocsQueryState } from "@/lib/router"
 import { cn } from "@/lib/utils"
 import type { ExplainRequest, FindResult, MongoDocument } from "@/lib/types"
 
@@ -69,6 +72,10 @@ interface DocumentsTabProps {
   database: string
   collection: string
   readOnly: boolean
+  /** Query/pagination restored from the URL, if present. */
+  initialDocs?: DocsQueryState
+  /** Persist the current query/pagination so a refresh restores it. */
+  onDocsChange?: (docs: DocsQueryState) => void
 }
 
 interface EditingState {
@@ -90,18 +97,28 @@ function CellValue({ value }: { value: unknown }) {
   )
 }
 
+/** Compact, allocation-light signature used to detect external URL changes. */
+function docsQuerySignature(docs?: DocsQueryState): string {
+  const value = docs ?? DOCS_QUERY_DEFAULTS
+  return `${value.filter}\u0000${value.sort}\u0000${value.projection}\u0000${value.limit}\u0000${value.skip}`
+}
+
 export function DocumentsTab({
   connectionId,
   database,
   collection,
   readOnly,
+  initialDocs,
+  onDocsChange,
 }: DocumentsTabProps) {
   const { t } = useI18n()
-  const [filter, setFilter] = React.useState("{}")
-  const [sort, setSort] = React.useState("")
-  const [projection, setProjection] = React.useState("")
-  const [limit, setLimit] = React.useState(50)
-  const [skip, setSkip] = React.useState(0)
+  const [filter, setFilter] = React.useState(initialDocs?.filter ?? DOCS_QUERY_DEFAULTS.filter)
+  const [sort, setSort] = React.useState(initialDocs?.sort ?? DOCS_QUERY_DEFAULTS.sort)
+  const [projection, setProjection] = React.useState(
+    initialDocs?.projection ?? DOCS_QUERY_DEFAULTS.projection,
+  )
+  const [limit, setLimit] = React.useState(initialDocs?.limit ?? DOCS_QUERY_DEFAULTS.limit)
+  const [skip, setSkip] = React.useState(initialDocs?.skip ?? DOCS_QUERY_DEFAULTS.skip)
   const [showOptions, setShowOptions] = React.useState(false)
   const [result, setResult] = React.useState<FindResult | null>(null)
   const [loading, setLoading] = React.useState(false)
@@ -117,6 +134,7 @@ export function DocumentsTab({
   const [copyOpen, setCopyOpen] = React.useState(false)
   const [explainOpen, setExplainOpen] = React.useState(false)
   const [chartOpen, setChartOpen] = React.useState(false)
+  const [builderOpen, setBuilderOpen] = React.useState(false)
 
   const {
     items: recentFilters,
@@ -177,15 +195,41 @@ export function DocumentsTab({
     [connectionId, database, collection, filter, sort, projection, skip, limit, pushRecent],
   )
 
+  // The component is remounted per collection (see the `key` in CollectionView),
+  // so a plain load on mount is enough; the query comes from the URL.
   React.useEffect(() => {
-    setFilter("{}")
-    setSort("")
-    setProjection("")
-    setSkip(0)
-    setResult(null)
-    void load({ skip: 0, limit: 50, filter: "{}", sort: "", projection: "" })
+    void load({})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionId, database, collection])
+
+  // Last query signature we rendered; used to tell our own URL writes apart
+  // from external ones (browser back/forward).
+  const appliedDocsRef = React.useRef(docsQuerySignature(initialDocs))
+
+  // Mirror local query/pagination edits into the URL, debounced so typing does
+  // not re-render the app on every keystroke. The timeout is always cleared on
+  // cleanup to avoid leaks.
+  React.useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const next: DocsQueryState = { filter, sort, projection, limit, skip }
+      appliedDocsRef.current = docsQuerySignature(next)
+      onDocsChange?.(next)
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [filter, sort, projection, limit, skip, onDocsChange])
+
+  // Adopt query changes coming from the URL (back/forward) without clobbering
+  // the user's in-flight edits.
+  React.useEffect(() => {
+    const incoming = docsQuerySignature(initialDocs)
+    if (incoming === appliedDocsRef.current) return
+    appliedDocsRef.current = incoming
+    setFilter(initialDocs?.filter ?? DOCS_QUERY_DEFAULTS.filter)
+    setSort(initialDocs?.sort ?? DOCS_QUERY_DEFAULTS.sort)
+    setProjection(initialDocs?.projection ?? DOCS_QUERY_DEFAULTS.projection)
+    setLimit(initialDocs?.limit ?? DOCS_QUERY_DEFAULTS.limit)
+    setSkip(initialDocs?.skip ?? DOCS_QUERY_DEFAULTS.skip)
+  }, [initialDocs])
 
   const documents = result?.documents ?? []
   const columns = React.useMemo(() => collectColumns(documents), [documents])
@@ -416,6 +460,15 @@ export function DocumentsTab({
             onToggleFavorite={toggleFavoriteFilter}
             onRemoveFavorite={removeFavoriteFilter}
           />
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setBuilderOpen(true)}
+            title={t("filter.builder")}
+            aria-label={t("filter.builder")}
+          >
+            <ListFilter />
+          </Button>
           <Button onClick={() => void load({ skip: 0 })} disabled={loading}>
             {loading ? <Loader2 className="animate-spin" /> : <Play />}
             {t("common.run")}
@@ -806,6 +859,16 @@ export function DocumentsTab({
         documents={documents}
         columns={columns}
         storageKey={`docs:${connectionId}:${database}:${collection}`}
+      />
+      <MongoQueryBuilder
+        open={builderOpen}
+        onOpenChange={setBuilderOpen}
+        fields={columns}
+        value={filter}
+        onApply={(next) => {
+          setFilter(next)
+          void load({ skip: 0, filter: next })
+        }}
       />
     </div>
   )

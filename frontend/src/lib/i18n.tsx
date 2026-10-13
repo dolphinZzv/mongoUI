@@ -288,6 +288,8 @@ const en: Record<string, string> = {
   "docs.copyAsSet": "Copy as $set update",
   "docs.restored": "Restored {{count}} document(s)",
   "docs.restoreFailed": "Restore failed",
+  "docs.copyMongo": "Copy as MongoDB query",
+  "docs.copySql": "Copy as SQL",
   "docs.selectAllMatching": "Select all {{count}} matching",
   "docs.selectedAllMatching": "All {{count}} matching selected",
   "docs.updateSelected": "Update matching",
@@ -329,6 +331,7 @@ const en: Record<string, string> = {
 
   // aggregation tab
   "agg.pipeline": "Pipeline",
+  "agg.copyJs": "Copy as JS",
   "agg.postLimit": "Post-limit",
   "agg.notRun": "Not run yet",
   "agg.empty": "No results.",
@@ -887,6 +890,8 @@ const zh: Record<string, string> = {
   "docs.copyAsSet": "复制为 $set 更新",
   "docs.restored": "已恢复 {{count}} 条文档",
   "docs.restoreFailed": "恢复失败",
+  "docs.copyMongo": "复制为 MongoDB 查询",
+  "docs.copySql": "复制为 SQL",
   "docs.selectAllMatching": "选择全部匹配的 {{count}} 条",
   "docs.selectedAllMatching": "已选全部匹配的 {{count}} 条",
   "docs.updateSelected": "批量更新",
@@ -926,6 +931,7 @@ const zh: Record<string, string> = {
 
   // aggregation tab
   "agg.pipeline": "管道",
+  "agg.copyJs": "复制为 JS",
   "agg.postLimit": "结果限制",
   "agg.notRun": "尚未运行",
   "agg.empty": "没有结果。",

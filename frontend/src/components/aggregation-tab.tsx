@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Activity, BarChart3, Braces, Loader2, Play, Table2 } from "lucide-react"
+import { Activity, BarChart3, Braces, Copy, Loader2, Play, Table2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -18,8 +18,10 @@ import {
 import { JsonEditor } from "@/components/json-editor"
 import { JsonView } from "@/components/json-view"
 import { api } from "@/lib/api"
+import { copyToClipboard } from "@/lib/clipboard"
 import { useI18n } from "@/lib/i18n"
 import { classForType, collectColumns, formatValue, valueType } from "@/lib/mongo"
+import { toAggregateJS } from "@/lib/queryText"
 import { cn } from "@/lib/utils"
 import type { MongoDocument } from "@/lib/types"
 
@@ -147,6 +149,17 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
             </Button>
             <Button onClick={explain} disabled={loading} size="sm" variant="outline">
               <Activity /> {t("explain.title")}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                void copyToClipboard(toAggregateJS(collection, pipeline)).then((ok) =>
+                  ok ? toast.success(t("common.copied")) : toast.error(t("common.copyFailed")),
+                )
+              }
+            >
+              <Copy /> {t("agg.copyJs")}
             </Button>
           </div>
         </div>

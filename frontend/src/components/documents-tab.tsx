@@ -9,10 +9,12 @@ import {
   BarChart3,
   Bookmark,
   BookmarkPlus,
+  Braces,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Columns3,
+  Code2,
   Copy,
   Download,
   Ellipsis,
@@ -87,6 +89,7 @@ import {
   type ColumnPrefs,
 } from "@/lib/columnPrefs"
 import { newViewId, readViews, viewsKey, writeViews, type SavedView } from "@/lib/savedViews"
+import { toFindJS, toSQL } from "@/lib/queryText"
 import { useI18n } from "@/lib/i18n"
 import { copyToClipboard } from "@/lib/clipboard"
 import { classForType, collectColumns, documentId, formatValue, prettyJSON, valueType } from "@/lib/mongo"
@@ -421,6 +424,15 @@ export function DocumentsTab({
   const copyCellMenu = React.useCallback(
     (text: string) => {
       setCellMenu(null)
+      void copyToClipboard(text).then((ok) =>
+        ok ? toast.success(t("common.copied")) : toast.error(t("common.copyFailed")),
+      )
+    },
+    [t],
+  )
+
+  const copyText = React.useCallback(
+    (text: string) => {
       void copyToClipboard(text).then((ok) =>
         ok ? toast.success(t("common.copied")) : toast.error(t("common.copyFailed")),
       )
@@ -1032,6 +1044,21 @@ export function DocumentsTab({
                 onSelect={() => setChartOpen(true)}
               >
                 <BarChart3 /> {t("chart.open")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() =>
+                  copyText(toFindJS(collection, { filter, sort, projection, skip, limit }))
+                }
+              >
+                <Braces /> {t("docs.copyMongo")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() =>
+                  copyText(toSQL(collection, { filter, sort, projection, skip, limit }))
+                }
+              >
+                <Code2 /> {t("docs.copySql")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

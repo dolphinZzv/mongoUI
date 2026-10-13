@@ -1103,7 +1103,7 @@ export function DocumentsTab({
         <Table>
           <TableHeader className="bg-background sticky top-0 z-10">
             <TableRow className="hover:bg-transparent">
-              <TableHead className="bg-background sticky left-0 z-20 w-10">
+              <TableHead className="w-10">
                 <Checkbox
                   checked={allSelected || allMatching}
                   onCheckedChange={(checked) => toggleAll(checked === true)}
@@ -1116,11 +1116,7 @@ export function DocumentsTab({
                 return (
                   <TableHead
                     key={column}
-                    className={cn(
-                      "group relative font-mono text-xs",
-                      column === "_id" &&
-                        "bg-background sticky left-10 z-10 group-hover:bg-muted/50",
-                    )}
+                    className="group relative font-mono text-xs"
                     style={width ? { width, minWidth: width, maxWidth: width } : undefined}
                   >
                     <div className="flex items-center gap-1">
@@ -1268,7 +1264,7 @@ export function DocumentsTab({
                     if (!readOnly) setEditing({ mode: "edit", document: doc })
                   }}
                 >
-                  <TableCell className="bg-background sticky left-0 z-20 group-hover:bg-muted/50 group-data-[state=selected]:bg-muted">
+                  <TableCell>
                     <Checkbox
                       checked={isSelected}
                       disabled={id === null}
@@ -1280,11 +1276,7 @@ export function DocumentsTab({
                     <TableCell
                       key={column}
                       data-column={column}
-                      className={cn(
-                        "max-w-[320px] truncate",
-                        column === "_id" &&
-                          "bg-background sticky left-10 z-10 group-hover:bg-muted/50 group-data-[state=selected]:bg-muted",
-                      )}
+                      className="max-w-[320px] truncate"
                       style={
                         prefs.widths[column]
                           ? {

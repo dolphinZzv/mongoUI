@@ -1,9 +1,10 @@
 import * as React from "react"
-import { Database, Leaf, Loader2, Menu, PanelLeft, PanelLeftClose, Plus, Search, Server, Table2, X } from "lucide-react"
+import { Database, Leaf, Loader2, Menu, PanelLeft, PanelLeftClose, Plus, ScanSearch, Search, Server, Table2, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { CommandPalette } from "@/components/command-palette"
+import { GlobalSearchDialog } from "@/components/global-search-dialog"
 import { useAuth } from "@/components/auth-gate"
 import { CollectionView } from "@/components/collection-view"
 import { ConnectionDialog } from "@/components/connection-dialog"
@@ -47,6 +48,7 @@ export default function App() {
   const { selection, tab, docs, navigate } = useRouter()
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [paletteOpen, setPaletteOpen] = React.useState(false)
+  const [searchOpen, setSearchOpen] = React.useState(false)
   const [editingConnection, setEditingConnection] = React.useState<Connection | null>(null)
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
   const isDesktop = useIsDesktop()
@@ -382,6 +384,15 @@ export default function App() {
             </div>
             <div className="ml-auto flex items-center gap-2">
               <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setSearchOpen(true)}
+                title={t("search.title")}
+                aria-label={t("search.title")}
+              >
+                <ScanSearch />
+              </Button>
+              <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setPaletteOpen(true)}
@@ -417,6 +428,14 @@ export default function App() {
           onTabChange={handleTabChange}
           onNewConnection={openNewConnection}
           onRefresh={() => void refreshConnections()}
+          onGlobalSearch={() => setSearchOpen(true)}
+        />
+        <GlobalSearchDialog
+          open={searchOpen}
+          onOpenChange={setSearchOpen}
+          connections={connections}
+          selection={selection}
+          onOpenQuery={handleOpenQuery}
         />
         <Toaster />
       </TooltipProvider>

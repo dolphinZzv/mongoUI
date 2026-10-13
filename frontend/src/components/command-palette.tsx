@@ -37,6 +37,7 @@ interface CommandPaletteProps {
   onTabChange: (tab: string) => void
   onNewConnection: () => void
   onRefresh: () => void
+  onGlobalSearch: () => void
 }
 
 interface PaletteCommand {
@@ -59,6 +60,7 @@ export function CommandPalette({
   onTabChange,
   onNewConnection,
   onRefresh,
+  onGlobalSearch,
 }: CommandPaletteProps) {
   const { t, setLocale } = useI18n()
   const { setTheme } = useTheme()
@@ -162,6 +164,14 @@ export function CommandPalette({
         run: close(onRefresh),
       },
       {
+        id: "global-search",
+        label: t("search.title"),
+        keywords: "search find value field database",
+        icon: <Search />,
+        group: actions,
+        run: close(onGlobalSearch),
+      },
+      {
         id: "theme-light",
         label: t("theme.light"),
         icon: <Sun />,
@@ -205,6 +215,7 @@ export function CommandPalette({
     onTabChange,
     onNewConnection,
     onRefresh,
+    onGlobalSearch,
     setTheme,
     setLocale,
   ])

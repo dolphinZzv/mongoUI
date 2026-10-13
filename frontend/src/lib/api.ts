@@ -17,6 +17,7 @@ import type {
   MCPSettings,
   MongoDocument,
   SchemaResult,
+  SearchResult,
   SQLResult,
   TransferFormat,
   UpdateSettings,
@@ -140,6 +141,21 @@ export const api = {
   // documents -------------------------------------------------------------------
   find: (id: string, db: string, col: string, req: FindRequest) =>
     request<FindResult>(`/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/find`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    }),
+  searchDatabase: (
+    id: string,
+    db: string,
+    req: {
+      term: string
+      field?: string
+      mode?: "value" | "field"
+      limit?: number
+      maxCollections?: number
+    },
+  ) =>
+    request<SearchResult>(`/connections/${id}/databases/${enc(db)}/search`, {
       method: "POST",
       body: JSON.stringify(req),
     }),

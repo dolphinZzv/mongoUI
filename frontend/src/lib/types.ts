@@ -197,3 +197,15 @@ export type Selection =
   | { kind: "welcome" }
   | { kind: "connection"; connectionId: string }
   | { kind: "collection"; connectionId: string; database: string; collection: string }
+
+export interface SearchHit {
+  collection: string
+  count: number
+  sample: MongoDocument[]
+}
+
+export interface SearchResult {
+  term: string
+  mode: "value" | "field"
+  results: SearchHit[]
+}

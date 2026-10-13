@@ -61,6 +61,24 @@ const en: Record<string, string> = {
   "palette.navigate": "Navigate",
   "palette.run": "Run",
 
+  // global search
+  "search.title": "Search database",
+  "search.desc": "Find a value or field name across every collection in a database.",
+  "search.connection": "Connection",
+  "search.database": "Database",
+  "search.mode": "Search by",
+  "search.modeValue": "Value",
+  "search.modeField": "Field name",
+  "search.field": "Limit to field (optional)",
+  "search.term": "Search term",
+  "search.termPlaceholder": "e.g. user@example.com",
+  "search.action": "Search",
+  "search.hint": "Enter at least 2 characters. Cross-collection scans can be slow on large databases.",
+  "search.empty": "No matches found",
+  "search.matches": "{{count}} match(es)",
+  "search.open": "Open collection",
+  "search.failed": "Search failed",
+
   // language / theme
   "lang.label": "Language",
   "theme.light": "Light",
@@ -641,6 +659,24 @@ const zh: Record<string, string> = {
   "palette.empty": "没有匹配的命令",
   "palette.navigate": "导航",
   "palette.run": "执行",
+
+  // 全库搜索
+  "search.title": "全库搜索",
+  "search.desc": "在某个数据库的所有集合中按值或字段名搜索。",
+  "search.connection": "连接",
+  "search.database": "数据库",
+  "search.mode": "搜索方式",
+  "search.modeValue": "按值",
+  "search.modeField": "按字段名",
+  "search.field": "限定字段（可选）",
+  "search.term": "搜索内容",
+  "search.termPlaceholder": "例如 user@example.com",
+  "search.action": "搜索",
+  "search.hint": "至少输入 2 个字符。大库全量扫描可能较慢。",
+  "search.empty": "未找到匹配",
+  "search.matches": "{{count}} 条匹配",
+  "search.open": "打开集合",
+  "search.failed": "搜索失败",
 
   // language / theme
   "lang.label": "语言",

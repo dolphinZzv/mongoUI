@@ -119,6 +119,7 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 						r.Delete("/", a.dropDatabase)
 						r.Get("/stats", a.databaseStats)
 						r.Post("/sql", a.runSQL)
+						r.Post("/search", a.searchDatabase)
 
 						r.Get("/collections", a.listCollections)
 						r.Post("/collections", a.createCollection)

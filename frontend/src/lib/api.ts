@@ -1,5 +1,6 @@
 import type {
   AggregateResult,
+  AuditEntry,
   AuthSetup,
   AuthStatus,
   CollectionInfo,
@@ -159,6 +160,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(req),
     }),
+  listAudit: (params?: { connectionId?: string; limit?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.connectionId) query.set("connectionId", params.connectionId)
+    if (params?.limit) query.set("limit", String(params.limit))
+    const suffix = query.toString()
+    return request<{ entries: AuditEntry[] }>(`/audit${suffix ? `?${suffix}` : ""}`)
+  },
   insert: (id: string, db: string, col: string, documents: MongoDocument[]) =>
     request<{ insertedCount: number; insertedIds: unknown[] }>(
       `/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/insert`,

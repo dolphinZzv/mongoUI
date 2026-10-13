@@ -27,6 +27,7 @@ type API struct {
 	auth       *auth.Manager
 	settings   *config.Settings
 	updater    *autoupdate.Updater
+	audit      *auditLog
 }
 
 // New builds an API instance. mcpHandler, when non-nil, is mounted at /mcp;
@@ -39,7 +40,7 @@ func New(store *config.Store, mgr *mongoclient.Manager, uiEmbedded bool, version
 	} else {
 		s = config.NewSettings(config.DefaultMCPSettings())
 	}
-	return &API{store: store, mgr: mgr, uiEmbedded: uiEmbedded, version: version, mcpHandler: mcpHandler, auth: authManager, settings: s}
+	return &API{store: store, mgr: mgr, uiEmbedded: uiEmbedded, version: version, mcpHandler: mcpHandler, auth: authManager, settings: s, audit: newAuditLog()}
 }
 
 // SetUpdater attaches the self-updater so the update endpoints can report and
@@ -89,6 +90,9 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 			if a.auth != nil {
 				r.Use(a.auth.Middleware)
 			}
+			r.Use(a.auditMiddleware)
+
+			r.Get("/audit", a.listAudit)
 
 			r.Get("/mcp", a.getMCPSettings)
 			r.Put("/mcp", a.updateMCPSettings)

@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { AppSidebar } from "@/components/app-sidebar"
 import { CollectionTabs } from "@/components/collection-tabs"
 import { CommandPalette } from "@/components/command-palette"
+import { AuditDialog } from "@/components/audit-dialog"
 import { GlobalSearchDialog } from "@/components/global-search-dialog"
 import { useAuth } from "@/components/auth-gate"
 import { CollectionView } from "@/components/collection-view"
@@ -51,6 +52,7 @@ export default function App() {
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [paletteOpen, setPaletteOpen] = React.useState(false)
   const [searchOpen, setSearchOpen] = React.useState(false)
+  const [auditOpen, setAuditOpen] = React.useState(false)
   const [tabs, setTabs] = React.useState<CollectionTab[]>(() => readTabs())
   const [editingConnection, setEditingConnection] = React.useState<Connection | null>(null)
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
@@ -511,6 +513,7 @@ export default function App() {
           onNewConnection={openNewConnection}
           onRefresh={() => void refreshConnections()}
           onGlobalSearch={() => setSearchOpen(true)}
+          onAudit={() => setAuditOpen(true)}
         />
         <GlobalSearchDialog
           open={searchOpen}
@@ -519,6 +522,7 @@ export default function App() {
           selection={selection}
           onOpenQuery={handleOpenQuery}
         />
+        <AuditDialog open={auditOpen} onOpenChange={setAuditOpen} connections={connections} />
         <Toaster />
       </TooltipProvider>
     </ThemeProvider>

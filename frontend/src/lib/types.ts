@@ -204,6 +204,17 @@ export interface SearchHit {
   sample: MongoDocument[]
 }
 
+export interface AuditEntry {
+  time: string
+  connectionId: string
+  database: string
+  collection: string
+  method: string
+  operation: string
+  path: string
+  status: number
+}
+
 export interface SearchResult {
   term: string
   mode: "value" | "field"

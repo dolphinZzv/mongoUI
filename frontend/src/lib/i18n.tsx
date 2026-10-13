@@ -81,6 +81,18 @@ const en: Record<string, string> = {
   "search.open": "Open collection",
   "search.failed": "Search failed",
 
+  // audit log
+  "audit.title": "Write audit log",
+  "audit.desc": "Recent write operations performed through the UI or API.",
+  "audit.empty": "No write operations recorded yet",
+  "audit.allConnections": "All connections",
+  "audit.time": "Time",
+  "audit.operation": "Operation",
+  "audit.target": "Target",
+  "audit.status": "Status",
+  "audit.inMemory": "Kept in memory; cleared when the server restarts.",
+  "audit.failed": "Could not load the audit log",
+
   // language / theme
   "lang.label": "Language",
   "theme.light": "Light",
@@ -694,6 +706,18 @@ const zh: Record<string, string> = {
   "search.matches": "{{count}} 条匹配",
   "search.open": "打开集合",
   "search.failed": "搜索失败",
+
+  // 写操作审计
+  "audit.title": "写操作审计",
+  "audit.desc": "通过界面或 API 执行的最新写操作。",
+  "audit.empty": "暂无写操作记录",
+  "audit.allConnections": "全部连接",
+  "audit.time": "时间",
+  "audit.operation": "操作",
+  "audit.target": "目标",
+  "audit.status": "状态",
+  "audit.inMemory": "保存在内存中，服务重启后清空。",
+  "audit.failed": "无法加载审计日志",
 
   // language / theme
   "lang.label": "语言",

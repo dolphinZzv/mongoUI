@@ -6,6 +6,7 @@ import {
   Moon,
   Plus,
   RefreshCw,
+  ScrollText,
   Search,
   Server,
   Star,
@@ -38,6 +39,7 @@ interface CommandPaletteProps {
   onNewConnection: () => void
   onRefresh: () => void
   onGlobalSearch: () => void
+  onAudit: () => void
 }
 
 interface PaletteCommand {
@@ -61,6 +63,7 @@ export function CommandPalette({
   onNewConnection,
   onRefresh,
   onGlobalSearch,
+  onAudit,
 }: CommandPaletteProps) {
   const { t, setLocale } = useI18n()
   const { setTheme } = useTheme()
@@ -172,6 +175,14 @@ export function CommandPalette({
         run: close(onGlobalSearch),
       },
       {
+        id: "audit",
+        label: t("audit.title"),
+        keywords: "audit log history writes",
+        icon: <ScrollText />,
+        group: actions,
+        run: close(onAudit),
+      },
+      {
         id: "theme-light",
         label: t("theme.light"),
         icon: <Sun />,
@@ -216,6 +227,7 @@ export function CommandPalette({
     onNewConnection,
     onRefresh,
     onGlobalSearch,
+    onAudit,
     setTheme,
     setLocale,
   ])

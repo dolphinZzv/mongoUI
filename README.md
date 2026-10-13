@@ -31,13 +31,9 @@ MongoUI 是一个用 Go + React 编写的 MongoDB 可视化管理工具。前端
 
 ## 界面预览
 
-| 明亮主题 | 暗黑主题 |
-| --- | --- |
-| ![明亮主题首页](docs/home-light.png) | ![暗黑主题首页](docs/home-dark.png) |
+![集合浏览](docs/home-light.png)
 
 右上角的 **设置** 菜单汇集了主题与语言、浏览器 Agent、MCP 开关、自动更新，以及账号与定时备份管理；`Ctrl/⌘ + K` 打开命令面板，可快速跳转连接、切换标签页、打开固定查询。
-
-![命令面板](docs/command-palette.png)
 
 ## 功能特性
 

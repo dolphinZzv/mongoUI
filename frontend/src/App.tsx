@@ -6,6 +6,7 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { CollectionTabs } from "@/components/collection-tabs"
 import { CommandPalette } from "@/components/command-palette"
 import { AuditDialog } from "@/components/audit-dialog"
+import { SlowQueriesDialog } from "@/components/slow-queries-dialog"
 import { GlobalSearchDialog } from "@/components/global-search-dialog"
 import { useAuth } from "@/components/auth-gate"
 import { CollectionView } from "@/components/collection-view"
@@ -53,6 +54,7 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = React.useState(false)
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [auditOpen, setAuditOpen] = React.useState(false)
+  const [profileOpen, setProfileOpen] = React.useState(false)
   const [tabs, setTabs] = React.useState<CollectionTab[]>(() => readTabs())
   const [editingConnection, setEditingConnection] = React.useState<Connection | null>(null)
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
@@ -514,6 +516,7 @@ export default function App() {
           onRefresh={() => void refreshConnections()}
           onGlobalSearch={() => setSearchOpen(true)}
           onAudit={() => setAuditOpen(true)}
+          onProfile={() => setProfileOpen(true)}
         />
         <GlobalSearchDialog
           open={searchOpen}
@@ -523,6 +526,12 @@ export default function App() {
           onOpenQuery={handleOpenQuery}
         />
         <AuditDialog open={auditOpen} onOpenChange={setAuditOpen} connections={connections} />
+        <SlowQueriesDialog
+          open={profileOpen}
+          onOpenChange={setProfileOpen}
+          connections={connections}
+          selection={selection}
+        />
         <Toaster />
       </TooltipProvider>
     </ThemeProvider>

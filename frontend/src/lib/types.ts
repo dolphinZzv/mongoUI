@@ -204,6 +204,11 @@ export interface SearchHit {
   sample: MongoDocument[]
 }
 
+export interface ProfileResult {
+  enabled: boolean
+  entries: MongoDocument[]
+}
+
 export interface AuditEntry {
   time: string
   connectionId: string

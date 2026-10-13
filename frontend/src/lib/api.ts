@@ -17,6 +17,7 @@ import type {
   IndexInfo,
   MCPSettings,
   MongoDocument,
+  ProfileResult,
   SchemaResult,
   SearchResult,
   SQLResult,
@@ -166,6 +167,15 @@ export const api = {
     if (params?.limit) query.set("limit", String(params.limit))
     const suffix = query.toString()
     return request<{ entries: AuditEntry[] }>(`/audit${suffix ? `?${suffix}` : ""}`)
+  },
+  databaseProfile: (id: string, db: string, params?: { limit?: number; minMillis?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.limit) query.set("limit", String(params.limit))
+    if (params?.minMillis) query.set("minMillis", String(params.minMillis))
+    const suffix = query.toString()
+    return request<ProfileResult>(
+      `/connections/${id}/databases/${enc(db)}/profile${suffix ? `?${suffix}` : ""}`,
+    )
   },
   insert: (id: string, db: string, col: string, documents: MongoDocument[]) =>
     request<{ insertedCount: number; insertedIds: unknown[] }>(

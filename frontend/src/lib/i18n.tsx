@@ -93,6 +93,15 @@ const en: Record<string, string> = {
   "audit.storage": "Persisted to the server's data directory (most recent entries only).",
   "audit.failed": "Could not load the audit log",
 
+  // database profiler / slow queries
+  "profile.title": "Slow queries",
+  "profile.desc": "Recent operations from the database profiler (db.system.profile).",
+  "profile.minMillis": "Min ms",
+  "profile.off":
+    "Profiling is off for this database. Enable it with db.setProfilingLevel(1, { slowms: 100 }).",
+  "profile.empty": "No slow operations recorded",
+  "profile.failed": "Could not load the profiler data",
+
   // language / theme
   "lang.label": "Language",
   "theme.light": "Light",
@@ -719,6 +728,14 @@ const zh: Record<string, string> = {
   "audit.status": "状态",
   "audit.storage": "持久化到服务端数据目录（仅保留最近若干条）。",
   "audit.failed": "无法加载审计日志",
+
+  // 数据库 profiler / 慢查询
+  "profile.title": "慢查询",
+  "profile.desc": "来自数据库 profiler（db.system.profile）的最近操作。",
+  "profile.minMillis": "最小毫秒",
+  "profile.off": "该数据库未开启 profiling。可用 db.setProfilingLevel(1, { slowms: 100 }) 开启。",
+  "profile.empty": "暂无慢操作记录",
+  "profile.failed": "无法加载 profiler 数据",
 
   // language / theme
   "lang.label": "语言",

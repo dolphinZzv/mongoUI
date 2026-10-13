@@ -12,6 +12,7 @@ import {
   Star,
   Sun,
   Table2,
+  Timer,
 } from "lucide-react"
 
 import {
@@ -40,6 +41,7 @@ interface CommandPaletteProps {
   onRefresh: () => void
   onGlobalSearch: () => void
   onAudit: () => void
+  onProfile: () => void
 }
 
 interface PaletteCommand {
@@ -64,6 +66,7 @@ export function CommandPalette({
   onRefresh,
   onGlobalSearch,
   onAudit,
+  onProfile,
 }: CommandPaletteProps) {
   const { t, setLocale } = useI18n()
   const { setTheme } = useTheme()
@@ -183,6 +186,14 @@ export function CommandPalette({
         run: close(onAudit),
       },
       {
+        id: "profile",
+        label: t("profile.title"),
+        keywords: "slow query profiler system.profile performance",
+        icon: <Timer />,
+        group: actions,
+        run: close(onProfile),
+      },
+      {
         id: "theme-light",
         label: t("theme.light"),
         icon: <Sun />,
@@ -228,6 +239,7 @@ export function CommandPalette({
     onRefresh,
     onGlobalSearch,
     onAudit,
+    onProfile,
     setTheme,
     setLocale,
   ])

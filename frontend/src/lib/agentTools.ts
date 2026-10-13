@@ -1,4 +1,5 @@
 import { api } from "@/lib/api"
+import { parseNaturalQuery } from "@/lib/nlQuery"
 import type { ExplainRequest, FindRequest, MongoDocument } from "@/lib/types"
 
 /**
@@ -359,6 +360,17 @@ export const agentTools: AgentTool[] = [
         requiredStr(args, "collection"),
         requiredStr(args, "name"),
       ),
+  },
+  {
+    name: "mongoui_parse_query",
+    description:
+      "Translate a simple natural-language filter into a MongoDB filter object. Supports comparisons (= != > >= < <=), contains/like, in, exists and and/or (also 且/或), e.g. \"status = active and age >= 18\".",
+    inputSchema: {
+      type: "object",
+      properties: { query: { type: "string" } },
+      required: ["query"],
+    },
+    execute: (args) => parseNaturalQuery(requiredStr(args, "query")),
   },
 ]
 

@@ -1007,6 +1007,8 @@ export function DocumentsTab({
             size="icon"
             onClick={() => setShowOptions((prev) => !prev)}
             title={t("docs.sortProjection")}
+            aria-label={t("docs.sortProjection")}
+            className="w-12 gap-1"
           >
             <Rows3 />
             <ChevronDown className={cn("transition-transform", showOptions && "rotate-180")} />

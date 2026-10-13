@@ -313,6 +313,22 @@ export function DocumentsTab({
     return ordered
   }, [allColumns, hiddenSet, prefs.order])
 
+  // Infer a BSON type per field from the current page so the query builder can
+  // offer typed value inputs (ObjectId, date, bool, number).
+  const fieldTypes = React.useMemo(() => {
+    const types: Record<string, string> = {}
+    for (const column of allColumns) {
+      for (const doc of documents) {
+        const value = doc[column]
+        if (value !== null && value !== undefined) {
+          types[column] = valueType(value)
+          break
+        }
+      }
+    }
+    return types
+  }, [allColumns, documents])
+
   // Persist column preferences (debounced: widths change on every mousemove).
   React.useEffect(() => {
     const timer = window.setTimeout(() => writeColumnPrefs(prefsKey, prefs), 300)
@@ -1576,6 +1592,7 @@ export function DocumentsTab({
         open={builderOpen}
         onOpenChange={setBuilderOpen}
         fields={allColumns}
+        fieldTypes={fieldTypes}
         value={filter}
         projection={projection}
         onApply={(nextFilter, nextProjection) => {

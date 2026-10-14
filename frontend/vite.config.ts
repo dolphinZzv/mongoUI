@@ -13,6 +13,17 @@ const pkg = JSON.parse(
 ) as { version: string }
 const appVersion = process.env.VITE_APP_VERSION || pkg.version
 
+// packageName extracts the real package name from a resolved module id. pnpm's
+// virtual store embeds peer deps (e.g. `@types+react-dom@19.3.0`) in the
+// directory name, so plain substring checks would misclassify packages. Using
+// the segment after the last `node_modules/` avoids that.
+function packageName(id: string): string {
+  const marker = "node_modules/"
+  const after = id.slice(id.lastIndexOf(marker) + marker.length)
+  const parts = after.split("/")
+  return parts[0].startsWith("@") ? `${parts[0]}/${parts[1] ?? ""}` : parts[0]
+}
+
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
@@ -41,11 +52,12 @@ export default defineConfig({
         // app chunk stays small and cacheable across deploys.
         manualChunks(id) {
           if (!id.includes("node_modules")) return undefined
-          if (id.includes("react-dom") || id.includes("scheduler") || /node_modules\/react\//.test(id)) {
+          const pkg = packageName(id)
+          if (pkg === "react" || pkg === "react-dom" || pkg === "scheduler") {
             return "react-vendor"
           }
-          if (id.includes("@radix-ui")) return "radix-vendor"
-          if (id.includes("lucide-react")) return "icons-vendor"
+          if (pkg.startsWith("@radix-ui/")) return "radix-vendor"
+          if (pkg === "lucide-react") return "icons-vendor"
           return "vendor"
         },
       },

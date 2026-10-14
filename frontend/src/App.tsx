@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Database, Leaf, Loader2, Menu, PanelLeft, PanelLeftClose, Plus, ScanSearch, Search, Server, Table2, X } from "lucide-react"
+import { Database, Leaf, Loader2, Menu, PanelLeft, PanelLeftClose, Plus, ScanSearch, Search, Server, SquareTerminal, Table2, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { AppSidebar } from "@/components/app-sidebar"
@@ -41,6 +41,9 @@ const AuditDialog = React.lazy(() =>
 const SlowQueriesDialog = React.lazy(() =>
   import("@/components/slow-queries-dialog").then((m) => ({ default: m.SlowQueriesDialog })),
 )
+const ScriptPanel = React.lazy(() =>
+  import("@/components/script-panel").then((m) => ({ default: m.ScriptPanel })),
+)
 
 const IS_MAC =
   typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
@@ -63,6 +66,12 @@ const SIDEBAR_COLLAPSED_KEY = "mongoui-sidebar-collapsed"
 const SIDEBAR_DEFAULT = 288
 const SIDEBAR_MIN = 200
 const SIDEBAR_MAX = 520
+
+const SCRIPT_OPEN_KEY = "mongoui-script-open"
+const SCRIPT_WIDTH_KEY = "mongoui-script-width"
+const SCRIPT_DEFAULT = 420
+const SCRIPT_MIN = 320
+const SCRIPT_MAX = 760
 
 export default function App() {
   const { t } = useI18n()
@@ -97,6 +106,23 @@ export default function App() {
     }
   })
   const sidebarRef = React.useRef<HTMLDivElement>(null)
+  const [scriptOpen, setScriptOpen] = React.useState(() => {
+    try {
+      return localStorage.getItem(SCRIPT_OPEN_KEY) === "1"
+    } catch {
+      return false
+    }
+  })
+  const [scriptWidth, setScriptWidth] = React.useState(() => {
+    try {
+      const raw = Number(localStorage.getItem(SCRIPT_WIDTH_KEY))
+      return Number.isFinite(raw) && raw >= SCRIPT_MIN && raw <= SCRIPT_MAX
+        ? raw
+        : SCRIPT_DEFAULT
+    } catch {
+      return SCRIPT_DEFAULT
+    }
+  })
 
   React.useEffect(() => {
     try {
@@ -114,6 +140,27 @@ export default function App() {
     }
   }, [sidebarWidth])
 
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(SCRIPT_OPEN_KEY, scriptOpen ? "1" : "0")
+    } catch {
+      /* storage may be unavailable */
+    }
+  }, [scriptOpen])
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(SCRIPT_WIDTH_KEY, String(scriptWidth))
+    } catch {
+      /* storage may be unavailable */
+    }
+  }, [scriptWidth])
+
+  // The script console is bound to a collection; close it when there is none.
+  React.useEffect(() => {
+    if (selection.kind !== "collection") setScriptOpen(false)
+  }, [selection])
+
   const toggleSidebar = () => {
     if (isDesktop) setSidebarCollapsed((prev) => !prev)
     else setSidebarOpen((prev) => !prev)
@@ -124,6 +171,25 @@ export default function App() {
     const onMove = (e: MouseEvent) => {
       const left = sidebarRef.current?.getBoundingClientRect().left ?? 0
       setSidebarWidth(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, e.clientX - left)))
+    }
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", onUp)
+      document.body.style.userSelect = ""
+    }
+    document.body.style.userSelect = "none"
+    document.addEventListener("mousemove", onMove)
+    document.addEventListener("mouseup", onUp)
+  }
+
+  const startScriptResize = (event: React.MouseEvent) => {
+    event.preventDefault()
+    const onMove = (e: MouseEvent) => {
+      // The panel is anchored to the right edge, so its width is the distance
+      // from the pointer to the viewport's right edge.
+      setScriptWidth(
+        Math.min(SCRIPT_MAX, Math.max(SCRIPT_MIN, window.innerWidth - e.clientX)),
+      )
     }
     const onUp = () => {
       document.removeEventListener("mousemove", onMove)
@@ -509,6 +575,16 @@ export default function App() {
                   {IS_MAC ? "⌘K" : "Ctrl K"}
                 </kbd>
               </Button>
+              <Button
+                variant={scriptOpen ? "secondary" : "ghost"}
+                size="icon-sm"
+                onClick={() => setScriptOpen((prev) => !prev)}
+                disabled={selection.kind !== "collection"}
+                title={t("script.toggle")}
+                aria-label={t("script.toggle")}
+              >
+                <SquareTerminal />
+              </Button>
               <SettingsMenu authEnabled={authEnabled} />
             </div>
           </header>
@@ -521,6 +597,39 @@ export default function App() {
           />
           <main className="min-h-0 flex-1">{renderContent()}</main>
         </div>
+
+        {scriptOpen && selection.kind === "collection" ? (
+          <>
+            {!isDesktop ? (
+              <div
+                className="fixed inset-0 z-30 bg-black/50 md:hidden"
+                onClick={() => setScriptOpen(false)}
+              />
+            ) : null}
+            <aside
+              style={{ "--script-width": `${scriptWidth}px` } as React.CSSProperties}
+              className="bg-sidebar fixed inset-y-0 right-0 z-40 w-[85%] max-w-sm shrink-0 border-l shadow-xl md:relative md:z-auto md:w-[var(--script-width)] md:max-w-none md:shadow-none"
+            >
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                onMouseDown={startScriptResize}
+                onDoubleClick={() => setScriptWidth(SCRIPT_DEFAULT)}
+                title={t("sidebar.resize")}
+                className="hover:bg-primary/40 absolute inset-y-0 -left-1 z-50 hidden w-2 cursor-col-resize md:block"
+              />
+              <React.Suspense fallback={<ContentFallback />}>
+                <ScriptPanel
+                  connectionId={selection.connectionId}
+                  database={selection.database}
+                  collection={selection.collection}
+                  readOnly={selectedConnection?.readOnly}
+                  onClose={() => setScriptOpen(false)}
+                />
+              </React.Suspense>
+            </aside>
+          </>
+        ) : null}
       </div>
 
       <LazyMount active={dialogOpen}>

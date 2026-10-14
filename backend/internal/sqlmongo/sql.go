@@ -278,16 +278,16 @@ type IsNullExpr struct {
 	Not  bool
 }
 
-func (*Literal) isExpr()    {}
-func (*ColumnRef) isExpr()  {}
-func (*StarExpr) isExpr()   {}
-func (*FuncCall) isExpr()   {}
-func (*BinaryExpr) isExpr() {}
+func (*Literal) isExpr()     {}
+func (*ColumnRef) isExpr()   {}
+func (*StarExpr) isExpr()    {}
+func (*FuncCall) isExpr()    {}
+func (*BinaryExpr) isExpr()  {}
 func (*LogicalExpr) isExpr() {}
-func (*NotExpr) isExpr()    {}
-func (*InExpr) isExpr()     {}
-func (*LikeExpr) isExpr()   {}
-func (*IsNullExpr) isExpr() {}
+func (*NotExpr) isExpr()     {}
+func (*InExpr) isExpr()      {}
+func (*LikeExpr) isExpr()    {}
+func (*IsNullExpr) isExpr()  {}
 
 // SelectItem is one entry of the SELECT list.
 type SelectItem struct {

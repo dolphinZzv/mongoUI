@@ -313,3 +313,75 @@ func TestIntegrationIndexEditor(t *testing.T) {
 		t.Fatalf("drop index: status %d body %#v", status, env)
 	}
 }
+
+func TestIntegrationScript(t *testing.T) {
+	handler, db := integrationAPI(t)
+	base := "/api/connections"
+	status, env := doJSON(t, handler, http.MethodGet, base+"/", "")
+	if status != http.StatusOK {
+		t.Fatalf("list connections: status %d", status)
+	}
+	connID := env["data"].([]any)[0].(map[string]any)["id"].(string)
+	scriptPath := fmt.Sprintf("%s/%s/databases/%s/script", base, connID, db)
+
+	// Insert then read back through a single script.
+	script := fmt.Sprintf(`
+db.getCollection("scripts").insertMany([
+  { name: "Alice", age: 30, active: true },
+  { name: "Bob", age: 25, active: false },
+  { name: "Carol", age: 40, active: true }
+])
+db.getCollection("scripts").find({ active: true }).sort({ age: -1 }).limit(10)
+db.getCollection("scripts").countDocuments({ age: { $gte: 30 } })
+db.getCollection("scripts").distinct("active")
+`)
+	body, _ := json.Marshal(map[string]any{"script": script})
+	status, env = doJSON(t, handler, http.MethodPost, scriptPath, string(body))
+	if status != http.StatusOK {
+		t.Fatalf("script: status %d body %#v", status, env)
+	}
+	data := dataOf(t, env)
+	if data["wrote"] != true {
+		t.Fatalf("expected wrote=true, got %#v", data["wrote"])
+	}
+	results, ok := data["results"].([]any)
+	if !ok || len(results) != 4 {
+		t.Fatalf("expected 4 results, got %#v", data["results"])
+	}
+	insert := results[0].(map[string]any)
+	if insert["ok"] != true || insert["kind"] != "write" {
+		t.Fatalf("insert result = %#v", insert)
+	}
+	find := results[1].(map[string]any)
+	if find["kind"] != "documents" || int(find["count"].(float64)) != 2 {
+		t.Fatalf("find result = %#v", find)
+	}
+	docs := find["documents"].([]any)
+	first := docs[0].(map[string]any)
+	if first["name"] != "Carol" {
+		t.Fatalf("expected Carol first (sorted by age desc), got %#v", first)
+	}
+	count := results[2].(map[string]any)
+	if count["kind"] != "value" || int(count["value"].(float64)) != 2 {
+		t.Fatalf("count result = %#v", count)
+	}
+	distinct := results[3].(map[string]any)
+	if distinct["kind"] != "value" || len(distinct["value"].([]any)) != 2 {
+		t.Fatalf("distinct result = %#v", distinct)
+	}
+
+	// A syntax error is a 400.
+	status, _ = doJSON(t, handler, http.MethodPost, scriptPath, `{"script":"const x = 1"}`)
+	if status != http.StatusBadRequest {
+		t.Fatalf("bad script: status %d, want 400", status)
+	}
+
+	// A read-only script does not set wrote.
+	status, env = doJSON(t, handler, http.MethodPost, scriptPath, `{"script":"db.getCollection(\"scripts\").find({})"}`)
+	if status != http.StatusOK {
+		t.Fatalf("read script: status %d body %#v", status, env)
+	}
+	if dataOf(t, env)["wrote"] != false {
+		t.Fatalf("expected wrote=false for read-only script")
+	}
+}

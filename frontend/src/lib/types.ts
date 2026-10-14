@@ -104,6 +104,22 @@ export interface SQLResult {
   mql: Record<string, unknown>
 }
 
+export interface ScriptStatementResult {
+  statement: string
+  ok: boolean
+  kind: "documents" | "value" | "write" | "ack" | ""
+  error?: string
+  documents?: MongoDocument[]
+  count?: number
+  value?: unknown
+}
+
+export interface ScriptResult {
+  results: ScriptStatementResult[]
+  summary: string
+  wrote: boolean
+}
+
 export type TransferFormat = "json" | "csv"
 
 export interface ExportResult {

@@ -33,7 +33,7 @@ MongoUI 是一个用 Go + React 编写的 MongoDB 可视化管理工具。前端
 
 ![集合浏览](docs/home-light.png)
 
-右上角的 **设置** 菜单汇集了主题与语言、浏览器 Agent、MCP 开关、自动更新，以及账号与定时备份管理；`Ctrl/⌘ + K` 打开命令面板，可快速跳转连接、切换标签页、打开固定查询。
+右上角的 **设置** 菜单汇集了主题与语言、浏览器 Agent、MCP 开关、自动更新，以及账号与定时备份管理；`Ctrl/⌘ + K` 打开命令面板，可快速跳转连接、切换标签页、打开固定查询。顶栏的终端按钮打开右侧可折叠的**脚本控制台**，可直接运行 mongosh 风格脚本。
 
 ## 功能特性
 
@@ -50,6 +50,7 @@ MongoUI 是一个用 Go + React 编写的 MongoDB 可视化管理工具。前端
 ### 分析与洞察
 
 - **SQL 查询**：用 SQL 查询 MongoDB，自动翻译为 find / aggregation，并展示生成的 MQL；支持 `WHERE / IN / LIKE / GROUP BY / HAVING / DISTINCT / 聚合函数`。
+- **脚本控制台**：右侧可折叠面板，直接运行 mongosh 风格脚本（`db.users.find(...)`、`updateMany`、`aggregate`、`createIndex` 等），支持多语句、`ObjectId()` / `ISODate()` / `NumberLong()` / `NumberDecimal()` 等构造器，结果以 JSON 查看；写操作同样受只读连接与账号角色限制，并计入审计。
 - **聚合管道**：多行 JSON 编辑器 + 常用模板，表格 / JSON 结果视图，一键复制为 `db.<c>.aggregate(...)`。
 - **执行计划（Explain）**：对 find / 聚合运行 `explain`，展示关键指标；当命中全表扫描时给出**索引建议并可一键创建**，超过 100ms 的查询会标记为慢查询。
 - **查询结果可视化**：把结果切换为柱状 / 折线 / 面积 / 饼图，自选 X 轴与数值聚合，纯 SVG 实现、无额外依赖。

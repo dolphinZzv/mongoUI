@@ -64,39 +64,33 @@ func decodeJSON(r *http.Request, v any) error {
 	return nil
 }
 
-// toExtJSON marshals a BSON value to relaxed Extended JSON.
-// Top-level slices are wrapped in a document first because the BSON encoder
-// only accepts a document at the root.
+// toExtJSON marshals a BSON value to relaxed Extended JSON. The value is
+// wrapped in a document first because the BSON encoder can only write at a
+// document root: top-level slices would otherwise become null and scalars such
+// as int64 fail with "WriteInt64 ... positioned on a TopLevel".
 func toExtJSON(v any) (json.RawMessage, error) {
 	if v == nil {
 		return json.RawMessage("null"), nil
 	}
 	rv := reflect.ValueOf(v)
-	if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
-		// A nil slice marshals to JSON null, which callers cannot distinguish
-		// from a failed/empty response. Emit an empty array instead so list
-		// endpoints always return an array, even when there are no documents.
-		if rv.Kind() == reflect.Slice && rv.IsNil() {
-			return json.RawMessage("[]"), nil
-		}
-		wrapped, err := bson.MarshalExtJSON(bson.D{{Key: "v", Value: v}}, false, false)
-		if err != nil {
-			return nil, err
-		}
-		var m map[string]json.RawMessage
-		if err := json.Unmarshal(wrapped, &m); err != nil {
-			return nil, err
-		}
-		if raw, found := m["v"]; found {
-			return raw, nil
-		}
+	// A nil slice marshals to JSON null, which callers cannot distinguish from a
+	// failed/empty response. Emit an empty array instead so list endpoints always
+	// return an array, even when there are no documents.
+	if rv.Kind() == reflect.Slice && rv.IsNil() {
 		return json.RawMessage("[]"), nil
 	}
-	raw, err := bson.MarshalExtJSON(v, false, false)
+	wrapped, err := bson.MarshalExtJSON(bson.D{{Key: "v", Value: v}}, false, false)
 	if err != nil {
 		return nil, err
 	}
-	return json.RawMessage(raw), nil
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(wrapped, &m); err != nil {
+		return nil, err
+	}
+	if raw, found := m["v"]; found {
+		return raw, nil
+	}
+	return json.RawMessage("null"), nil
 }
 
 // parseExtJSOND parses a relaxed Extended JSON object into an ordered bson.D.

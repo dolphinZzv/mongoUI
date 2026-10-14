@@ -25,6 +25,7 @@ import type {
   ProfileResult,
   SchemaResult,
   SearchResult,
+  ScriptResult,
   SQLResult,
   TransferFormat,
   UpdateSettings,
@@ -252,6 +253,11 @@ export const api = {
     request<SQLResult>(`/connections/${id}/databases/${enc(db)}/sql`, {
       method: "POST",
       body: JSON.stringify({ query, limit }),
+    }),
+  runScript: (id: string, db: string, script: string, limit?: number) =>
+    request<ScriptResult>(`/connections/${id}/databases/${enc(db)}/script`, {
+      method: "POST",
+      body: JSON.stringify({ script, limit }),
     }),
 
   // auth ------------------------------------------------------------------------

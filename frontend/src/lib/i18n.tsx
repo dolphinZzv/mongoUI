@@ -24,6 +24,7 @@ const en: Record<string, string> = {
   "common.copy": "Copy",
   "common.copyJson": "Copy JSON",
   "common.copied": "Copied",
+  "common.clear": "Clear",
   "common.undo": "Undo",
   "common.yes": "Yes",
   "common.no": "No",
@@ -356,6 +357,30 @@ const en: Record<string, string> = {
   "sql.failed": "SQL query failed",
   "sql.help":
     "SELECT with WHERE / IN / LIKE / IS NULL, ORDER BY, LIMIT, GROUP BY, HAVING, DISTINCT and COUNT / SUM / AVG / MIN / MAX. Autocomplete covers keywords and collection / field names. Press Ctrl/⌘ + Enter to run.",
+
+  // script console
+  "script.title": "MongoDB Script",
+  "script.toggle": "Toggle script console",
+  "script.close": "Close script console",
+  "script.context": "Runs against",
+  "script.noContext": "Select a database to run a script.",
+  "script.placeholder": "Write a script, e.g. db.users.find({}).limit(20)",
+  "script.run": "Run",
+  "script.help":
+    "mongosh-style statements separated by ; or newlines: find / findOne / aggregate / countDocuments / distinct / insertOne / updateMany / deleteMany / createIndex, plus ObjectId(), ISODate() and NumberLong(). Press Ctrl/⌘ + Enter to run.",
+  "script.writeFirst": "Write a script first",
+  "script.failed": "Script failed",
+  "script.readOnly": "Read-only connection: write operations are rejected.",
+  "script.results": "Results",
+  "script.noResults": "Run a script to see the results here.",
+  "script.template.find": "Find",
+  "script.template.count": "Count",
+  "script.template.aggregate": "Aggregate",
+  "script.template.insert": "Insert",
+  "script.template.update": "Update",
+  "script.template.names": "Collections",
+  "script.template.stats": "DB stats",
+  "script.history": "History",
 
   // aggregation tab
   "agg.pipeline": "Pipeline",
@@ -732,6 +757,7 @@ const zh: Record<string, string> = {
   "common.copy": "复制",
   "common.copyJson": "复制 JSON",
   "common.copied": "已复制",
+  "common.clear": "清空",
   "common.undo": "撤销",
   "common.yes": "是",
   "common.no": "否",
@@ -1061,6 +1087,30 @@ const zh: Record<string, string> = {
   "sql.failed": "SQL 查询失败",
   "sql.help":
     "支持 SELECT + WHERE / IN / LIKE / IS NULL、ORDER BY、LIMIT、GROUP BY、HAVING、DISTINCT 以及 COUNT / SUM / AVG / MIN / MAX。自动补全覆盖关键字与集合 / 字段名。按 Ctrl/⌘ + Enter 运行。",
+
+  // script console
+  "script.title": "MongoDB 脚本",
+  "script.toggle": "显示/隐藏脚本控制台",
+  "script.close": "关闭脚本控制台",
+  "script.context": "执行于",
+  "script.noContext": "请选择一个数据库后再运行脚本。",
+  "script.placeholder": "编写脚本，例如 db.users.find({}).limit(20)",
+  "script.run": "运行",
+  "script.help":
+    "支持 mongosh 风格语句，用 ; 或换行分隔：find / findOne / aggregate / countDocuments / distinct / insertOne / updateMany / deleteMany / createIndex，以及 ObjectId()、ISODate()、NumberLong()。按 Ctrl/⌘ + Enter 运行。",
+  "script.writeFirst": "请先编写脚本",
+  "script.failed": "脚本执行失败",
+  "script.readOnly": "只读连接：写操作会被拒绝。",
+  "script.results": "结果",
+  "script.noResults": "运行脚本后，结果显示在这里。",
+  "script.template.find": "查询",
+  "script.template.count": "计数",
+  "script.template.aggregate": "聚合",
+  "script.template.insert": "插入",
+  "script.template.update": "更新",
+  "script.template.names": "集合列表",
+  "script.template.stats": "库统计",
+  "script.history": "历史记录",
 
   // aggregation tab
   "agg.pipeline": "管道",

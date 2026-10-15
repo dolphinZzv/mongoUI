@@ -2,6 +2,9 @@ import * as React from "react"
 import { Download, FileUp, Loader2, Upload } from "lucide-react"
 import { toast } from "sonner"
 
+import { AsyncProgress } from "@/components/async-progress"
+import { ConfirmDialog } from "@/components/confirm-dialog"
+
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -45,6 +48,22 @@ function parseOptional(text: string, label: string): { value?: unknown; error?: 
     return { value: JSON.parse(trimmed) }
   } catch {
     return { error: label }
+  }
+}
+
+/** Best-effort document count so long imports can show some feedback. */
+function countDocuments(content: string, format: TransferFormat): number | null {
+  const text = content.trim()
+  if (!text) return 0
+  if (format === "csv") {
+    const lines = text.split(/\r?\n/).filter((line) => line.trim() !== "")
+    return Math.max(0, lines.length - 1)
+  }
+  try {
+    const parsed = JSON.parse(text)
+    return Array.isArray(parsed) ? parsed.length : 1
+  } catch {
+    return text.split(/\r?\n/).filter((line) => line.trim() !== "").length
   }
 }
 
@@ -142,6 +161,9 @@ export function ExportDialog({
             </div>
             <p className="text-muted-foreground text-xs">{t("transfer.usesFilter")}</p>
           </div>
+          {busy ? (
+            <AsyncProgress active className="mb-3" label={t("transfer.exporting")} />
+          ) : null}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               {t("common.cancel")}
@@ -189,6 +211,29 @@ export function ImportDialog({
     }
   }, [open])
 
+  const [discardOpen, setDiscardOpen] = React.useState(false)
+  const dirty = content.trim().length > 0 || drop
+
+  React.useEffect(() => {
+    if (!open || !dirty) return
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ""
+    }
+    window.addEventListener("beforeunload", onBeforeUnload)
+    return () => window.removeEventListener("beforeunload", onBeforeUnload)
+  }, [open, dirty])
+
+  const requestClose = (next: boolean) => {
+    if (!next && dirty && !busy) {
+      setDiscardOpen(true)
+      return
+    }
+    onOpenChange(next)
+  }
+
+  const parsedCount = React.useMemo(() => countDocuments(content, format), [content, format])
+
   const loadFile = async (file: File | undefined) => {
     if (!file) return
     try {
@@ -225,7 +270,8 @@ export function ImportDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    <Dialog open={open} onOpenChange={requestClose}>
       <DialogContent className="sm:max-w-2xl">
         <form onSubmit={submit}>
           <DialogHeader>
@@ -291,7 +337,7 @@ export function ImportDialog({
             </div>
           </div>
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="ghost" onClick={() => requestClose(false)}>
               {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={busy}>
@@ -299,8 +345,32 @@ export function ImportDialog({
               {t("transfer.importAction")}
             </Button>
           </DialogFooter>
+          {busy ? (
+            <AsyncProgress
+              active
+              className="mt-3"
+              label={
+                parsedCount !== null
+                  ? `${t("transfer.importing")} · ${t("transfer.parsed", { count: parsedCount })}`
+                  : t("transfer.importing")
+              }
+            />
+          ) : null}
         </form>
       </DialogContent>
     </Dialog>
+      <ConfirmDialog
+        open={discardOpen}
+        onOpenChange={setDiscardOpen}
+        title={t("common.discardTitle")}
+        description={t("common.discardDesc")}
+        confirmLabel={t("common.discard")}
+        destructive={false}
+        onConfirm={() => {
+          setDiscardOpen(false)
+          onOpenChange(false)
+        }}
+      />
+    </>
   )
 }

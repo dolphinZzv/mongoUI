@@ -42,6 +42,7 @@ export function CollectionTabs({
               <button
                 type="button"
                 onClick={() => onActivate(tab)}
+                aria-current={active ? "page" : undefined}
                 className="min-w-0 flex-1 truncate text-left"
                 title={`${tab.database} / ${tab.collection}`}
               >

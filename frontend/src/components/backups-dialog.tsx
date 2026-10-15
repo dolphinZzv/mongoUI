@@ -2,6 +2,8 @@ import * as React from "react"
 import { Download, History, Loader2, Play, Plus, RefreshCw, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
+import { AsyncProgress } from "@/components/async-progress"
+
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -110,12 +112,34 @@ export function BackupsDialog({ open, onOpenChange }: BackupsDialogProps) {
   const run = async (task: BackupTask) => {
     try {
       await api.runBackup(task.id)
+      // Optimistically mark it running so the polling below kicks in.
+      setTasks((prev) =>
+        prev.map((entry) => (entry.id === task.id ? { ...entry, running: true } : entry)),
+      )
       toast.success(t("backups.running"))
-      window.setTimeout(() => void load(), 1500)
+      window.setTimeout(() => void refreshSilently(), 800)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("backups.failed"))
     }
   }
+
+  const refreshSilently = React.useCallback(async () => {
+    try {
+      const res = await api.listBackups()
+      setTasks(res.tasks)
+    } catch {
+      /* polling errors are not worth a toast */
+    }
+  }, [])
+
+  const anyRunning = tasks.some((task) => task.running)
+
+  // While a task is running, poll for its completion so the UI stays live.
+  React.useEffect(() => {
+    if (!open || !anyRunning) return
+    const timer = window.setInterval(() => void refreshSilently(), 2000)
+    return () => window.clearInterval(timer)
+  }, [open, anyRunning, refreshSilently])
 
   const remove = async (task: BackupTask) => {
     try {
@@ -153,8 +177,17 @@ export function BackupsDialog({ open, onOpenChange }: BackupsDialogProps) {
           <DialogDescription>{t("backups.desc")}</DialogDescription>
         </DialogHeader>
 
-        <div className="flex shrink-0 justify-end">
-          <Button variant="ghost" size="sm" onClick={() => void load()} disabled={loading}>
+        <div className="flex shrink-0 items-center gap-2">
+          {anyRunning ? (
+            <AsyncProgress active label={t("backup.progress")} className="min-w-0 flex-1" />
+          ) : null}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0"
+            onClick={() => void load()}
+            disabled={loading}
+          >
             <RefreshCw className={loading ? "animate-spin" : ""} /> {t("common.refresh")}
           </Button>
         </div>
@@ -178,17 +211,26 @@ export function BackupsDialog({ open, onOpenChange }: BackupsDialogProps) {
                   size="icon-sm"
                   onClick={() => void toggleHistory(task)}
                   title={t("backups.history")}
+                  aria-label={t("backups.history")}
                 >
                   <History />
                 </Button>
-                <Button variant="ghost" size="icon-sm" onClick={() => void run(task)} title={t("backups.runNow")}>
-                  <Play />
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => void run(task)}
+                  disabled={task.running}
+                  title={t("backups.runNow")}
+                  aria-label={t("backups.runNow")}
+                >
+                  {task.running ? <Loader2 className="animate-spin" /> : <Play />}
                 </Button>
                 <Button
                   variant="ghost"
                   size="icon-sm"
                   onClick={() => void remove(task)}
                   title={t("backups.delete")}
+                  aria-label={t("backups.delete")}
                 >
                   <Trash2 />
                 </Button>

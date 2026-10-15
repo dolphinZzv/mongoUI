@@ -45,23 +45,31 @@ type BackupTask struct {
 	LastError       string          `json:"lastError,omitempty"`
 	LastFile        string          `json:"lastFile,omitempty"`
 	LastCount       int             `json:"lastCount,omitempty"`
+	// Running is a transient, in-memory flag; it is never persisted.
+	Running bool `json:"running,omitempty"`
 }
 
 // backupManager runs due tasks and records their outcome. It lives for the
 // lifetime of the process and stores at most backupMaxFilesPerTask files per
 // task, so neither memory nor disk grows without bound.
 type backupManager struct {
-	mu    sync.Mutex
-	path  string
-	dir   string
-	api   *API
-	tasks []BackupTask
-	stop  chan struct{}
-	done  chan struct{}
+	mu      sync.Mutex
+	path    string
+	dir     string
+	api     *API
+	tasks   []BackupTask
+	running map[string]bool
+	stop    chan struct{}
+	done    chan struct{}
 }
 
 func newBackupManager(dataDir string, api *API) *backupManager {
-	manager := &backupManager{api: api, stop: make(chan struct{}), done: make(chan struct{})}
+	manager := &backupManager{
+		api:     api,
+		running: map[string]bool{},
+		stop:    make(chan struct{}),
+		done:    make(chan struct{}),
+	}
 	if dataDir != "" {
 		manager.path = filepath.Join(dataDir, "backups.json")
 		manager.dir = filepath.Join(dataDir, "backups")
@@ -142,6 +150,18 @@ func (b *backupManager) runDue() {
 }
 
 func (b *backupManager) run(task BackupTask) {
+	// Skip if this task is already running (scheduler + manual trigger).
+	b.mu.Lock()
+	if b.running == nil {
+		b.running = map[string]bool{}
+	}
+	if b.running[task.ID] {
+		b.mu.Unlock()
+		return
+	}
+	b.running[task.ID] = true
+	b.mu.Unlock()
+
 	status := "ok"
 	errText := ""
 	file := ""
@@ -195,6 +215,7 @@ func (b *backupManager) run(task BackupTask) {
 		b.tasks[i].LastFile = file
 		b.tasks[i].LastCount = count
 	}
+	delete(b.running, task.ID)
 	b.saveLocked()
 	b.mu.Unlock()
 }
@@ -263,6 +284,9 @@ func (a *API) listBackups(w http.ResponseWriter, r *http.Request) {
 	}
 	a.backups.mu.Lock()
 	tasks := append([]BackupTask(nil), a.backups.tasks...)
+	for i := range tasks {
+		tasks[i].Running = a.backups.running[tasks[i].ID]
+	}
 	a.backups.mu.Unlock()
 	ok(w, map[string]any{"tasks": tasks})
 }

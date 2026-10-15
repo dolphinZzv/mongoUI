@@ -3,6 +3,7 @@ import {
   Braces,
   Database,
   Home,
+  Keyboard,
   Moon,
   Plus,
   RefreshCw,
@@ -42,6 +43,7 @@ interface CommandPaletteProps {
   onGlobalSearch: () => void
   onAudit: () => void
   onProfile: () => void
+  onShortcuts: () => void
 }
 
 interface PaletteCommand {
@@ -67,6 +69,7 @@ export function CommandPalette({
   onGlobalSearch,
   onAudit,
   onProfile,
+  onShortcuts,
 }: CommandPaletteProps) {
   const { t, setLocale } = useI18n()
   const { setTheme } = useTheme()
@@ -194,6 +197,15 @@ export function CommandPalette({
         run: close(onProfile),
       },
       {
+        id: "shortcuts",
+        label: t("shortcuts.title"),
+        hint: "?",
+        keywords: "keyboard keys hotkeys help cheatsheet",
+        icon: <Keyboard />,
+        group: actions,
+        run: close(onShortcuts),
+      },
+      {
         id: "theme-light",
         label: t("theme.light"),
         icon: <Sun />,
@@ -240,6 +252,7 @@ export function CommandPalette({
     onGlobalSearch,
     onAudit,
     onProfile,
+    onShortcuts,
     setTheme,
     setLocale,
   ])

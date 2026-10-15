@@ -45,6 +45,13 @@ export class ApiError extends Error {
   }
 }
 
+export function isAbortError(err: unknown): boolean {
+  return (
+    (err instanceof DOMException && err.name === "AbortError") ||
+    (err instanceof Error && err.name === "AbortError")
+  )
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response
   try {
@@ -56,6 +63,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       },
     })
   } catch (err) {
+    // A user-cancelled request must not be turned into a generic network error.
+    if (isAbortError(err)) throw err
     throw new ApiError(err instanceof Error ? err.message : "Network request failed", 0)
   }
 
@@ -147,10 +156,11 @@ export const api = {
     request<SchemaResult>(`/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/schema`),
 
   // documents -------------------------------------------------------------------
-  find: (id: string, db: string, col: string, req: FindRequest) =>
+  find: (id: string, db: string, col: string, req: FindRequest, signal?: AbortSignal) =>
     request<FindResult>(`/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/find`, {
       method: "POST",
       body: JSON.stringify(req),
+      signal,
     }),
   searchDatabase: (
     id: string,
@@ -198,10 +208,17 @@ export const api = {
       `/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/delete`,
       { method: "POST", body: JSON.stringify(req) },
     ),
-  aggregate: (id: string, db: string, col: string, pipeline: unknown[], limit?: number) =>
+  aggregate: (
+    id: string,
+    db: string,
+    col: string,
+    pipeline: unknown[],
+    limit?: number,
+    signal?: AbortSignal,
+  ) =>
     request<AggregateResult>(
       `/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/aggregate`,
-      { method: "POST", body: JSON.stringify({ pipeline, limit }) },
+      { method: "POST", body: JSON.stringify({ pipeline, limit }), signal },
     ),
   explain: (id: string, db: string, col: string, req: ExplainRequest) =>
     request<Record<string, unknown>>(
@@ -249,15 +266,17 @@ export const api = {
     ),
 
   // SQL -------------------------------------------------------------------------
-  runSQL: (id: string, db: string, query: string, limit?: number) =>
+  runSQL: (id: string, db: string, query: string, limit?: number, signal?: AbortSignal) =>
     request<SQLResult>(`/connections/${id}/databases/${enc(db)}/sql`, {
       method: "POST",
       body: JSON.stringify({ query, limit }),
+      signal,
     }),
-  runScript: (id: string, db: string, script: string, limit?: number) =>
+  runScript: (id: string, db: string, script: string, limit?: number, signal?: AbortSignal) =>
     request<ScriptResult>(`/connections/${id}/databases/${enc(db)}/script`, {
       method: "POST",
       body: JSON.stringify({ script, limit }),
+      signal,
     }),
 
   // auth ------------------------------------------------------------------------

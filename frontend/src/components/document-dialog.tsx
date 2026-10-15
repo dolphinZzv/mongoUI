@@ -3,6 +3,7 @@ import { Loader2, Save, Wand2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 import {
   Dialog,
   DialogContent,
@@ -35,11 +36,33 @@ export function DocumentDialog({
 }: DocumentDialogProps) {
   const [value, setValue] = React.useState(initialValue)
   const [busy, setBusy] = React.useState(false)
+  const [discardOpen, setDiscardOpen] = React.useState(false)
   const { t } = useI18n()
 
   React.useEffect(() => {
     if (open) setValue(initialValue)
   }, [open, initialValue])
+
+  const dirty = value !== initialValue
+
+  // Warn on a full page reload / tab close while there are unsaved edits.
+  React.useEffect(() => {
+    if (!open || !dirty) return
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ""
+    }
+    window.addEventListener("beforeunload", onBeforeUnload)
+    return () => window.removeEventListener("beforeunload", onBeforeUnload)
+  }, [open, dirty])
+
+  const requestClose = (next: boolean) => {
+    if (!next && dirty && !busy) {
+      setDiscardOpen(true)
+      return
+    }
+    onOpenChange(next)
+  }
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -60,43 +83,57 @@ export function DocumentDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden sm:max-w-2xl">
-        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-          <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
-            {description ? <DialogDescription>{description}</DialogDescription> : null}
-          </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto py-4 pr-1">
-            <JsonEditor
-              value={value}
-              onChange={setValue}
-              allowEmpty={false}
-              rows={14}
-              className="min-h-[18rem] max-h-[55vh]"
-              placeholder='{ "name": "Alice" }'
-            />
-          </div>
-          <DialogFooter className="shrink-0 sm:justify-between">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setValue((prev) => formatJSONString(prev))}
-            >
-              <Wand2 /> {t("common.format")}
-            </Button>
-            <div className="flex gap-2">
-              <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-                {t("common.cancel")}
-              </Button>
-              <Button type="submit" disabled={busy}>
-                {busy ? <Loader2 className="animate-spin" /> : <Save />}
-                {submitLabel}
-              </Button>
+    <>
+      <Dialog open={open} onOpenChange={requestClose}>
+        <DialogContent className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden sm:max-w-2xl">
+          <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+            <DialogHeader>
+              <DialogTitle>{title}</DialogTitle>
+              {description ? <DialogDescription>{description}</DialogDescription> : null}
+            </DialogHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto py-4 pr-1">
+              <JsonEditor
+                value={value}
+                onChange={setValue}
+                allowEmpty={false}
+                rows={14}
+                className="min-h-[18rem] max-h-[55vh]"
+                placeholder='{ "name": "Alice" }'
+              />
             </div>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+            <DialogFooter className="shrink-0 sm:justify-between">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setValue((prev) => formatJSONString(prev))}
+              >
+                <Wand2 /> {t("common.format")}
+              </Button>
+              <div className="flex gap-2">
+                <Button type="button" variant="ghost" onClick={() => requestClose(false)}>
+                  {t("common.cancel")}
+                </Button>
+                <Button type="submit" disabled={busy}>
+                  {busy ? <Loader2 className="animate-spin" /> : <Save />}
+                  {submitLabel}
+                </Button>
+              </div>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <ConfirmDialog
+        open={discardOpen}
+        onOpenChange={setDiscardOpen}
+        title={t("common.discardTitle")}
+        description={t("common.discardDesc")}
+        confirmLabel={t("common.discard")}
+        destructive={false}
+        onConfirm={() => {
+          setDiscardOpen(false)
+          onOpenChange(false)
+        }}
+      />
+    </>
   )
 }

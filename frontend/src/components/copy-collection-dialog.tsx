@@ -1,5 +1,7 @@
 import * as React from "react"
 import { Copy, Loader2 } from "lucide-react"
+
+import { AsyncProgress } from "@/components/async-progress"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -231,6 +233,7 @@ export function CopyCollectionDialog({
               <p className="text-destructive text-xs">{t("copy.sameTarget")}</p>
             ) : null}
           </div>
+          {busy ? <AsyncProgress active label={t("copy.progress")} /> : null}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               {t("common.cancel")}

@@ -1,24 +1,14 @@
 import * as React from "react"
 import {
-  Activity,
+  AlertCircle,
   ArrowDown,
   ArrowLeft,
   ArrowRight,
   ArrowUp,
   ArrowUpDown,
-  BarChart3,
-  Bookmark,
-  BookmarkPlus,
-  Braces,
+  Ban,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Columns3,
-  Code2,
   Copy,
-  Download,
-  Ellipsis,
-  Loader2,
   ListFilter,
   Pencil,
   Pin,
@@ -28,7 +18,6 @@ import {
   RefreshCw,
   Rows3,
   Trash2,
-  Upload,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -46,22 +35,22 @@ import {
 import { Input } from "@/components/ui/input"
 import { MongoFilterEditor } from "@/components/mongo-filter-editor"
 import { RecentQueries } from "@/components/recent-queries"
+import { AsyncProgress } from "@/components/async-progress"
+import { ColumnsPicker } from "@/components/documents/columns-picker"
+import { DocumentsPagination } from "@/components/documents/documents-pagination"
+import { DocumentsTableStates } from "@/components/documents/documents-table-states"
+import { DocumentsCardList } from "@/components/documents/documents-card-list"
+import { CellContextMenu, CellValue } from "@/components/documents/cell"
+import { DocumentsMoreMenu } from "@/components/documents/documents-more-menu"
+import { ViewsMenu } from "@/components/documents/views-menu"
 import { Label } from "@/components/ui/label"
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -71,7 +60,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { JsonEditor } from "@/components/json-editor"
-import { api } from "@/lib/api"
+import { api, isAbortError } from "@/lib/api"
 import { useRecentQueries } from "@/hooks/useRecentQueries"
 import { togglePinnedQuery, usePinnedQueries } from "@/lib/pinnedQueries"
 import {
@@ -86,7 +75,7 @@ import { newViewId, readViews, viewsKey, writeViews, type SavedView } from "@/li
 import { toFindJS, toSQL } from "@/lib/queryText"
 import { useI18n } from "@/lib/i18n"
 import { copyToClipboard } from "@/lib/clipboard"
-import { classForType, collectColumns, documentId, formatValue, prettyJSON, valueType } from "@/lib/mongo"
+import { collectColumns, documentId, prettyJSON, valueType } from "@/lib/mongo"
 import { DOCS_QUERY_DEFAULTS, type DocsQueryState } from "@/lib/router"
 import { cn } from "@/lib/utils"
 import type { ExplainRequest, FindResult, MongoDocument } from "@/lib/types"
@@ -132,20 +121,6 @@ interface EditingState {
   document?: MongoDocument
 }
 
-function CellValue({ value }: { value: unknown }) {
-  const type = valueType(value)
-  const text = formatValue(value)
-  if (value === null || value === undefined) {
-    return <span className="text-muted-foreground font-mono text-xs italic">null</span>
-  }
-  const display = text.length > 90 ? `${text.slice(0, 90)}…` : text
-  return (
-    <span className={cn("font-mono text-xs", classForType(type))} title={text}>
-      {display}
-    </span>
-  )
-}
-
 /** Compact, allocation-light signature used to detect external URL changes. */
 function docsQuerySignature(docs?: DocsQueryState): string {
   const value = docs ?? DOCS_QUERY_DEFAULTS
@@ -171,6 +146,9 @@ export function DocumentsTab({
   const [showOptions, setShowOptions] = React.useState(false)
   const [result, setResult] = React.useState<FindResult | null>(null)
   const [loading, setLoading] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const abortRef = React.useRef<AbortController | null>(null)
+  const requestSeqRef = React.useRef(0)
   const [selected, setSelected] = React.useState<Set<string>>(new Set())
   const [editing, setEditing] = React.useState<EditingState | null>(null)
   const [confirm, setConfirm] = React.useState<
@@ -251,14 +229,28 @@ export function DocumentsTab({
       }
 
       setLoading(true)
+      setError(null)
+      // Cancel any request still in flight so a slow earlier query cannot
+      // overwrite the results of a newer one.
+      abortRef.current?.abort()
+      const controller = new AbortController()
+      abortRef.current = controller
+      const seq = ++requestSeqRef.current
       try {
-        const res = await api.find(connectionId, database, collection, {
-          filter: filterObj,
-          sort: sortObj,
-          projection: projectionObj,
-          skip: nextSkip,
-          limit: nextLimit,
-        })
+        const res = await api.find(
+          connectionId,
+          database,
+          collection,
+          {
+            filter: filterObj,
+            sort: sortObj,
+            projection: projectionObj,
+            skip: nextSkip,
+            limit: nextLimit,
+          },
+          controller.signal,
+        )
+        if (seq !== requestSeqRef.current) return
         setResult(res)
         setSkip(res.skip)
         setSelected(new Set())
@@ -267,9 +259,10 @@ export function DocumentsTab({
           pushRecent(filterText.trim())
         }
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : t("docs.queryFailed"))
+        if (isAbortError(err) || seq !== requestSeqRef.current) return
+        setError(err instanceof Error ? err.message : t("docs.queryFailed"))
       } finally {
-        setLoading(false)
+        if (seq === requestSeqRef.current) setLoading(false)
       }
     },
     [connectionId, database, collection, filter, sort, projection, skip, limit, pushRecent],
@@ -281,6 +274,23 @@ export function DocumentsTab({
     void load({})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionId, database, collection])
+
+  // Abort any in-flight request when the tab unmounts.
+  React.useEffect(() => () => abortRef.current?.abort(), [])
+
+  const cancelLoad = React.useCallback(() => {
+    abortRef.current?.abort()
+    requestSeqRef.current += 1
+    setLoading(false)
+    toast.info(t("docs.cancelled"))
+  }, [t])
+
+  const filterActive = Boolean(filter.trim() && filter.trim() !== "{}")
+
+  const clearFilter = React.useCallback(() => {
+    setFilter(DOCS_QUERY_DEFAULTS.filter)
+    void load({ skip: 0, filter: DOCS_QUERY_DEFAULTS.filter })
+  }, [load])
 
   // Last query signature we rendered; used to tell our own URL writes apart
   // from external ones (browser back/forward).
@@ -520,6 +530,13 @@ export function DocumentsTab({
     const filterObj = allMatching
       ? JSON.parse(filter.trim() || "{}")
       : { _id: { $in: ids } }
+    // Keep the current page's originals so the update can be undone.
+    const originals = allMatching
+      ? []
+      : documents.filter((doc) => {
+          const id = documentId(doc)
+          return id !== null && selected.has(id)
+        })
     setUpdateOpen(false)
     try {
       const res = await api.update(connectionId, database, collection, {
@@ -527,7 +544,13 @@ export function DocumentsTab({
         update: updateObj,
         many: true,
       })
-      toast.success(t("docs.updatedMany", { count: res.modifiedCount }))
+      if (originals.length > 0) {
+        toast.success(t("docs.updatedMany", { count: res.modifiedCount }), {
+          action: { label: t("common.undo"), onClick: () => void restoreUpdates(originals) },
+        })
+      } else {
+        toast.success(t("docs.updatedMany", { count: res.modifiedCount }))
+      }
       setSelected(new Set())
       setAllMatching(false)
       await load({ skip: 0 })
@@ -535,6 +558,25 @@ export function DocumentsTab({
       toast.error(err instanceof Error ? err.message : t("docs.updateFailed"))
     }
   }
+
+  const restoreUpdates = React.useCallback(
+    async (docs: MongoDocument[]) => {
+      if (docs.length === 0) return
+      try {
+        for (const doc of docs) {
+          await api.update(connectionId, database, collection, {
+            filter: { _id: doc._id },
+            update: doc,
+          })
+        }
+        toast.success(t("docs.restored", { count: docs.length }))
+        await load({})
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : t("docs.restoreFailed"))
+      }
+    },
+    [connectionId, database, collection, load, t],
+  )
 
   // Reflect the sort JSON in the table headers so columns can be toggled by
   // clicking. Only a single-key sort is represented in the header UI.
@@ -797,45 +839,50 @@ export function DocumentsTab({
 
   const runConfirm = async () => {
     if (!confirm) return
-    if (confirm.type === "one") {
-      const doc = confirm.document
-      await api.remove(connectionId, database, collection, {
-        filter: { _id: doc._id },
-      })
-      toast.success(t("docs.deleted"), {
-        action: { label: t("common.undo"), onClick: () => void restoreDocuments([doc]) },
-      })
-    } else if (confirm.type === "bulk") {
-      if (allMatching) {
+    try {
+      if (confirm.type === "one") {
+        const doc = confirm.document
+        await api.remove(connectionId, database, collection, {
+          filter: { _id: doc._id },
+        })
+        toast.success(t("docs.deleted"), {
+          action: { label: t("common.undo"), onClick: () => void restoreDocuments([doc]) },
+        })
+      } else if (confirm.type === "bulk") {
+        if (allMatching) {
+          const parsed = JSON.parse(filter.trim() || "{}")
+          const res = await api.remove(connectionId, database, collection, {
+            filter: parsed,
+            many: true,
+          })
+          toast.success(t("docs.deletedMany", { count: res.deletedCount }))
+        } else {
+          const docs = documents.filter((doc) => {
+            const id = documentId(doc)
+            return id !== null && selected.has(id)
+          })
+          const ids = Array.from(selected).map((raw) => JSON.parse(raw))
+          await api.remove(connectionId, database, collection, {
+            filter: { _id: { $in: ids } },
+            many: true,
+          })
+          toast.success(t("docs.deletedMany", { count: ids.length }), {
+            action: { label: t("common.undo"), onClick: () => void restoreDocuments(docs) },
+          })
+        }
+      } else {
         const parsed = JSON.parse(filter.trim() || "{}")
         const res = await api.remove(connectionId, database, collection, {
           filter: parsed,
           many: true,
         })
         toast.success(t("docs.deletedMany", { count: res.deletedCount }))
-      } else {
-        const docs = documents.filter((doc) => {
-          const id = documentId(doc)
-          return id !== null && selected.has(id)
-        })
-        const ids = Array.from(selected).map((raw) => JSON.parse(raw))
-        await api.remove(connectionId, database, collection, {
-          filter: { _id: { $in: ids } },
-          many: true,
-        })
-        toast.success(t("docs.deletedMany", { count: ids.length }), {
-          action: { label: t("common.undo"), onClick: () => void restoreDocuments(docs) },
-        })
       }
-    } else {
-      const parsed = JSON.parse(filter.trim() || "{}")
-      const res = await api.remove(connectionId, database, collection, {
-        filter: parsed,
-        many: true,
-      })
-      toast.success(t("docs.deletedMany", { count: res.deletedCount }))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("docs.deleteFailed"))
+    } finally {
+      await load({ skip: 0 })
     }
-    await load({ skip: 0 })
   }
 
   const explainRequest = React.useMemo<Omit<ExplainRequest, "verbosity"> | null>(() => {
@@ -864,8 +911,8 @@ export function DocumentsTab({
     <div className="flex h-full min-h-0 flex-col">
       {/* Toolbar */}
       <div className="shrink-0 space-y-2 border-b p-3">
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[12rem] flex-1">
             <MongoFilterEditor
               value={filter}
               onChange={setFilter}
@@ -910,114 +957,31 @@ export function DocumentsTab({
           >
             {isFilterPinned ? <PinOff /> : <Pin />}
           </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="icon"
-                title={t("docs.columns")}
-                aria-label={t("docs.columns")}
-              >
-                <Columns3 />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="max-h-72 w-56 overflow-auto">
-              <div className="flex items-center justify-between px-2 py-1">
-                <span className="text-xs font-medium">{t("docs.columns")}</span>
-                <button
-                  type="button"
-                  onClick={resetColumns}
-                  className="text-muted-foreground hover:text-foreground text-[11px]"
-                >
-                  {t("docs.resetColumns")}
-                </button>
-              </div>
-              <DropdownMenuSeparator />
-              {allColumns.map((column) => (
-                <DropdownMenuCheckboxItem
-                  key={column}
-                  checked={!hiddenSet.has(column)}
-                  onCheckedChange={(checked) => setColumnHidden(column, checked !== true)}
-                  onSelect={(event) => event.preventDefault()}
-                  className="font-mono text-xs"
-                >
-                  <span className="truncate">{column}</span>
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="icon"
-                title={t("views.title")}
-                aria-label={t("views.title")}
-              >
-                <Bookmark />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-72">
-              <DropdownMenuItem
-                onSelect={() => {
-                  setViewName("")
-                  setViewDialogOpen(true)
-                }}
-              >
-                <BookmarkPlus /> {t("views.saveCurrent")}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              {views.length === 0 ? (
-                <DropdownMenuItem disabled>{t("views.empty")}</DropdownMenuItem>
-              ) : null}
-              {views.map((view) => (
-                <DropdownMenuItem
-                  key={view.id}
-                  onSelect={() => applyView(view)}
-                  className="font-mono text-xs"
-                >
-                  <Bookmark className="size-3.5 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate" title={`${view.name}\n${view.filter}`}>
-                    {view.name}
-                  </span>
-                  <button
-                    type="button"
-                    aria-label={t("views.pin")}
-                    title={t("views.pin")}
-                    className="text-muted-foreground hover:text-foreground shrink-0 rounded p-0.5"
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onMouseDown={(event) => event.stopPropagation()}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      event.preventDefault()
-                      pinView(view)
-                    }}
-                  >
-                    <Pin className="size-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={t("common.delete")}
-                    title={t("common.delete")}
-                    className="text-muted-foreground hover:text-foreground shrink-0 rounded p-0.5"
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onMouseDown={(event) => event.stopPropagation()}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      event.preventDefault()
-                      deleteView(view.id)
-                    }}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button onClick={() => void load({ skip: 0 })} disabled={loading}>
-            {loading ? <Loader2 className="animate-spin" /> : <Play />}
-            {t("common.run")}
-          </Button>
+          <ColumnsPicker
+            columns={allColumns}
+            hidden={prefs.hidden}
+            onHiddenChange={(hidden) => setPrefs((prev) => ({ ...prev, hidden }))}
+            onReset={resetColumns}
+          />
+          <ViewsMenu
+            views={views}
+            onSaveCurrent={() => {
+              setViewName("")
+              setViewDialogOpen(true)
+            }}
+            onApply={applyView}
+            onPin={pinView}
+            onDelete={deleteView}
+          />
+          {loading ? (
+            <Button variant="outline" onClick={cancelLoad} title={t("docs.cancelQuery")}>
+              <Ban /> {t("docs.cancelQuery")}
+            </Button>
+          ) : (
+            <Button onClick={() => void load({ skip: 0 })}>
+              <Play /> {t("common.run")}
+            </Button>
+          )}
           <Button variant="outline" size="icon" onClick={() => void load({})} title={t("common.refresh")}>
             <RefreshCw className={cn(loading && "animate-spin")} />
           </Button>
@@ -1032,57 +996,27 @@ export function DocumentsTab({
             <Rows3 />
             <ChevronDown className={cn("transition-transform", showOptions && "rotate-180")} />
           </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon" title={t("docs.more")}>
-                <Ellipsis />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem disabled={readOnly} onSelect={() => setTransfer("import")}>
-                <Upload /> {t("transfer.importAction")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setTransfer("export")}>
-                <Download /> {t("transfer.exportAction")}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={() => {
-                  if (!explainRequest) {
-                    toast.error(t("docs.invalidJson"))
-                    return
-                  }
-                  setExplainOpen(true)
-                }}
-              >
-                <Activity /> {t("explain.title")}
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={readOnly} onSelect={() => setCopyOpen(true)}>
-                <Copy /> {t("copy.action")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={documents.length === 0}
-                onSelect={() => setChartOpen(true)}
-              >
-                <BarChart3 /> {t("chart.open")}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={() =>
-                  copyText(toFindJS(collection, { filter, sort, projection, skip, limit }))
-                }
-              >
-                <Braces /> {t("docs.copyMongo")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() =>
-                  copyText(toSQL(collection, { filter, sort, projection, skip, limit }))
-                }
-              >
-                <Code2 /> {t("docs.copySql")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <DocumentsMoreMenu
+            readOnly={readOnly}
+            hasDocuments={documents.length > 0}
+            onImport={() => setTransfer("import")}
+            onExport={() => setTransfer("export")}
+            onExplain={() => {
+              if (!explainRequest) {
+                toast.error(t("docs.invalidJson"))
+                return
+              }
+              setExplainOpen(true)
+            }}
+            onCopyCollection={() => setCopyOpen(true)}
+            onChart={() => setChartOpen(true)}
+            onCopyMongo={() =>
+              copyText(toFindJS(collection, { filter, sort, projection, skip, limit }))
+            }
+            onCopySql={() =>
+              copyText(toSQL(collection, { filter, sort, projection, skip, limit }))
+            }
+          />
           <Button
             onClick={() => setEditing({ mode: "insert" })}
             disabled={readOnly}
@@ -1114,12 +1048,53 @@ export function DocumentsTab({
             </div>
           </div>
         ) : null}
+        {loading ? <AsyncProgress active label={t("docs.loading")} /> : null}
       </div>
 
       {/* Table */}
       <div className="relative min-h-0 flex-1">
+        <div className="sr-only" role="status" aria-live="polite">
+          {loading
+            ? t("docs.loading")
+            : error
+              ? t("docs.queryFailed")
+              : t("docs.resultsSummary", { count: total })}
+        </div>
+        {error && documents.length > 0 ? (
+          <div className="border-destructive/40 bg-destructive/5 text-destructive flex flex-wrap items-center gap-2 border-b px-3 py-2 text-xs">
+            <AlertCircle className="size-3.5 shrink-0" />
+            <span className="min-w-0 flex-1 truncate" title={error}>
+              {error}
+            </span>
+            <Button variant="outline" size="sm" onClick={() => copyText(error)}>
+              {t("common.copyDetails")}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void load({})}>
+              {t("common.retry")}
+            </Button>
+          </div>
+        ) : null}
         <div className={cn("scrollbar-thin h-full overflow-auto", dragging && "select-none")}>
-        <Table>
+        <div className="md:hidden">
+          <DocumentsCardList
+            loading={loading}
+            error={error}
+            documents={documents}
+            columns={columns}
+            selected={selected}
+            readOnly={readOnly}
+            filterActive={filterActive}
+            onRetry={() => void load({})}
+            onCopyError={copyText}
+            onClearFilter={clearFilter}
+            onInsert={() => setEditing({ mode: "insert" })}
+            onImport={() => setTransfer("import")}
+            onToggleOne={toggleOne}
+            onEdit={(doc) => setEditing({ mode: "edit", document: doc })}
+          />
+        </div>
+        <div className="hidden md:block">
+        <Table className="min-w-[720px]">
           <TableHeader className="bg-background sticky top-0 z-10">
             <TableRow className="hover:bg-transparent">
               <TableHead className="w-10">
@@ -1135,6 +1110,7 @@ export function DocumentsTab({
                 return (
                   <TableHead
                     key={column}
+                    scope="col"
                     className="group relative font-mono text-xs"
                     style={width ? { width, minWidth: width, maxWidth: width } : undefined}
                   >
@@ -1247,23 +1223,19 @@ export function DocumentsTab({
               )
             }}
           >
-            {loading && documents.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={columns.length + 2} className="h-32 text-center">
-                  <Loader2 className="text-muted-foreground mx-auto size-5 animate-spin" />
-                </TableCell>
-              </TableRow>
-            ) : null}
-            {!loading && documents.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={columns.length + 2}
-                  className="text-muted-foreground h-32 text-center text-sm"
-                >
-                  {t("docs.noDocuments")}
-                </TableCell>
-              </TableRow>
-            ) : null}
+            <DocumentsTableStates
+              loading={loading}
+              error={error}
+              hasDocuments={documents.length > 0}
+              columnCount={columns.length}
+              filterActive={filterActive}
+              readOnly={readOnly}
+              onRetry={() => void load({})}
+              onCopyError={copyText}
+              onClearFilter={clearFilter}
+              onInsert={() => setEditing({ mode: "insert" })}
+              onImport={() => setTransfer("import")}
+            />
             {documents.map((doc, index) => {
               const id = documentId(doc)
               const isSelected = id !== null && selected.has(id)
@@ -1312,7 +1284,7 @@ export function DocumentsTab({
                   <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon-sm">
+                        <Button variant="ghost" size="icon-sm" aria-label={t("docs.rowActions")}>
                           <Rows3 />
                         </Button>
                       </DropdownMenuTrigger>
@@ -1350,6 +1322,7 @@ export function DocumentsTab({
             })}
           </TableBody>
         </Table>
+        </div>
         </div>
 
         {selected.size > 0 || allMatching ? (
@@ -1395,123 +1368,32 @@ export function DocumentsTab({
       </div>
 
       {/* Pagination */}
-      <div className="flex shrink-0 flex-wrap items-center gap-3 border-t px-3 py-2 text-sm">
-        <span className="text-muted-foreground">
-          {total === 0 ? "0" : `${skip + 1}–${Math.min(skip + limit, total)}`} of {total}
-        </span>
-        <div className="flex items-center gap-2">
-          <span className="text-muted-foreground text-xs">{t("docs.pageSize")}</span>
-          <Select
-            value={String(limit)}
-            onValueChange={(value) => {
-              const nextLimit = Number(value)
-              setLimit(nextLimit)
-              void load({ skip: 0, limit: nextLimit })
-            }}
-          >
-            <SelectTrigger size="sm" className="w-[72px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {[25, 50, 100, 250].map((size) => (
-                <SelectItem key={size} value={String(size)}>
-                  {size}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="icon-sm"
-            disabled={skip <= 0 || loading}
-            onClick={() => void load({ skip: Math.max(0, skip - limit) })}
-          >
-            <ChevronLeft />
-          </Button>
-          <span className="text-muted-foreground px-2 text-xs">
-            {t("docs.page", { page, pages })}
-          </span>
-          <Button
-            variant="outline"
-            size="icon-sm"
-            disabled={skip + limit >= total || loading}
-            onClick={() => void load({ skip: skip + limit })}
-          >
-            <ChevronRight />
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm" disabled={readOnly}>
-                <Trash2 />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem
-                variant="destructive"
-                onSelect={() => setConfirm({ type: "filter" })}
-              >
-                <Trash2 /> {t("docs.deleteMatching")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
+      <DocumentsPagination
+        total={total}
+        skip={skip}
+        limit={limit}
+        page={page}
+        pages={pages}
+        loading={loading}
+        readOnly={readOnly}
+        onLimitChange={(nextLimit) => {
+          setLimit(nextLimit)
+          void load({ skip: 0, limit: nextLimit })
+        }}
+        onPrev={() => void load({ skip: Math.max(0, skip - limit) })}
+        onNext={() => void load({ skip: skip + limit })}
+        onDeleteMatching={() => setConfirm({ type: "filter" })}
+      />
 
       {cellMenu && cellDoc ? (
-        <div
-          data-cell-menu
-          style={{ top: cellMenu.y, left: cellMenu.x }}
-          className="bg-popover text-popover-foreground fixed z-50 min-w-44 rounded-md border p-1 shadow-md"
-        >
-          <button
-            type="button"
-            onClick={() => copyCellMenu(formatValue(cellValue))}
-            className="hover:bg-accent/50 flex w-full items-center rounded px-2 py-1.5 text-left text-sm"
-          >
-            {t("docs.copyValue")}
-          </button>
-          <button
-            type="button"
-            onClick={() => copyCellMenu(JSON.stringify(cellValue, null, 2))}
-            className="hover:bg-accent/50 flex w-full items-center rounded px-2 py-1.5 text-left text-sm"
-          >
-            {t("docs.copyValueJson")}
-          </button>
-          <button
-            type="button"
-            onClick={() => copyCellMenu(cellMenu.column)}
-            className="hover:bg-accent/50 flex w-full items-center rounded px-2 py-1.5 text-left text-sm"
-          >
-            {t("docs.copyField")}
-          </button>
-          <div className="bg-border -mx-1 my-1 h-px" />
-          {"_id" in cellDoc ? (
-            <button
-              type="button"
-              onClick={() => copyCellMenu(prettyJSON(cellDoc._id))}
-              className="hover:bg-accent/50 flex w-full items-center rounded px-2 py-1.5 text-left text-sm"
-            >
-              {t("docs.copyId")}
-            </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => copyCellMenu(prettyJSON(cellDoc))}
-            className="hover:bg-accent/50 flex w-full items-center rounded px-2 py-1.5 text-left text-sm"
-          >
-            {t("docs.copyDocument")}
-          </button>
-          <div className="bg-border -mx-1 my-1 h-px" />
-          <button
-            type="button"
-            onClick={() => copyCellMenu(prettyJSON({ $set: { [cellMenu.column]: cellValue } }))}
-            className="hover:bg-accent/50 flex w-full items-center rounded px-2 py-1.5 text-left text-sm"
-          >
-            {t("docs.copyAsSet")}
-          </button>
-        </div>
+        <CellContextMenu
+          x={cellMenu.x}
+          y={cellMenu.y}
+          column={cellMenu.column}
+          value={cellValue}
+          document={cellDoc}
+          onCopy={copyCellMenu}
+        />
       ) : null}
 
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>

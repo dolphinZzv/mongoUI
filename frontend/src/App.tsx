@@ -4,9 +4,11 @@ import { toast } from "sonner"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { CollectionTabs } from "@/components/collection-tabs"
+import { ConnectionStatus } from "@/components/connection-status"
 import { useAuth } from "@/components/auth-gate"
 import { LazyMount } from "@/components/lazy-mount"
 import { SettingsMenu } from "@/components/settings-menu"
+import { ShortcutsDialog } from "@/components/shortcuts-dialog"
 import { Button } from "@/components/ui/button"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -82,6 +84,7 @@ export default function App() {
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [paletteOpen, setPaletteOpen] = React.useState(false)
   const [searchOpen, setSearchOpen] = React.useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = React.useState(false)
   const [auditOpen, setAuditOpen] = React.useState(false)
   const [profileOpen, setProfileOpen] = React.useState(false)
   const [tabs, setTabs] = React.useState<CollectionTab[]>(() => readTabs())
@@ -214,6 +217,41 @@ export default function App() {
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
+  }, [])
+
+  // "?" opens the keyboard shortcut cheat sheet, unless the user is typing.
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      const target = event.target as HTMLElement | null
+      if (
+        target &&
+        (target.isContentEditable ||
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT")
+      ) {
+        return
+      }
+      if (event.key === "?") {
+        event.preventDefault()
+        setShortcutsOpen(true)
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [])
+
+  // Poll the connection list so the sidebar and health chip stay current even
+  // when nothing in the UI triggers a refresh.
+  React.useEffect(() => {
+    const timer = window.setInterval(() => {
+      void api
+        .listConnections()
+        .then(setConnections)
+        .catch(() => undefined)
+    }, 30000)
+    return () => window.clearInterval(timer)
   }, [])
 
   const refreshConnections = React.useCallback(async () => {
@@ -554,6 +592,12 @@ export default function App() {
               )}
             </div>
             <div className="ml-auto flex items-center gap-2">
+              {selectedConnection ? (
+                <ConnectionStatus
+                  connection={selectedConnection}
+                  onReconnect={() => void refreshConnections()}
+                />
+              ) : null}
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -657,6 +701,7 @@ export default function App() {
           onGlobalSearch={() => setSearchOpen(true)}
           onAudit={() => setAuditOpen(true)}
           onProfile={() => setProfileOpen(true)}
+          onShortcuts={() => setShortcutsOpen(true)}
         />
       </LazyMount>
       <LazyMount active={searchOpen}>
@@ -679,6 +724,7 @@ export default function App() {
           selection={selection}
         />
       </LazyMount>
+      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       <Toaster />
       </TooltipProvider>
     </ThemeProvider>

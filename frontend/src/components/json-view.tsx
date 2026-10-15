@@ -39,6 +39,7 @@ export function JsonView({ value, className, maxHeight = "28rem" }: JsonViewProp
         onClick={copy}
         className="absolute top-2 right-2 z-10"
         title={t("common.copyJson")}
+        aria-label={t("common.copyJson")}
       >
         {copied ? <CheckIcon className="text-emerald-600 dark:text-emerald-400" /> : <CopyIcon />}
       </Button>

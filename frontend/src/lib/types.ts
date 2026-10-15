@@ -199,6 +199,8 @@ export interface BackupTask {
   lastError?: string
   lastFile?: string
   lastCount?: number
+  /** Transient: true while the task is currently running. */
+  running?: boolean
 }
 
 export interface BackupFile {

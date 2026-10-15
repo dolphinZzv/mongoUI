@@ -249,7 +249,13 @@ export function SettingsMenu({ authEnabled }: SettingsMenuProps) {
           <code className="bg-muted min-w-0 flex-1 truncate rounded px-1.5 py-1 text-[11px]">
             {mcpUrl}
           </code>
-          <Button variant="ghost" size="icon-sm" onClick={copyMCP} title={t("common.copy")}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={copyMCP}
+            title={t("common.copy")}
+            aria-label={t("common.copy")}
+          >
             {copied ? <CheckIcon className="text-emerald-600" /> : <CopyIcon />}
           </Button>
         </div>

@@ -80,7 +80,13 @@ export function CollectionView({
             <span className="text-muted-foreground">/</span>
             <span className="truncate font-medium">{collection}</span>
           </div>
-          <Button variant="ghost" size="icon-sm" onClick={copyPath} title={t("collection.copyPath")}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={copyPath}
+            title={t("collection.copyPath")}
+            aria-label={t("collection.copyPath")}
+          >
             {copied ? <CheckIcon className="text-emerald-600 dark:text-emerald-400" /> : <CopyIcon />}
           </Button>
           <Button

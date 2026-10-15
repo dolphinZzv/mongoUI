@@ -130,6 +130,15 @@
 }
 
 /* Thin scrollbars that fit the app chrome */
+@keyframes progress-inline {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(420%);
+  }
+}
+
 @layer utilities {
   .scrollbar-thin::-webkit-scrollbar {
     width: 10px;

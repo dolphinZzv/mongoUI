@@ -1,22 +1,9 @@
 import * as React from "react"
-import {
-  ArrowDown,
-  ArrowUp,
-  ChevronDown,
-  Loader2,
-  Plus,
-  Trash2,
-} from "lucide-react"
+import { Loader2, Plus } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import { ConfirmDialog } from "@/components/confirm-dialog"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
 import {
   Dialog,
   DialogContent,
@@ -25,17 +12,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
 import { JsonEditor } from "@/components/json-editor"
 import { Label } from "@/components/ui/label"
+import { KeysEditor } from "@/components/index-editor/keys-editor"
+import { OptionsEditor } from "@/components/index-editor/options-editor"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
+  emptyOptionsForm,
+  keysToRows,
+  managedOptions,
+  newKeyRow,
+  optionsFormFrom,
+  optionsFormToDocument,
+  rowsToKeys,
+  structuralSignature,
+  type IndexOptionsForm,
+  type KeyRow,
+} from "@/components/index-editor/model"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { isPlainObject } from "@/lib/mongo"
@@ -50,85 +42,6 @@ interface IndexEditorDialogProps {
   /** Existing index to edit, or null to create a new one. */
   index: IndexInfo | null
   onSaved: () => void
-}
-
-interface KeyRow {
-  id: string
-  field: string
-  type: string
-}
-
-let keySeq = 0
-const newKeyRow = (field = "", type = "1"): KeyRow => ({
-  id: `k${++keySeq}`,
-  field,
-  type,
-})
-
-const KEY_TYPES: { value: string; labelKey: string }[] = [
-  { value: "1", labelKey: "indexes.type.asc" },
-  { value: "-1", labelKey: "indexes.type.desc" },
-  { value: "text", labelKey: "indexes.type.text" },
-  { value: "hashed", labelKey: "indexes.type.hashed" },
-  { value: "2dsphere", labelKey: "indexes.type.2dsphere" },
-  { value: "2d", labelKey: "indexes.type.2d" },
-]
-
-function keyValue(type: string): unknown {
-  if (type === "1") return 1
-  if (type === "-1") return -1
-  return type
-}
-
-function keysToRows(key: unknown): KeyRow[] {
-  if (!isPlainObject(key)) return [newKeyRow()]
-  const rows = Object.entries(key).map(([field, value]) => newKeyRow(field, String(value)))
-  return rows.length > 0 ? rows : [newKeyRow()]
-}
-
-function rowsToKeys(rows: KeyRow[]): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const row of rows) {
-    const field = row.field.trim()
-    if (field) out[field] = keyValue(row.type)
-  }
-  return out
-}
-
-/** JSON string for an optional value; empty string when it is absent. */
-function optionalJSON(value: unknown): string {
-  if (value === undefined || value === null) return ""
-  return JSON.stringify(value, null, 2)
-}
-
-/** The builder-managed option fields (everything except v/ns/keys). */
-function managedOptions(opts: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  const fields = [
-    "name",
-    "unique",
-    "sparse",
-    "hidden",
-    "expireAfterSeconds",
-    "partialFilterExpression",
-    "collation",
-    "weights",
-    "default_language",
-    "language_override",
-    "wildcardProjection",
-  ]
-  for (const field of fields) {
-    if (opts[field] !== undefined) out[field] = opts[field]
-  }
-  return out
-}
-
-/** Options that force a drop + recreate when changed. */
-function structuralSignature(opts: Record<string, unknown>): string {
-  const clone = { ...opts }
-  delete clone.hidden
-  delete clone.expireAfterSeconds
-  return JSON.stringify(clone)
 }
 
 export function IndexEditorDialog({
@@ -147,19 +60,7 @@ export function IndexEditorDialog({
   const [rows, setRows] = React.useState<KeyRow[]>([newKeyRow("field")])
   const [keysJSON, setKeysJSON] = React.useState('{\n  "field": 1\n}')
   const [optionsJSON, setOptionsJSON] = React.useState("{}")
-
-  const [name, setName] = React.useState("")
-  const [unique, setUnique] = React.useState(false)
-  const [sparse, setSparse] = React.useState(false)
-  const [hidden, setHidden] = React.useState(false)
-  const [ttlEnabled, setTTLEnabled] = React.useState(false)
-  const [ttlSeconds, setTTLSeconds] = React.useState("3600")
-  const [partialFilter, setPartialFilter] = React.useState("")
-  const [collation, setCollation] = React.useState("")
-  const [weights, setWeights] = React.useState("")
-  const [defaultLanguage, setDefaultLanguage] = React.useState("")
-  const [languageOverride, setLanguageOverride] = React.useState("")
-  const [wildcardProjection, setWildcardProjection] = React.useState("")
+  const [options, setOptions] = React.useState<IndexOptionsForm>(emptyOptionsForm)
   const [advancedOpen, setAdvancedOpen] = React.useState(false)
 
   const [fieldNames, setFieldNames] = React.useState<string[]>([])
@@ -169,7 +70,11 @@ export function IndexEditorDialog({
     options: Record<string, unknown>
   } | null>(null)
 
-  const original = React.useRef<{ keys: string; structure: string; options: Record<string, unknown> } | null>(null)
+  const original = React.useRef<{
+    keys: string
+    structure: string
+    options: Record<string, unknown>
+  } | null>(null)
 
   const hasTextKey = rows.some((row) => row.type === "text")
 
@@ -182,18 +87,7 @@ export function IndexEditorDialog({
       const opts = index as Record<string, unknown>
       const indexRows = keysToRows(index.key)
       setRows(indexRows)
-      setName(String(opts.name ?? ""))
-      setUnique(Boolean(opts.unique))
-      setSparse(Boolean(opts.sparse))
-      setHidden(Boolean(opts.hidden))
-      setTTLEnabled(opts.expireAfterSeconds !== undefined && opts.expireAfterSeconds !== null)
-      setTTLSeconds(opts.expireAfterSeconds !== undefined ? String(opts.expireAfterSeconds) : "3600")
-      setPartialFilter(optionalJSON(opts.partialFilterExpression))
-      setCollation(optionalJSON(opts.collation))
-      setWeights(optionalJSON(opts.weights))
-      setDefaultLanguage(String(opts.default_language ?? ""))
-      setLanguageOverride(String(opts.language_override ?? ""))
-      setWildcardProjection(optionalJSON(opts.wildcardProjection))
+      setOptions(optionsFormFrom(opts))
       original.current = {
         keys: JSON.stringify(rowsToKeys(indexRows)),
         structure: structuralSignature(managedOptions(opts)),
@@ -201,18 +95,7 @@ export function IndexEditorDialog({
       }
     } else {
       setRows([newKeyRow("field")])
-      setName("")
-      setUnique(false)
-      setSparse(false)
-      setHidden(false)
-      setTTLEnabled(false)
-      setTTLSeconds("3600")
-      setPartialFilter("")
-      setCollation("")
-      setWeights("")
-      setDefaultLanguage("")
-      setLanguageOverride("")
-      setWildcardProjection("")
+      setOptions(emptyOptionsForm())
       original.current = null
     }
   }, [open, index])
@@ -232,22 +115,6 @@ export function IndexEditorDialog({
     }
   }, [open, connectionId, database, collection])
 
-  const buildOptions = (): Record<string, unknown> => {
-    const opts: Record<string, unknown> = {}
-    if (name.trim()) opts.name = name.trim()
-    if (unique) opts.unique = true
-    if (sparse) opts.sparse = true
-    if (hidden) opts.hidden = true
-    if (ttlEnabled) opts.expireAfterSeconds = Number(ttlSeconds)
-    if (partialFilter.trim()) opts.partialFilterExpression = JSON.parse(partialFilter)
-    if (collation.trim()) opts.collation = JSON.parse(collation)
-    if (weights.trim()) opts.weights = JSON.parse(weights)
-    if (defaultLanguage.trim()) opts.default_language = defaultLanguage.trim()
-    if (languageOverride.trim()) opts.language_override = languageOverride.trim()
-    if (wildcardProjection.trim()) opts.wildcardProjection = JSON.parse(wildcardProjection)
-    return opts
-  }
-
   const updateRow = (id: string, patch: Partial<KeyRow>) => {
     setRows((prev) => prev.map((row) => (row.id === id ? { ...row, ...patch } : row)))
   }
@@ -263,30 +130,33 @@ export function IndexEditorDialog({
   }
 
   /** Parses the current form into keys/options, reporting validation errors. */
-  const parseForm = (): { keys: Record<string, unknown>; options: Record<string, unknown> } | null => {
+  const parseForm = (): {
+    keys: Record<string, unknown>
+    options: Record<string, unknown>
+  } | null => {
     let keys: Record<string, unknown>
-    let options: Record<string, unknown>
+    let optionsDoc: Record<string, unknown>
     try {
       if (mode === "json") {
         const parsedKeys = JSON.parse(keysJSON)
         if (!isPlainObject(parsedKeys)) throw new Error(t("indexes.keysObject"))
         keys = parsedKeys
-        options = optionsJSON.trim() ? JSON.parse(optionsJSON) : {}
-        if (!isPlainObject(options)) throw new Error(t("indexes.optionsObject"))
+        optionsDoc = optionsJSON.trim() ? JSON.parse(optionsJSON) : {}
+        if (!isPlainObject(optionsDoc)) throw new Error(t("indexes.optionsObject"))
       } else {
         keys = rowsToKeys(rows)
         if (Object.keys(keys).length === 0) throw new Error(t("indexes.keysRequired"))
-        options = buildOptions()
+        optionsDoc = optionsFormToDocument(options)
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("indexes.invalidJson"))
       return null
     }
-    return { keys, options }
+    return { keys, options: optionsDoc }
   }
 
-  const createIndex = async (keys: Record<string, unknown>, options: Record<string, unknown>) => {
-    await api.createIndex(connectionId, database, collection, keys, options)
+  const createIndex = async (keys: Record<string, unknown>, optionsDoc: Record<string, unknown>) => {
+    await api.createIndex(connectionId, database, collection, keys, optionsDoc)
     toast.success(t("indexes.created"))
     onOpenChange(false)
     onSaved()
@@ -325,7 +195,9 @@ export function IndexEditorDialog({
     }
 
     const update: { hidden?: boolean; expireAfterSeconds?: number } = {}
-    if (parsed.options.hidden !== orig.options.hidden) update.hidden = Boolean(parsed.options.hidden)
+    if (parsed.options.hidden !== orig.options.hidden) {
+      update.hidden = Boolean(parsed.options.hidden)
+    }
     if (parsed.options.expireAfterSeconds !== orig.options.expireAfterSeconds) {
       update.expireAfterSeconds = parsed.options.expireAfterSeconds as number
     }
@@ -355,7 +227,13 @@ export function IndexEditorDialog({
       } catch {
         // The index may already be gone; creating it below is what matters.
       }
-      await api.createIndex(connectionId, database, collection, pendingRecreate.keys, pendingRecreate.options)
+      await api.createIndex(
+        connectionId,
+        database,
+        collection,
+        pendingRecreate.keys,
+        pendingRecreate.options,
+      )
       toast.success(t("indexes.recreated"))
       setPendingRecreate(null)
       onOpenChange(false)
@@ -377,7 +255,7 @@ export function IndexEditorDialog({
       }
       setKeysJSON(JSON.stringify(keys, null, 2))
       try {
-        setOptionsJSON(JSON.stringify(buildOptions(), null, 2))
+        setOptionsJSON(JSON.stringify(optionsFormToDocument(options), null, 2))
       } catch (err) {
         toast.error(err instanceof Error ? err.message : t("indexes.invalidJson"))
         return
@@ -392,18 +270,7 @@ export function IndexEditorDialog({
       setRows(keysToRows(parsedKeys))
       const opts = optionsJSON.trim() ? JSON.parse(optionsJSON) : {}
       if (!isPlainObject(opts)) throw new Error(t("indexes.optionsObject"))
-      setName(String(opts.name ?? ""))
-      setUnique(Boolean(opts.unique))
-      setSparse(Boolean(opts.sparse))
-      setHidden(Boolean(opts.hidden))
-      setTTLEnabled(opts.expireAfterSeconds !== undefined && opts.expireAfterSeconds !== null)
-      setTTLSeconds(opts.expireAfterSeconds !== undefined ? String(opts.expireAfterSeconds) : "3600")
-      setPartialFilter(optionalJSON(opts.partialFilterExpression))
-      setCollation(optionalJSON(opts.collation))
-      setWeights(optionalJSON(opts.weights))
-      setDefaultLanguage(String(opts.default_language ?? ""))
-      setLanguageOverride(String(opts.language_override ?? ""))
-      setWildcardProjection(optionalJSON(opts.wildcardProjection))
+      setOptions(optionsFormFrom(opts))
       setMode("builder")
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("indexes.invalidJson"))
@@ -416,7 +283,9 @@ export function IndexEditorDialog({
         <DialogContent className="sm:max-w-2xl">
           <form onSubmit={submit} className="flex max-h-[85vh] flex-col">
             <DialogHeader>
-              <DialogTitle>{isEdit ? t("indexes.editTitle") : t("indexes.createTitle")}</DialogTitle>
+              <DialogTitle>
+                {isEdit ? t("indexes.editTitle") : t("indexes.createTitle")}
+              </DialogTitle>
               <DialogDescription>{t("indexes.editorHint")}</DialogDescription>
             </DialogHeader>
 
@@ -442,198 +311,34 @@ export function IndexEditorDialog({
             <div className="scrollbar-thin min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 pb-2">
               {mode === "builder" ? (
                 <>
-                  <div className="space-y-2">
-                    <Label>{t("indexes.keys")}</Label>
-                    {rows.map((row, i) => (
-                      <div key={row.id} className="flex items-center gap-2">
-                        <Input
-                          list="mongoui-index-fields"
-                          value={row.field}
-                          placeholder={t("indexes.fieldPlaceholder")}
-                          onChange={(event) => updateRow(row.id, { field: event.target.value })}
-                          className="flex-1 font-mono text-xs"
-                        />
-                        <Select
-                          value={row.type}
-                          onValueChange={(value) => updateRow(row.id, { type: value })}
-                        >
-                          <SelectTrigger className="w-40">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {KEY_TYPES.map((type) => (
-                              <SelectItem key={type.value} value={type.value}>
-                                {t(type.labelKey)}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          disabled={i === 0}
-                          onClick={() => moveRow(i, i - 1)}
-                          title={t("indexes.moveUp")}
-                        >
-                          <ArrowUp />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          disabled={i === rows.length - 1}
-                          onClick={() => moveRow(i, i + 1)}
-                          title={t("indexes.moveDown")}
-                        >
-                          <ArrowDown />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          disabled={rows.length === 1}
-                          onClick={() => setRows((prev) => prev.filter((item) => item.id !== row.id))}
-                          title={t("common.delete")}
-                        >
-                          <Trash2 />
-                        </Button>
-                      </div>
-                    ))}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setRows((prev) => [...prev, newKeyRow()])}
-                    >
-                      <Plus /> {t("indexes.addField")}
-                    </Button>
-                    <datalist id="mongoui-index-fields">
-                      {fieldNames.map((field) => (
-                        <option key={field} value={field} />
-                      ))}
-                    </datalist>
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label htmlFor="index-name">{t("indexes.name")}</Label>
-                    <Input
-                      id="index-name"
-                      value={name}
-                      onChange={(event) => setName(event.target.value)}
-                      placeholder={t("indexes.namePlaceholder")}
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    <label className="flex items-center gap-2 text-sm">
-                      <Checkbox checked={unique} onCheckedChange={(v) => setUnique(Boolean(v))} />
-                      {t("indexes.unique")}
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <Checkbox checked={sparse} onCheckedChange={(v) => setSparse(Boolean(v))} />
-                      {t("indexes.sparse")}
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <Checkbox checked={hidden} onCheckedChange={(v) => setHidden(Boolean(v))} />
-                      {t("indexes.hidden")}
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <Switch checked={ttlEnabled} onCheckedChange={setTTLEnabled} />
-                      {t("indexes.ttl")}
-                    </label>
-                  </div>
-
-                  {ttlEnabled ? (
-                    <div className="space-y-1">
-                      <Label htmlFor="index-ttl">{t("indexes.ttlSeconds")}</Label>
-                      <Input
-                        id="index-ttl"
-                        type="number"
-                        min={0}
-                        value={ttlSeconds}
-                        onChange={(event) => setTTLSeconds(event.target.value)}
-                        className="w-40"
-                      />
-                    </div>
-                  ) : null}
-
-                  <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-                    <CollapsibleTrigger asChild>
-                      <Button type="button" variant="ghost" size="sm" className="gap-1 px-0">
-                        <ChevronDown
-                          className={`size-4 transition-transform ${advancedOpen ? "rotate-180" : ""}`}
-                        />
-                        {t("indexes.advanced")}
-                      </Button>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className="mt-3 space-y-3">
-                      <div className="space-y-1">
-                        <Label>{t("indexes.partialFilter")}</Label>
-                        <JsonEditor
-                          value={partialFilter}
-                          onChange={setPartialFilter}
-                          rows={3}
-                          placeholder='{ "status": "active" }'
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label>{t("indexes.collation")}</Label>
-                        <JsonEditor
-                          value={collation}
-                          onChange={setCollation}
-                          rows={3}
-                          placeholder='{ "locale": "en", "strength": 2 }'
-                        />
-                      </div>
-                      {hasTextKey ? (
-                        <>
-                          <div className="space-y-1">
-                            <Label>{t("indexes.weights")}</Label>
-                            <JsonEditor
-                              value={weights}
-                              onChange={setWeights}
-                              rows={3}
-                              placeholder='{ "title": 10, "body": 1 }'
-                            />
-                          </div>
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <div className="space-y-1">
-                              <Label>{t("indexes.defaultLanguage")}</Label>
-                              <Input
-                                value={defaultLanguage}
-                                onChange={(event) => setDefaultLanguage(event.target.value)}
-                                placeholder="english"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label>{t("indexes.languageOverride")}</Label>
-                              <Input
-                                value={languageOverride}
-                                onChange={(event) => setLanguageOverride(event.target.value)}
-                                placeholder="language"
-                              />
-                            </div>
-                          </div>
-                        </>
-                      ) : null}
-                      <div className="space-y-1">
-                        <Label>{t("indexes.wildcardProjection")}</Label>
-                        <JsonEditor
-                          value={wildcardProjection}
-                          onChange={setWildcardProjection}
-                          rows={3}
-                          placeholder='{ "field": 1 }'
-                        />
-                      </div>
-                    </CollapsibleContent>
-                  </Collapsible>
+                  <KeysEditor
+                    rows={rows}
+                    fieldNames={fieldNames}
+                    onUpdateRow={updateRow}
+                    onMoveRow={moveRow}
+                    onRemoveRow={(id) =>
+                      setRows((prev) => prev.filter((item) => item.id !== id))
+                    }
+                    onAddRow={() => setRows((prev) => [...prev, newKeyRow()])}
+                  />
+                  <OptionsEditor
+                    value={options}
+                    onChange={(patch) => setOptions((prev) => ({ ...prev, ...patch }))}
+                    hasTextKey={hasTextKey}
+                    advancedOpen={advancedOpen}
+                    onAdvancedOpenChange={setAdvancedOpen}
+                  />
                 </>
               ) : (
                 <div className="space-y-4">
                   <div className="space-y-1">
                     <Label>{t("indexes.keys")}</Label>
-                    <JsonEditor value={keysJSON} onChange={setKeysJSON} allowEmpty={false} rows={5} />
+                    <JsonEditor
+                      value={keysJSON}
+                      onChange={setKeysJSON}
+                      allowEmpty={false}
+                      rows={5}
+                    />
                   </div>
                   <div className="space-y-1">
                     <Label>{t("indexes.options")}</Label>

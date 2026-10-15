@@ -38,6 +38,17 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { removePinnedQuery, renamePinnedQuery, usePinnedQueries, type PinnedQuery } from "@/lib/pinnedQueries"
+import {
+  colPin,
+  connPin,
+  dbKey,
+  dbPin,
+  pinnedFirst,
+  readExpanded,
+  readPinned,
+  writeExpanded,
+  writePinned,
+} from "@/lib/sidebarPrefs"
 import { cn } from "@/lib/utils"
 import type { CollectionInfo, Connection, DatabaseInfo, Selection } from "@/lib/types"
 
@@ -58,56 +69,6 @@ type PendingConfirm =
   | { type: "drop-collection"; connectionId: string; database: string; collection: string }
   | { type: "delete-connection"; connection: Connection }
   | null
-
-const dbKey = (connectionId: string, database: string) => `${connectionId}::${database}`
-
-// Sidebar expansion is remembered so a refresh keeps the tree open.
-const EXPANDED_KEY = "mongoui-sidebar-expanded"
-
-interface ExpandedState {
-  conns: Record<string, boolean>
-  dbs: Record<string, boolean>
-}
-
-function readExpanded(): ExpandedState {
-  try {
-    const raw = localStorage.getItem(EXPANDED_KEY)
-    if (!raw) return { conns: {}, dbs: {} }
-    const parsed = JSON.parse(raw) as Partial<ExpandedState>
-    return { conns: parsed.conns ?? {}, dbs: parsed.dbs ?? {} }
-  } catch {
-    return { conns: {}, dbs: {} }
-  }
-}
-
-// Pinned connections / databases / collections are kept in localStorage so they
-// stay at the top of their list across refreshes.
-const PINNED_KEY = "mongoui-sidebar-pinned"
-
-const connPin = (id: string) => `c:${id}`
-const dbPin = (connectionId: string, database: string) => `d:${connectionId}::${database}`
-const colPin = (connectionId: string, database: string, collection: string) =>
-  `x:${connectionId}::${database}::${collection}`
-
-function readPinned(): Set<string> {
-  try {
-    const raw = localStorage.getItem(PINNED_KEY)
-    if (!raw) return new Set()
-    const parsed = JSON.parse(raw)
-    return new Set(Array.isArray(parsed) ? (parsed as string[]) : [])
-  } catch {
-    return new Set()
-  }
-}
-
-// pinnedFirst is a stable sort that floats pinned keys to the top.
-function pinnedFirst<T>(items: T[], pinned: Set<string>, key: (item: T) => string): T[] {
-  return [...items].sort((a, b) => {
-    const pa = pinned.has(key(a)) ? 0 : 1
-    const pb = pinned.has(key(b)) ? 0 : 1
-    return pa - pb
-  })
-}
 
 export function AppSidebar({
   connections,
@@ -267,22 +228,11 @@ export function AppSidebar({
   }, [connections, expandedDbs, collections, loadingCols, failedCols, loadCollections])
 
   React.useEffect(() => {
-    try {
-      localStorage.setItem(
-        EXPANDED_KEY,
-        JSON.stringify({ conns: expandedConns, dbs: expandedDbs }),
-      )
-    } catch {
-      /* storage may be unavailable */
-    }
+    writeExpanded({ conns: expandedConns, dbs: expandedDbs })
   }, [expandedConns, expandedDbs])
 
   React.useEffect(() => {
-    try {
-      localStorage.setItem(PINNED_KEY, JSON.stringify([...pinned]))
-    } catch {
-      /* storage may be unavailable */
-    }
+    writePinned(pinned)
   }, [pinned])
 
   const togglePin = React.useCallback((key: string) => {
@@ -367,14 +317,14 @@ export function AppSidebar({
     try {
       if (confirm.type === "drop-database") {
         await api.dropDatabase(confirm.connectionId, confirm.database)
-        toast.success(`Database "${confirm.database}" dropped`)
+        toast.success(t("sidebar.databaseDropped", { name: confirm.database }))
         await loadDatabases(confirm.connectionId)
         if (selection.kind === "collection" && selection.database === confirm.database) {
           onSelect({ kind: "connection", connectionId: confirm.connectionId })
         }
       } else if (confirm.type === "drop-collection") {
         await api.dropCollection(confirm.connectionId, confirm.database, confirm.collection)
-        toast.success(`Collection "${confirm.collection}" dropped`)
+        toast.success(t("sidebar.collectionDropped", { name: confirm.collection }))
         await loadCollections(confirm.connectionId, confirm.database)
         if (
           selection.kind === "collection" &&
@@ -385,7 +335,7 @@ export function AppSidebar({
         }
       } else if (confirm.type === "delete-connection") {
         await api.deleteConnection(confirm.connection.id)
-        toast.success("Connection removed")
+        toast.success(t("sidebar.connectionRemoved"))
         setDatabases((prev) => {
           const next = { ...prev }
           delete next[confirm.connection.id]
@@ -397,7 +347,7 @@ export function AppSidebar({
         onRefresh()
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Operation failed")
+      toast.error(err instanceof Error ? err.message : t("sidebar.operationFailed"))
     }
   }
 
@@ -408,6 +358,7 @@ export function AppSidebar({
         title: t("sidebar.confirmDropDatabase", { name: confirm.database }),
         description: t("sidebar.confirmDropDatabaseDesc"),
         confirmLabel: t("sidebar.dropDatabase"),
+        confirmText: confirm.database,
       }
     }
     if (confirm.type === "drop-collection") {
@@ -415,12 +366,14 @@ export function AppSidebar({
         title: t("sidebar.confirmDropCollection", { name: confirm.collection }),
         description: t("sidebar.confirmDropCollectionDesc"),
         confirmLabel: t("sidebar.dropCollection"),
+        confirmText: confirm.collection,
       }
     }
     return {
       title: t("sidebar.confirmDeleteConnection", { name: confirm.connection.name }),
       description: t("sidebar.confirmDeleteConnectionDesc"),
       confirmLabel: t("common.delete"),
+      confirmText: confirm.connection.name,
     }
   }, [confirm, t])
 
@@ -777,6 +730,7 @@ export function AppSidebar({
                       <Button
                         variant="ghost"
                         size="icon-sm"
+                        aria-label={t("common.actions")}
                         className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
                       >
                         <Ellipsis />
@@ -818,12 +772,34 @@ export function AppSidebar({
 
                 {isExpanded ? (
                   <div className="mt-0.5 ml-4 space-y-0.5 border-l pl-2">
+                    {failedDbs[connection.id] ? (
+                      <div className="text-destructive flex items-center gap-1 px-2 py-1 text-xs">
+                        <span className="min-w-0 flex-1 truncate">{t("sidebar.loadFailed")}</span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 px-2 text-[11px]"
+                          onClick={() => {
+                            setFailedDbs((prev) => {
+                              const next = { ...prev }
+                              delete next[connection.id]
+                              return next
+                            })
+                            void loadDatabases(connection.id)
+                          }}
+                        >
+                          {t("sidebar.retry")}
+                        </Button>
+                      </div>
+                    ) : null}
                     {loadingDbs[connection.id] && visibleDbs.length === 0 ? (
                       <div className="text-muted-foreground flex items-center gap-2 px-2 py-1 text-xs">
                         <Loader2 className="size-3 animate-spin" /> {t("sidebar.loadingDatabases")}
                       </div>
                     ) : null}
-                    {visibleDbs.length === 0 && !loadingDbs[connection.id] ? (
+                    {visibleDbs.length === 0 &&
+                    !loadingDbs[connection.id] &&
+                    !failedDbs[connection.id] ? (
                       <div className="text-muted-foreground px-2 py-1 text-xs">{t("sidebar.noDatabases")}</div>
                     ) : null}
                     {orderedDbs.map((database) => {
@@ -869,6 +845,7 @@ export function AppSidebar({
                                 <Button
                                   variant="ghost"
                                   size="icon-sm"
+                                  aria-label={t("common.actions")}
                                   className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
                                 >
                                   <Ellipsis />
@@ -918,12 +895,34 @@ export function AppSidebar({
 
                           {dbOpen ? (
                             <div className="mt-0.5 ml-5 space-y-0.5 border-l pl-2">
+                              {failedCols[key] ? (
+                                <div className="text-destructive flex items-center gap-1 px-2 py-1 text-xs">
+                                  <span className="min-w-0 flex-1 truncate">
+                                    {t("sidebar.loadFailed")}
+                                  </span>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-6 px-2 text-[11px]"
+                                    onClick={() => {
+                                      setFailedCols((prev) => {
+                                        const next = { ...prev }
+                                        delete next[key]
+                                        return next
+                                      })
+                                      void loadCollections(connection.id, database.name)
+                                    }}
+                                  >
+                                    {t("sidebar.retry")}
+                                  </Button>
+                                </div>
+                              ) : null}
                               {loadingCols[key] && cols.length === 0 ? (
                                 <div className="text-muted-foreground flex items-center gap-2 px-2 py-1 text-xs">
                                   <Loader2 className="size-3 animate-spin" /> {t("common.loading")}
                                 </div>
                               ) : null}
-                              {cols.length === 0 && !loadingCols[key] ? (
+                              {cols.length === 0 && !loadingCols[key] && !failedCols[key] ? (
                                 <div className="text-muted-foreground px-2 py-1 text-xs">
                                   {t("sidebar.noCollections")}
                                 </div>
@@ -965,6 +964,7 @@ export function AppSidebar({
                                         <Button
                                           variant="ghost"
                                           size="icon-sm"
+                                          aria-label={t("common.actions")}
                                           className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
                                         >
                                           <Ellipsis />
@@ -1092,6 +1092,7 @@ export function AppSidebar({
         title={confirmContent?.title ?? ""}
         description={confirmContent?.description}
         confirmLabel={confirmContent?.confirmLabel}
+        confirmText={confirmContent?.confirmText}
         onConfirm={runConfirm}
       />
     </div>

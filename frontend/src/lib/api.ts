@@ -22,6 +22,7 @@ import type {
   IndexInfo,
   MCPSettings,
   MongoDocument,
+  OIDCConfig,
   ProfileResult,
   SchemaResult,
   SearchResult,
@@ -293,6 +294,14 @@ export const api = {
       body: JSON.stringify({ username, code }),
     }),
   authLogout: () => request<{ authenticated: boolean }>("/auth/logout", { method: "POST" }),
+  authOIDCConfig: () =>
+    request<{ enabled: boolean; buttonLabel?: string }>("/auth/oidc/config"),
+  getOIDCSettings: () => request<OIDCConfig>("/auth/oidc/settings"),
+  updateOIDCSettings: (input: Partial<OIDCConfig>) =>
+    request<OIDCConfig>("/auth/oidc/settings", {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
   listAuthUsers: () => request<AuthUser[]>("/auth/users"),
   createAuthUser: (username: string, role: AuthRole) =>
     request<AuthUserSetup>("/auth/users", {

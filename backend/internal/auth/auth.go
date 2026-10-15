@@ -27,6 +27,7 @@ import (
 	"github.com/pquerna/otp/totp"
 
 	"mongoui/internal/config"
+	"mongoui/internal/oidc"
 )
 
 const (
@@ -51,20 +52,24 @@ func validRole(role Role) bool {
 // ErrInvalidCode is returned when a submitted TOTP code does not match.
 var ErrInvalidCode = errors.New("invalid code")
 
-// User is one TOTP account.
+// User is one account. Source is "totp" (default) for local TOTP accounts or
+// "oidc" for accounts provisioned through single sign-on.
 type User struct {
 	ID        string `json:"id"`
 	Username  string `json:"username"`
-	Secret    string `json:"secret"`
+	Secret    string `json:"secret,omitempty"`
 	Role      Role   `json:"role"`
 	CreatedAt string `json:"createdAt"`
+	Source    string `json:"source,omitempty"`
+	Email     string `json:"email,omitempty"`
 }
 
 type storedConfig struct {
 	Enabled bool   `json:"enabled"`
 	Users   []User `json:"users,omitempty"`
 	// Secret is the legacy single-account secret, migrated to Users on load.
-	Secret string `json:"secret,omitempty"`
+	Secret string      `json:"secret,omitempty"`
+	OIDC   *OIDCConfig `json:"oidc,omitempty"`
 }
 
 type pendingUser struct {
@@ -82,6 +87,11 @@ type Manager struct {
 	enabled    bool
 	users      []User
 	pending    map[string]*pendingUser
+	// oidc is the decrypted single sign-on configuration, if any.
+	oidc *OIDCConfig
+
+	oidcMu       sync.Mutex
+	oidcProvider *oidc.Provider
 }
 
 // New loads (or prepares) the auth state under dataDir. masterKey derives the
@@ -140,7 +150,13 @@ func (m *Manager) load() error {
 			CreatedAt: time.Now().UTC().Format(time.RFC3339),
 		}}
 	}
+	if sc.OIDC != nil {
+		if sc.OIDC.ClientSecret, err = m.decrypt(sc.OIDC.ClientSecret); err != nil {
+			return err
+		}
+	}
 	m.users = sc.Users
+	m.oidc = sc.OIDC
 	m.enabled = sc.Enabled && len(sc.Users) > 0
 	return nil
 }
@@ -160,7 +176,11 @@ func (m *Manager) save() error {
 		}
 		users[i].Secret = secret
 	}
-	data, err := json.MarshalIndent(storedConfig{Enabled: m.enabled, Users: users}, "", "  ")
+	oidcCfg, err := oidcToStore(m.oidc, m.cipher)
+	if err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(storedConfig{Enabled: m.enabled, Users: users, OIDC: oidcCfg}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -273,6 +293,10 @@ func (m *Manager) Login(username, code string) (User, error) {
 	for _, user := range m.users {
 		if user.Username != username {
 			continue
+		}
+		// OIDC accounts have no TOTP secret and cannot log in here.
+		if user.Secret == "" {
+			return User{}, ErrInvalidCode
 		}
 		if totp.Validate(code, user.Secret) {
 			return user, nil
@@ -557,6 +581,14 @@ func (m *Manager) Routes() chi.Router {
 	r.Post("/login", m.handleLogin)
 	r.Post("/logout", m.handleLogout)
 
+	r.Route("/oidc", func(r chi.Router) {
+		r.Get("/config", m.handleOIDCConfig)
+		r.Get("/login", m.handleOIDCLogin)
+		r.Get("/callback", m.handleOIDCCallback)
+		r.Get("/settings", m.handleOIDCSettings)
+		r.Put("/settings", m.handleUpdateOIDCSettings)
+	})
+
 	r.Get("/users", m.handleListUsers)
 	r.Post("/users", m.handleCreateUser)
 	r.Post("/users/{id}/confirm", m.handleConfirmUser)
@@ -597,14 +629,29 @@ func (m *Manager) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"authenticated": false,
 		"needsSetup":    !m.Enabled(),
 	}
+	if cfg := m.OIDC(); cfg != nil && cfg.Enabled {
+		label := strings.TrimSpace(cfg.ButtonLabel)
+		if label == "" {
+			label = "SSO"
+		}
+		data["oidc"] = map[string]any{"enabled": true, "buttonLabel": label}
+	}
 	if m.Enabled() {
 		if user, ok := m.Current(r); ok {
 			data["authenticated"] = true
 			data["username"] = user.Username
 			data["role"] = user.Role
+			data["source"] = sourceOrDefault(user.Source)
 		}
 	}
 	ok(w, data)
+}
+
+func sourceOrDefault(source string) string {
+	if strings.TrimSpace(source) == "" {
+		return "totp"
+	}
+	return source
 }
 
 func (m *Manager) handleSetupBegin(w http.ResponseWriter, _ *http.Request) {
@@ -674,6 +721,8 @@ func (m *Manager) handleListUsers(w http.ResponseWriter, r *http.Request) {
 			"username":  user.Username,
 			"role":      user.Role,
 			"createdAt": user.CreatedAt,
+			"source":    sourceOrDefault(user.Source),
+			"email":     user.Email,
 		})
 	}
 	ok(w, out)

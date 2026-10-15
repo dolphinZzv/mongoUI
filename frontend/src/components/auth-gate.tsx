@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Loader2, ShieldCheck } from "lucide-react"
+import { Loader2, LogIn, ShieldCheck } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -197,6 +197,22 @@ function LoginScreen({ onDone }: { onDone: () => void }) {
   const [code, setCode] = React.useState("")
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState("")
+  const [oidc, setOidc] = React.useState<{ enabled: boolean; buttonLabel?: string } | null>(null)
+  const [oidcError] = React.useState(() => {
+    if (typeof window === "undefined") return ""
+    const params = new URLSearchParams(window.location.search)
+    const value = params.get("oidc_error") ?? ""
+    if (value) {
+      params.delete("oidc_error")
+      const query = params.toString()
+      window.history.replaceState({}, "", window.location.pathname + (query ? `?${query}` : ""))
+    }
+    return value
+  })
+
+  React.useEffect(() => {
+    void api.authOIDCConfig().then(setOidc).catch(() => setOidc(null))
+  }, [])
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -215,6 +231,29 @@ function LoginScreen({ onDone }: { onDone: () => void }) {
   return (
     <AuthLayout title={t("auth.loginTitle")} description={t("auth.loginIntro")}>
       <form onSubmit={submit} className="space-y-4">
+        {oidcError ? (
+          <p className="text-destructive text-xs">{t("auth.ssoError", { error: oidcError })}</p>
+        ) : null}
+        {oidc?.enabled ? (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                window.location.href = "/api/auth/oidc/login"
+              }}
+            >
+              <LogIn /> {t("auth.ssoLogin", { label: oidc.buttonLabel || t("auth.sso") })}
+            </Button>
+            <div className="relative py-1 text-center">
+              <span className="bg-card text-muted-foreground relative z-10 px-2 text-xs">
+                {t("auth.or")}
+              </span>
+              <span className="bg-border absolute inset-x-0 top-1/2 h-px" />
+            </div>
+          </>
+        ) : null}
         <div className="space-y-1">
           <Label htmlFor="login-username">{t("auth.usernameLabel")}</Label>
           <Input

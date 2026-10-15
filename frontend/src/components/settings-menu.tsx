@@ -6,6 +6,7 @@ import {
   CopyIcon,
   DatabaseBackup,
   DownloadIcon,
+  KeyRound,
   Languages,
   Loader2,
   LogOut,
@@ -54,6 +55,9 @@ const UsersDialog = React.lazy(() =>
 const BackupsDialog = React.lazy(() =>
   import("@/components/backups-dialog").then((m) => ({ default: m.BackupsDialog })),
 )
+const OIDCDialog = React.lazy(() =>
+  import("@/components/oidc-dialog").then((m) => ({ default: m.OIDCDialog })),
+)
 
 interface SettingsMenuProps {
   authEnabled: boolean
@@ -70,6 +74,7 @@ export function SettingsMenu({ authEnabled }: SettingsMenuProps) {
   const { role } = useAuth()
   const [usersOpen, setUsersOpen] = React.useState(false)
   const [backupsOpen, setBackupsOpen] = React.useState(false)
+  const [oidcOpen, setOidcOpen] = React.useState(false)
   const agentEnabled = useAgentEnabled()
   const agentTools = React.useMemo(() => agentToolList(), [])
   const webmcp = React.useMemo(() => webMcpAvailable(), [])
@@ -395,6 +400,11 @@ export function SettingsMenu({ authEnabled }: SettingsMenuProps) {
                 <DatabaseBackup /> {t("backups.title")}
               </DropdownMenuItem>
             ) : null}
+            {role === "admin" ? (
+              <DropdownMenuItem onSelect={() => setOidcOpen(true)}>
+                <KeyRound /> {t("oidc.title")}
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem
               onSelect={() => {
                 void api.authLogout().then(() => window.location.reload())
@@ -411,6 +421,9 @@ export function SettingsMenu({ authEnabled }: SettingsMenuProps) {
     </LazyMount>
     <LazyMount active={backupsOpen}>
       <BackupsDialog open={backupsOpen} onOpenChange={setBackupsOpen} />
+    </LazyMount>
+    <LazyMount active={oidcOpen}>
+      <OIDCDialog open={oidcOpen} onOpenChange={setOidcOpen} />
     </LazyMount>
     </>
   )

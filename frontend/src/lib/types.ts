@@ -162,6 +162,8 @@ export interface AuthStatus {
   needsSetup: boolean
   username?: string
   role?: AuthRole
+  source?: string
+  oidc?: { enabled: boolean; buttonLabel?: string }
 }
 
 export interface AuthSetup {
@@ -175,6 +177,32 @@ export interface AuthUser {
   username: string
   role: AuthRole
   createdAt: string
+  source?: "totp" | "oidc"
+  email?: string
+}
+
+export interface OIDCConfig {
+  enabled: boolean
+  issuer: string
+  clientId: string
+  clientSecret?: string
+  redirectUrl?: string
+  scopes?: string[]
+  buttonLabel?: string
+  tokenAuthMethod?: "client_secret_basic" | "client_secret_post"
+  usernameClaim?: string
+  groupsClaim?: string
+  defaultRole: AuthRole
+  adminGroups?: string[]
+  readWriteGroups?: string[]
+  readOnlyGroups?: string[]
+  requireGroupMatch?: boolean
+  allowedDomains?: string[]
+  allowedEmails?: string[]
+  requireVerifiedEmail?: boolean
+  autoCreateUsers?: boolean
+  syncRole?: boolean
+  hasClientSecret?: boolean
 }
 
 export interface AuthUserSetup {

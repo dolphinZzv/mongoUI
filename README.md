@@ -71,6 +71,7 @@ MongoUI 是一个用 Go + React 编写的 MongoDB 可视化管理工具。前端
 - **浏览器 Agent（WebMCP）**：把连接 / 查询 / 聚合 / 索引等操作暴露给浏览器内 agent，默认关闭、需显式开启。
 - **写操作审计**：记录通过界面或 API 执行的成功写操作（连接 / 库 / 集合 / 操作 / 状态），并持久化到服务端。
 - **多账号与角色**：多个 TOTP 账号，分 `管理员 / 读写 / 只读` 角色；只读账号的写操作在服务端被拒。
+- **单点登录（OIDC）**：接入任意 OpenID Connect 提供方，支持发现、PKCE、JWKS 校验与「用户组 → 角色」映射，可限制邮箱域名 / 邮箱。
 - **定时备份**：按计划把集合导出为 JSON/CSV 文件，保留最近若干份，并记录上次运行状态。
 - **登录与两步验证（TOTP）**、后退 / 前进与刷新可恢复的 URL 状态。
 - 守护进程（`-daemon`）、一键安装脚本、Homebrew formula（`brew services`）、Docker 镜像与**内置自动更新**。
@@ -307,6 +308,20 @@ await window.mongouiAgent.call("mongoui_find", {
 - 启用 TOTP 后 `/mcp` 不在会话保护范围内，请务必设置 `MONGOUI_MCP_TOKEN`，否则 agent 端点等于无鉴权（启动时会有告警日志）。
 - 重置：删除 `<data>/auth.json` 重启，会重新进入首次设置。
 
+### 单点登录（OIDC）
+
+在 **设置 → 单点登录（OIDC）**（管理员专属）中配置任意符合 OpenID Connect 的提供方：
+
+- **Issuer**：提供方的基础地址，元数据自动从 `/.well-known/openid-configuration` 发现（端点、JWKS 地址）。
+- **Client ID / Client secret**：授权码流程使用 **PKCE（S256）**，令牌端点认证支持 `client_secret_basic`（默认）与 `client_secret_post`。
+- **回调地址**：默认 `https://<你的域名>/api/auth/oidc/callback`，需在提供方后台登记为允许的回调；如经反向代理请设置 `X-Forwarded-Proto` / `X-Forwarded-Host`，或在此显式覆盖。
+- **角色映射**：按用户组（默认 `groups`，也兼容 `roles`）映射到 `admin` / `readwrite` / `readonly`，优先级为管理员 > 读写 > 只读；未命中时使用默认角色，也可勾选「必须匹配用户组」直接拒绝。
+- **身份字段**：用户名默认依次尝试 `preferred_username` → `email` → `upn` → `sub`，可自定义。
+- **访问控制**：可限定允许的邮箱域名 / 具体邮箱，并要求邮箱已验证（`email_verified`）。
+- **账号**：首次登录默认自动创建账号（角色随组同步），也可关闭自动创建，改由管理员预先建号；账号列表会标注来源为 `TOTP` 或 `OIDC`。
+
+> ID Token 的 `iss` / `aud` / `exp` / `nonce` 与签名（RS/PS/ES/EdDSA）都会在服务端校验；客户端密钥以 AES-256-GCM 加密后存入 `<data>/auth.json`。启用 OIDC 后登录页会出现「使用 … 登录」按钮，TOTP 登录仍可同时使用。
+
 ## 配置
 
 通过命令行参数或环境变量配置：
@@ -374,7 +389,7 @@ mongoui update -version v0.2.25
 - **默认同源**：跨域默认关闭；如需让其他源访问 API / MCP，请设置 `MONGOUI_ALLOW_ORIGIN`（逗号分隔）。
 - **请求约束**：请求体限制 32MB，聚合结果默认限量，服务端设置读 / 写 / 空闲超时，并返回 `X-Content-Type-Options` / `X-Frame-Options` / `Referrer-Policy` 等响应头。
 - **凭据脱敏**：连接列表接口对 URI 密码与 SSH 凭据脱敏（密码显示为 `xxxxxxxx`、SSH 密钥清空）；完整凭据仅在编辑弹窗按单个连接获取。
-- **登录**：首次启动强制引导设置 TOTP，之后所有 `/api/*` 需要登录会话（`/api/health` 除外）。
+- **登录**：首次启动强制引导设置 TOTP，之后所有 `/api/*` 需要登录会话（`/api/health` 除外）。可额外启用 **OIDC 单点登录**（授权码 + PKCE + JWKS 校验），其回调同样受签名 Cookie 会话保护。
 - **MCP**：`/mcp` 默认无鉴权，对外暴露时请设置 `MONGOUI_MCP_TOKEN`，并可在界面关闭写分组或整体关闭 MCP。
 
 > 不建议把 `data/` 提交到版本库（已在 `.gitignore` 中忽略），也只建议在可信网络 / 反向代理鉴权之后暴露服务。

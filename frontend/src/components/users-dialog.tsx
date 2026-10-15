@@ -171,8 +171,16 @@ export function UsersDialog({ open, onOpenChange }: UsersDialogProps) {
                   className="flex items-center gap-2 rounded-md border p-2"
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{user.username}</p>
-                    <p className="text-muted-foreground text-[11px]">{user.createdAt}</p>
+                    <p className="truncate text-sm font-medium">
+                      {user.username}
+                      <span className="text-muted-foreground ml-1.5 text-[10px] uppercase">
+                        {user.source === "oidc" ? t("users.source.oidc") : t("users.source.totp")}
+                      </span>
+                    </p>
+                    <p className="text-muted-foreground text-[11px]">
+                      {user.email ? `${user.email} · ` : ""}
+                      {user.createdAt}
+                    </p>
                   </div>
                   <Select
                     value={user.role}

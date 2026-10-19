@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { copyToClipboard } from "@/lib/clipboard"
 import { useI18n } from "@/lib/i18n"
+import { highlightJson } from "@/lib/jsonHighlight"
 import { cn } from "@/lib/utils"
 import { prettyJSON } from "@/lib/mongo"
 
@@ -12,12 +13,30 @@ interface JsonViewProps {
   value: unknown
   className?: string
   maxHeight?: string
+  /**
+   * Highlight JSON with type colors. On by default; very large payloads skip it
+   * because building a span per token costs both time and memory.
+   */
+  highlight?: boolean
 }
 
-export function JsonView({ value, className, maxHeight = "28rem" }: JsonViewProps) {
+/** Above this many characters highlighting is skipped (plain text instead). */
+const HIGHLIGHT_LIMIT = 200_000
+
+export function JsonView({ value, className, maxHeight = "28rem", highlight = true }: JsonViewProps) {
   const { t } = useI18n()
   const [copied, setCopied] = React.useState(false)
   const text = React.useMemo(() => (typeof value === "string" ? value : prettyJSON(value)), [value])
+
+  // Only highlight JSON-ish text; plain strings (e.g. an error) stay as-is.
+  const html = React.useMemo(() => {
+    if (!highlight || text.length > HIGHLIGHT_LIMIT) return null
+    const trimmed = text.trimStart()
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[") && !trimmed.startsWith('"')) {
+      return null
+    }
+    return highlightJson(text)
+  }, [highlight, text])
 
   const copy = async () => {
     const ok = await copyToClipboard(text)
@@ -47,7 +66,11 @@ export function JsonView({ value, className, maxHeight = "28rem" }: JsonViewProp
         className="scrollbar-thin overflow-auto p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap"
         style={{ maxHeight }}
       >
-        {text}
+        {html === null ? (
+          text
+        ) : (
+          <code dangerouslySetInnerHTML={{ __html: html }} />
+        )}
       </pre>
     </div>
   )

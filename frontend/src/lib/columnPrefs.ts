@@ -1,5 +1,5 @@
 /**
- * Per-collection table column preferences (order, visibility, widths),
+ * Per-collection table column preferences (order, visibility, widths, pinned),
  * persisted in localStorage so a collection looks the same on the next visit.
  */
 export interface ColumnPrefs {
@@ -7,10 +7,15 @@ export interface ColumnPrefs {
   order: string[]
   hidden: string[]
   widths: Record<string, number>
+  /** Fields frozen to the left edge so they stay visible while scrolling. */
+  pinned: string[]
 }
 
 export const COLUMN_MIN_WIDTH = 80
 export const COLUMN_MAX_WIDTH = 800
+
+/** `_id` is frozen to the left by default. */
+export const DEFAULT_PINNED_COLUMNS = ["_id"]
 
 const PREFIX = "mongoui-columns:"
 
@@ -19,7 +24,7 @@ export function columnPrefsKey(connectionId: string, database: string, collectio
 }
 
 function emptyPrefs(): ColumnPrefs {
-  return { order: [], hidden: [], widths: {} }
+  return { order: [], hidden: [], widths: {}, pinned: [...DEFAULT_PINNED_COLUMNS] }
 }
 
 function stringList(value: unknown): string[] {
@@ -45,6 +50,9 @@ export function readColumnPrefs(key: string): ColumnPrefs {
       order: stringList(parsed.order),
       hidden: stringList(parsed.hidden),
       widths: widthMap(parsed.widths),
+      // Older stored prefs have no `pinned` key; fall back to the default.
+      // An explicit empty array means the user un-pinned everything.
+      pinned: Array.isArray(parsed.pinned) ? stringList(parsed.pinned) : [...DEFAULT_PINNED_COLUMNS],
     }
   } catch {
     return emptyPrefs()

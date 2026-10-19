@@ -6,22 +6,14 @@ import { Button } from "@/components/ui/button"
 import { ChartView } from "@/components/chart-view"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { ResultTable } from "@/components/documents/result-table"
 import { JsonView } from "@/components/json-view"
 import { RecentQueries } from "@/components/recent-queries"
 import { SqlEditor } from "@/components/sql-editor"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { useRecentQueries } from "@/hooks/useRecentQueries"
-import { classForType, collectColumns, formatValue, valueType } from "@/lib/mongo"
-import { cn } from "@/lib/utils"
+import { collectColumns } from "@/lib/mongo"
 import type { SQLResult } from "@/lib/types"
 
 interface SqlTabProps {
@@ -234,6 +226,13 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
           columns={columns}
           storageKey={`sql:${connectionId}:${database}:${collection}`}
         />
+      ) : documents.length > 0 && view === "table" ? (
+        // The result grid owns its own scroller so sticky columns can pin to it.
+        <ResultTable
+          documents={documents}
+          columns={columns}
+          storageKey={`sql:${connectionId}:${database}:${collection}`}
+        />
       ) : (
         <div className="scrollbar-thin min-h-0 flex-1 overflow-auto p-3">
           {!ran ? (
@@ -242,41 +241,10 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
             </div>
           ) : view === "json" ? (
             <JsonView value={documents} maxHeight="none" />
-          ) : documents.length === 0 ? (
-          <div className="text-muted-foreground flex h-32 items-center justify-center text-sm">
-            {t("sql.empty")}
-          </div>
-        ) : (
-          <Table>
-            <TableHeader className="bg-background sticky top-0 z-10">
-              <TableRow className="hover:bg-transparent">
-                {columns.map((column) => (
-                  <TableHead key={column} className="font-mono text-xs">
-                    {column}
-                  </TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {documents.map((doc, index) => (
-                <TableRow key={index}>
-                  {columns.map((column) => {
-                    const value = doc[column]
-                    return (
-                      <TableCell key={column} className="max-w-[320px] truncate">
-                        <span
-                          className={cn("font-mono text-xs", classForType(valueType(value)))}
-                          title={formatValue(value)}
-                        >
-                          {formatValue(value).slice(0, 90)}
-                        </span>
-                      </TableCell>
-                    )
-                  })}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          ) : (
+            <div className="text-muted-foreground flex h-32 items-center justify-center text-sm">
+              {t("sql.empty")}
+            </div>
           )}
         </div>
       )}

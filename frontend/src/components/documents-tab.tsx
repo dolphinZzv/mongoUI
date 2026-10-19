@@ -62,10 +62,12 @@ import {
 import { JsonEditor } from "@/components/json-editor"
 import { api, isAbortError } from "@/lib/api"
 import { useRecentQueries } from "@/hooks/useRecentQueries"
+import { useFrozenColumns } from "@/hooks/useFrozenColumns"
 import { togglePinnedQuery, usePinnedQueries } from "@/lib/pinnedQueries"
 import {
   COLUMN_MAX_WIDTH,
   COLUMN_MIN_WIDTH,
+  DEFAULT_PINNED_COLUMNS,
   columnPrefsKey,
   readColumnPrefs,
   writeColumnPrefs,
@@ -104,6 +106,12 @@ const ExplainDialog = React.lazy(() =>
 const MongoQueryBuilder = React.lazy(() =>
   import("@/components/mongo-query-builder").then((m) => ({ default: m.MongoQueryBuilder })),
 )
+
+/** Inset shadow marking the right edge of the frozen region once scrolled. */
+const PINNED_EDGE_SHADOW = "cell-frozen-edge"
+
+/** Width of the leading row-select column (Tailwind `w-10`). */
+const CHECKBOX_COLUMN_WIDTH = 40
 
 interface DocumentsTabProps {
   connectionId: string
@@ -324,6 +332,7 @@ export function DocumentsTab({
   const documents = result?.documents ?? []
   const allColumns = React.useMemo(() => collectColumns(documents), [documents])
   const hiddenSet = React.useMemo(() => new Set(prefs.hidden), [prefs.hidden])
+  const pinnedSet = React.useMemo(() => new Set(prefs.pinned), [prefs.pinned])
   // Visible columns, ordered by the saved preference (new columns appended).
   const columns = React.useMemo(() => {
     const present = allColumns.filter((column) => !hiddenSet.has(column))
@@ -344,6 +353,15 @@ export function DocumentsTab({
     }
     return ordered
   }, [allColumns, hiddenSet, prefs.order])
+  // Pinned columns always render first so they occupy the frozen left region.
+  const pinnedColumns = React.useMemo(
+    () => columns.filter((column) => pinnedSet.has(column)),
+    [columns, pinnedSet],
+  )
+  const displayColumns = React.useMemo(
+    () => [...pinnedColumns, ...columns.filter((column) => !pinnedSet.has(column))],
+    [columns, pinnedColumns, pinnedSet],
+  )
 
   // Infer a BSON type per field from the current page so the query builder can
   // offer typed value inputs (ObjectId, date, bool, number).
@@ -371,6 +389,10 @@ export function DocumentsTab({
     writeViews(viewsStoreKey, views)
   }, [viewsStoreKey, views])
 
+  // Frozen columns: the hook measures the pinned header widths and hands back
+  // the `left` offset for each one. The checkbox gutter is a fixed 2.5rem cell.
+  const frozen = useFrozenColumns(pinnedColumns, CHECKBOX_COLUMN_WIDTH)
+
   const setColumnHidden = React.useCallback((column: string, hidden: boolean) => {
     setPrefs((prev) => ({
       ...prev,
@@ -391,22 +413,38 @@ export function DocumentsTab({
   )
 
   const resetColumns = React.useCallback(() => {
-    setPrefs({ order: [], hidden: [], widths: {} })
+    setPrefs({ order: [], hidden: [], widths: {}, pinned: [...DEFAULT_PINNED_COLUMNS] })
+  }, [])
+
+  const toggleColumnPinned = React.useCallback((column: string) => {
+    setPrefs((prev) => ({
+      ...prev,
+      pinned: prev.pinned.includes(column)
+        ? prev.pinned.filter((candidate) => candidate !== column)
+        : [...prev.pinned, column],
+    }))
   }, [])
 
   const moveColumn = React.useCallback(
     (column: string, direction: -1 | 1) => {
       setPrefs((prev) => {
-        const current = columns.slice()
-        const index = current.indexOf(column)
+        // Reorder only within the pinned or unpinned group, otherwise the swap
+        // is invisible (pinned columns always render first).
+        const isPinned = prev.pinned.includes(column)
+        const group = columns.filter((candidate) => pinnedSet.has(candidate) === isPinned)
+        const index = group.indexOf(column)
         const target = index + direction
-        if (index < 0 || target < 0 || target >= current.length) return prev
-        ;[current[index], current[target]] = [current[target], current[index]]
-        const rest = allColumns.filter((candidate) => !current.includes(candidate))
-        return { ...prev, order: [...current, ...rest] }
+        if (index < 0 || target < 0 || target >= group.length) return prev
+        const next = group.slice()
+        ;[next[index], next[target]] = [next[target], next[index]]
+        const pinnedOrder = isPinned ? next : columns.filter((c) => pinnedSet.has(c))
+        const restOrder = isPinned ? columns.filter((c) => !pinnedSet.has(c)) : next
+        const ordered = [...pinnedOrder, ...restOrder]
+        const rest = allColumns.filter((candidate) => !ordered.includes(candidate))
+        return { ...prev, order: [...ordered, ...rest] }
       })
     },
-    [columns, allColumns],
+    [columns, pinnedSet, allColumns],
   )
 
   const startResize = React.useCallback((column: string, event: React.MouseEvent) => {
@@ -961,6 +999,8 @@ export function DocumentsTab({
             columns={allColumns}
             hidden={prefs.hidden}
             onHiddenChange={(hidden) => setPrefs((prev) => ({ ...prev, hidden }))}
+            pinned={prefs.pinned}
+            onTogglePinned={toggleColumnPinned}
             onReset={resetColumns}
           />
           <ViewsMenu
@@ -1074,7 +1114,11 @@ export function DocumentsTab({
             </Button>
           </div>
         ) : null}
-        <div className={cn("scrollbar-thin h-full overflow-auto", dragging && "select-none")}>
+        <div
+          ref={frozen.scrollRef}
+          onScroll={frozen.onScroll}
+          className={cn("scrollbar-thin h-full overflow-auto", dragging && "select-none")}
+        >
         <div className="md:hidden">
           <DocumentsCardList
             loading={loading}
@@ -1095,24 +1139,38 @@ export function DocumentsTab({
         </div>
         <div className="hidden md:block">
         <Table className="min-w-[720px]">
-          <TableHeader className="bg-background sticky top-0 z-10">
+          <TableHeader className="bg-background sticky top-0 z-20">
             <TableRow className="hover:bg-transparent">
-              <TableHead className="w-10">
+              <TableHead
+                data-sticky-checkbox
+                className="cell-frozen sticky left-0 z-30 w-10"
+              >
                 <Checkbox
                   checked={allSelected || allMatching}
                   onCheckedChange={(checked) => toggleAll(checked === true)}
                   aria-label={t("docs.selectAll")}
                 />
               </TableHead>
-              {columns.map((column) => {
+              {displayColumns.map((column) => {
                 const direction = sortSpec?.column === column ? sortSpec.direction : undefined
                 const width = prefs.widths[column]
+                const isPinned = pinnedSet.has(column)
+                const left = frozen.offsets[column]
+                const isLastPinned = isPinned && pinnedColumns[pinnedColumns.length - 1] === column
                 return (
                   <TableHead
                     key={column}
+                    data-column={column}
                     scope="col"
-                    className="group relative font-mono text-xs"
-                    style={width ? { width, minWidth: width, maxWidth: width } : undefined}
+                    className={cn(
+                      "group font-mono text-xs",
+                      isPinned ? "cell-frozen sticky z-30" : "relative",
+                      isLastPinned && frozen.scrolled && PINNED_EDGE_SHADOW,
+                    )}
+                    style={{
+                      ...(width ? { width, minWidth: width, maxWidth: width } : {}),
+                      ...(isPinned && left !== undefined ? { left } : {}),
+                    }}
                   >
                     <div className="flex items-center gap-1">
                       <button
@@ -1168,6 +1226,11 @@ export function DocumentsTab({
                           </DropdownMenuItem>
                           <DropdownMenuItem onSelect={() => moveColumn(column, 1)}>
                             <ArrowRight /> {t("docs.moveRight")}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onSelect={() => toggleColumnPinned(column)}>
+                            {isPinned ? <PinOff /> : <Pin />}
+                            {isPinned ? t("docs.unpinColumn") : t("docs.pinColumn")}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem onSelect={() => setColumnHidden(column, true)}>
@@ -1244,6 +1307,7 @@ export function DocumentsTab({
                   key={id ?? index}
                   data-row-index={index}
                   data-state={isSelected ? "selected" : undefined}
+                  data-active={activeRow === index ? "true" : undefined}
                   className={cn("group", activeRow === index && "bg-accent/40 hover:bg-accent/40")}
                   style={{ contentVisibility: "auto", containIntrinsicSize: "auto 2rem" }}
                   onMouseDown={(event) => onRowMouseDown(index, event)}
@@ -1255,7 +1319,10 @@ export function DocumentsTab({
                     if (!readOnly) setEditing({ mode: "edit", document: doc })
                   }}
                 >
-                  <TableCell>
+                  <TableCell
+                    data-sticky-checkbox
+                    className="cell-frozen sticky left-0 z-10 w-10"
+                  >
                     <Checkbox
                       checked={isSelected}
                       disabled={id === null}
@@ -1263,24 +1330,35 @@ export function DocumentsTab({
                       aria-label={t("docs.selectRow")}
                     />
                   </TableCell>
-                  {columns.map((column) => (
-                    <TableCell
-                      key={column}
-                      data-column={column}
-                      className="max-w-[320px] truncate"
-                      style={
-                        prefs.widths[column]
-                          ? {
-                              width: prefs.widths[column],
-                              minWidth: prefs.widths[column],
-                              maxWidth: prefs.widths[column],
-                            }
-                          : undefined
-                      }
-                    >
-                      <CellValue value={doc[column]} />
-                    </TableCell>
-                  ))}
+                  {displayColumns.map((column) => {
+                    const isPinned = pinnedSet.has(column)
+                    const left = frozen.offsets[column]
+                    const isLastPinned =
+                      isPinned && pinnedColumns[pinnedColumns.length - 1] === column
+                    return (
+                      <TableCell
+                        key={column}
+                        data-column={column}
+                        className={cn(
+                          "max-w-[320px] truncate",
+                          isPinned && "cell-frozen sticky z-10",
+                          isLastPinned && frozen.scrolled && PINNED_EDGE_SHADOW,
+                        )}
+                        style={{
+                          ...(prefs.widths[column]
+                            ? {
+                                width: prefs.widths[column],
+                                minWidth: prefs.widths[column],
+                                maxWidth: prefs.widths[column],
+                              }
+                            : {}),
+                          ...(isPinned && left !== undefined ? { left } : {}),
+                        }}
+                      >
+                        <CellValue value={doc[column]} />
+                      </TableCell>
+                    )
+                  })}
                   <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>

@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Columns3, Search } from "lucide-react"
+import { Columns3, Pin, Search } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -10,6 +10,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { useI18n } from "@/lib/i18n"
+import { cn } from "@/lib/utils"
 
 interface ColumnsPickerProps {
   /** Every field present in the current result page. */
@@ -17,20 +18,31 @@ interface ColumnsPickerProps {
   /** Fields currently hidden. */
   hidden: string[]
   onHiddenChange: (hidden: string[]) => void
+  /** Fields currently frozen to the left edge. */
+  pinned: string[]
+  onTogglePinned: (column: string) => void
   onReset: () => void
 }
 
 /**
  * Searchable field visibility picker for the documents table. Supports
- * filtering a long field list, select-all and invert, and shows how many of
- * the total fields are visible.
+ * filtering a long field list, select-all and invert, pinning fields to the
+ * left edge, and shows how many of the total fields are visible.
  */
-export function ColumnsPicker({ columns, hidden, onHiddenChange, onReset }: ColumnsPickerProps) {
+export function ColumnsPicker({
+  columns,
+  hidden,
+  onHiddenChange,
+  pinned,
+  onTogglePinned,
+  onReset,
+}: ColumnsPickerProps) {
   const { t } = useI18n()
   const [open, setOpen] = React.useState(false)
   const [query, setQuery] = React.useState("")
 
   const hiddenSet = React.useMemo(() => new Set(hidden), [hidden])
+  const pinnedSet = React.useMemo(() => new Set(pinned), [pinned])
   const visibleCount = columns.filter((column) => !hiddenSet.has(column)).length
 
   const filtered = React.useMemo(() => {
@@ -114,17 +126,34 @@ export function ColumnsPicker({ columns, hidden, onHiddenChange, onReset }: Colu
               </p>
             ) : null}
             {filtered.map((column) => (
-              <label
+              <div
                 key={column}
-                className="hover:bg-accent/40 flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs"
+                className="hover:bg-accent/40 group flex items-center gap-2 rounded px-2 py-1 text-xs"
               >
-                <Checkbox
-                  checked={!hiddenSet.has(column)}
-                  onCheckedChange={(checked) => toggle(column, checked === true)}
-                  aria-label={column}
-                />
-                <span className="truncate font-mono">{column}</span>
-              </label>
+                <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
+                  <Checkbox
+                    checked={!hiddenSet.has(column)}
+                    onCheckedChange={(checked) => toggle(column, checked === true)}
+                    aria-label={column}
+                  />
+                  <span className="truncate font-mono">{column}</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => onTogglePinned(column)}
+                  title={pinnedSet.has(column) ? t("docs.unpinColumn") : t("docs.pinColumn")}
+                  aria-label={pinnedSet.has(column) ? t("docs.unpinColumn") : t("docs.pinColumn")}
+                  aria-pressed={pinnedSet.has(column)}
+                  className={cn(
+                    "shrink-0 rounded p-0.5 transition-opacity",
+                    pinnedSet.has(column)
+                      ? "text-primary opacity-100"
+                      : "text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+                  )}
+                >
+                  <Pin className={cn("size-3.5", pinnedSet.has(column) && "fill-current")} />
+                </button>
+              </div>
             ))}
           </div>
         </div>

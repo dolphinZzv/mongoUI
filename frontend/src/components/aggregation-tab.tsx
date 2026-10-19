@@ -7,22 +7,14 @@ import { ChartView } from "@/components/chart-view"
 import { ExplainDialog } from "@/components/explain-dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { ResultTable } from "@/components/documents/result-table"
 import { JsonEditor } from "@/components/json-editor"
 import { JsonView } from "@/components/json-view"
 import { api } from "@/lib/api"
 import { copyToClipboard } from "@/lib/clipboard"
 import { useI18n } from "@/lib/i18n"
-import { classForType, collectColumns, formatValue, valueType } from "@/lib/mongo"
+import { collectColumns } from "@/lib/mongo"
 import { toAggregateJS } from "@/lib/queryText"
-import { cn } from "@/lib/utils"
 import type { MongoDocument } from "@/lib/types"
 
 interface AggregationTabProps {
@@ -211,6 +203,13 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
           columns={columns}
           storageKey={`agg:${connectionId}:${database}:${collection}`}
         />
+      ) : documents.length > 0 && view === "table" ? (
+        // The result grid owns its own scroller so sticky columns can pin to it.
+        <ResultTable
+          documents={documents}
+          columns={columns}
+          storageKey={`agg:${connectionId}:${database}:${collection}`}
+        />
       ) : (
         <div className="scrollbar-thin min-h-0 flex-1 overflow-auto p-3">
           {!ran ? (
@@ -219,41 +218,10 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
             </div>
           ) : view === "json" ? (
             <JsonView value={documents} maxHeight="none" />
-          ) : documents.length === 0 ? (
+          ) : (
             <div className="text-muted-foreground flex h-32 items-center justify-center text-sm">
               {t("agg.empty")}
             </div>
-          ) : (
-            <Table>
-              <TableHeader className="bg-background sticky top-0 z-10">
-                <TableRow className="hover:bg-transparent">
-                  {columns.map((column) => (
-                    <TableHead key={column} className="font-mono text-xs">
-                      {column}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {documents.map((doc, index) => (
-                  <TableRow key={index}>
-                    {columns.map((column) => {
-                      const value = doc[column]
-                      return (
-                        <TableCell key={column} className="max-w-[320px] truncate">
-                          <span
-                            className={cn("font-mono text-xs", classForType(valueType(value)))}
-                            title={formatValue(value)}
-                          >
-                            {formatValue(value).slice(0, 90)}
-                          </span>
-                        </TableCell>
-                      )
-                    })}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
           )}
         </div>
       )}

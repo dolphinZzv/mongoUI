@@ -301,6 +301,8 @@ const en: Record<string, string> = {
   "docs.copyField": "Copy field name",
   "docs.moveLeft": "Move left",
   "docs.moveRight": "Move right",
+  "docs.pinColumn": "Pin to left",
+  "docs.unpinColumn": "Unpin column",
   "docs.hideColumn": "Hide column",
   "docs.showOnly": "Show only this column",
   "docs.copyValue": "Copy value",

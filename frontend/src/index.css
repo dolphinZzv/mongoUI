@@ -156,4 +156,31 @@
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
     background-color: color-mix(in oklab, var(--foreground) 30%, transparent);
   }
+
+  /*
+   * Frozen table cells must be opaque so scrolling content does not show
+   * through. Row hover/selection/active states live on the <tr>, so mirror them
+   * here with solid blends instead of translucent overlays.
+   */
+  .cell-frozen {
+    background-color: var(--background);
+  }
+  tbody tr:hover > .cell-frozen {
+    background-color: color-mix(in oklab, var(--muted) 50%, var(--background));
+  }
+  tbody tr[data-state="selected"] > .cell-frozen,
+  tbody tr[data-state="selected"]:hover > .cell-frozen {
+    background-color: var(--muted);
+  }
+  tbody tr[data-active="true"] > .cell-frozen,
+  tbody tr[data-active="true"]:hover > .cell-frozen {
+    background-color: color-mix(in oklab, var(--accent) 40%, var(--background));
+  }
+  /*
+   * Inset rather than a pseudo-element: cells use `truncate` (overflow: hidden),
+   * which would clip an absolutely positioned shadow.
+   */
+  .cell-frozen-edge {
+    box-shadow: inset -10px 0 8px -8px color-mix(in oklab, var(--foreground) 25%, transparent);
+  }
 }

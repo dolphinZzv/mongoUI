@@ -44,7 +44,7 @@ export function DocumentsTableStates({
       <>
         {Array.from({ length: 8 }).map((_, row) => (
           <TableRow key={`skeleton-${row}`} className="hover:bg-transparent">
-            <TableCell>
+            <TableCell className="cell-frozen sticky left-0 z-10">
               <Skeleton className="size-4" />
             </TableCell>
             {Array.from({ length: columnCount }).map((__, column) => (

@@ -300,6 +300,8 @@ const zh: Record<string, string> = {
   "docs.copyField": "复制字段名",
   "docs.moveLeft": "左移",
   "docs.moveRight": "右移",
+  "docs.pinColumn": "固定到左侧",
+  "docs.unpinColumn": "取消固定",
   "docs.hideColumn": "隐藏该列",
   "docs.showOnly": "仅显示该列",
   "docs.copyValue": "复制值",

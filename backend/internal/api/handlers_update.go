@@ -24,6 +24,9 @@ func (a *API) getUpdate(w http.ResponseWriter, _ *http.Request) {
 
 // updateUpdateSettings toggles automatic updates and the check interval.
 func (a *API) updateUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAdmin(w, r) {
+		return
+	}
 	var in updateSettingsInput
 	if err := decodeJSON(r, &in); err != nil {
 		badRequest(w, err)
@@ -48,7 +51,10 @@ func (a *API) updateUpdateSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 // checkUpdate looks for a newer release without installing it.
-func (a *API) checkUpdate(w http.ResponseWriter, _ *http.Request) {
+func (a *API) checkUpdate(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAdmin(w, r) {
+		return
+	}
 	if a.updater == nil {
 		fail(w, http.StatusServiceUnavailable, errors.New("self-updater is not available"))
 		return
@@ -62,7 +68,10 @@ func (a *API) checkUpdate(w http.ResponseWriter, _ *http.Request) {
 }
 
 // installUpdate checks for a newer release and installs it when available.
-func (a *API) installUpdate(w http.ResponseWriter, _ *http.Request) {
+func (a *API) installUpdate(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAdmin(w, r) {
+		return
+	}
 	if a.updater == nil {
 		fail(w, http.StatusServiceUnavailable, errors.New("self-updater is not available"))
 		return

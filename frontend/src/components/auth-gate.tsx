@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Loader2, LogIn, ShieldCheck } from "lucide-react"
+import { KeyRound, Loader2, LogIn, ShieldCheck } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -21,6 +21,8 @@ interface AuthContextValue {
   username?: string
   role?: AuthRole
   source?: string
+  hasPassword?: boolean
+  refresh?: () => Promise<void>
 }
 
 const AuthContext = React.createContext<AuthContextValue>({ enabled: false })
@@ -72,7 +74,13 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     return <SetupScreen onDone={refresh} />
   }
   if (status.enabled && !status.authenticated) {
-    return <LoginScreen onDone={refresh} />
+    return (
+      <LoginScreen
+        onDone={refresh}
+        passwordEnabled={status.passwordEnabled !== false}
+        totpEnabled={status.totpEnabled !== false}
+      />
+    )
   }
   return (
     <AuthContext.Provider
@@ -81,6 +89,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         username: status.username,
         role: status.role,
         source: status.source,
+        hasPassword: status.hasPassword,
+        refresh,
       }}
     >
       {children}
@@ -118,22 +128,60 @@ function AuthLayout({
 
 function SetupScreen({ onDone }: { onDone: () => void }) {
   const { t } = useI18n()
+  const [mode, setMode] = React.useState<"password" | "totp">("password")
   const [setup, setSetup] = React.useState<AuthSetup | null>(null)
+  const [username, setUsername] = React.useState("admin")
+  const [password, setPassword] = React.useState("")
+  const [confirm, setConfirm] = React.useState("")
   const [code, setCode] = React.useState("")
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState("")
 
   React.useEffect(() => {
+    if (mode !== "totp" || setup) return
+    let cancelled = false
+    setError("")
     void (async () => {
       try {
-        setSetup(await api.authSetupBegin())
+        const data = await api.authSetupBegin()
+        if (!cancelled) setSetup(data)
       } catch (err) {
-        setError(err instanceof Error ? err.message : t("auth.setupFailed"))
+        if (!cancelled) setError(err instanceof Error ? err.message : t("auth.setupFailed"))
       }
     })()
-  }, [t])
+    return () => {
+      cancelled = true
+    }
+  }, [mode, setup, t])
 
-  const submit = async (event: React.FormEvent) => {
+  const changeMode = (next: "password" | "totp") => {
+    setMode(next)
+    setError("")
+  }
+
+  const submitPassword = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setError("")
+    if (password.length < 8) {
+      setError(t("auth.passwordTooShort"))
+      return
+    }
+    if (password !== confirm) {
+      setError(t("auth.passwordMismatch"))
+      return
+    }
+    setBusy(true)
+    try {
+      await api.authSetupPassword(username.trim() || "admin", password)
+      onDone()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("auth.setupFailed"))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const submitTOTP = async (event: React.FormEvent) => {
     event.preventDefault()
     setBusy(true)
     setError("")
@@ -148,9 +196,72 @@ function SetupScreen({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <AuthLayout title={t("auth.setupTitle")} description={t("auth.setupIntro")}>
-      {setup ? (
-        <form onSubmit={submit} className="space-y-4">
+    <AuthLayout
+      title={t("auth.setupTitle")}
+      description={mode === "password" ? t("auth.setupIntro") : t("auth.setupTotpIntro")}
+    >
+      <div className="mb-4 grid grid-cols-2 gap-2">
+        <Button
+          type="button"
+          variant={mode === "password" ? "secondary" : "outline"}
+          onClick={() => changeMode("password")}
+        >
+          <KeyRound /> {t("auth.method.password")}
+        </Button>
+        <Button
+          type="button"
+          variant={mode === "totp" ? "secondary" : "outline"}
+          onClick={() => changeMode("totp")}
+        >
+          <ShieldCheck /> {t("auth.method.totp")}
+        </Button>
+      </div>
+
+      {mode === "password" ? (
+        <form onSubmit={submitPassword} className="space-y-4">
+          <div className="space-y-1">
+            <Label htmlFor="setup-username">{t("auth.usernameLabel")}</Label>
+            <Input
+              id="setup-username"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              autoComplete="username"
+              autoFocus
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="setup-password">{t("auth.passwordLabel")}</Label>
+            <Input
+              id="setup-password"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="new-password"
+              placeholder={t("auth.passwordHint")}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="setup-password-confirm">{t("auth.passwordConfirmLabel")}</Label>
+            <Input
+              id="setup-password-confirm"
+              type="password"
+              value={confirm}
+              onChange={(event) => setConfirm(event.target.value)}
+              autoComplete="new-password"
+            />
+          </div>
+          {error ? <p className="text-destructive text-xs">{error}</p> : null}
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={busy || !username.trim() || password.length < 8 || !confirm}
+          >
+            {busy ? <Loader2 className="animate-spin" /> : <KeyRound />}
+            {t("auth.createAccount")}
+          </Button>
+        </form>
+      ) : setup ? (
+        <form onSubmit={submitTOTP} className="space-y-4">
           <div className="flex justify-center">
             <img
               src={setup.qr}
@@ -190,16 +301,32 @@ function SetupScreen({ onDone }: { onDone: () => void }) {
         </form>
       ) : (
         <div className="text-muted-foreground flex justify-center py-8">
-          {error ? <p className="text-destructive text-xs">{error}</p> : <Loader2 className="size-5 animate-spin" />}
+          {error ? (
+            <p className="text-destructive text-xs">{error}</p>
+          ) : (
+            <Loader2 className="size-5 animate-spin" />
+          )}
         </div>
       )}
     </AuthLayout>
   )
 }
 
-function LoginScreen({ onDone }: { onDone: () => void }) {
+function LoginScreen({
+  onDone,
+  passwordEnabled,
+  totpEnabled,
+}: {
+  onDone: () => void
+  passwordEnabled: boolean
+  totpEnabled: boolean
+}) {
   const { t } = useI18n()
+  const [mode, setMode] = React.useState<"password" | "code">(
+    passwordEnabled ? "password" : "code",
+  )
   const [username, setUsername] = React.useState("")
+  const [password, setPassword] = React.useState("")
   const [code, setCode] = React.useState("")
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState("")
@@ -220,23 +347,44 @@ function LoginScreen({ onDone }: { onDone: () => void }) {
     void api.authOIDCConfig().then(setOidc).catch(() => setOidc(null))
   }, [])
 
+  const localEnabled = passwordEnabled || totpEnabled
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
     setBusy(true)
     setError("")
     try {
-      await api.authLogin(username.trim(), code.trim())
+      if (mode === "password") {
+        await api.authLoginPassword(username.trim(), password)
+      } else {
+        await api.authLogin(username.trim(), code.trim())
+      }
       onDone()
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("auth.invalidCode"))
+      setError(
+        err instanceof Error
+          ? err.message
+          : mode === "password"
+            ? t("auth.invalidPassword")
+            : t("auth.invalidCode"),
+      )
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <AuthLayout title={t("auth.loginTitle")} description={t("auth.loginIntro")}>
-      <form onSubmit={submit} className="space-y-4">
+    <AuthLayout
+      title={t("auth.loginTitle")}
+      description={
+        !localEnabled
+          ? t("auth.loginSsoOnly")
+          : mode === "password"
+            ? t("auth.loginIntroPassword")
+            : t("auth.loginIntro")
+      }
+    >
+      <div className="space-y-4">
         {oidcError ? (
           <p className="text-destructive text-xs">{t("auth.ssoError", { error: oidcError })}</p>
         ) : null}
@@ -252,45 +400,98 @@ function LoginScreen({ onDone }: { onDone: () => void }) {
             >
               <LogIn /> {t("auth.ssoLogin", { label: oidc.buttonLabel || t("auth.sso") })}
             </Button>
-            <div className="relative py-1 text-center">
-              <span className="bg-card text-muted-foreground relative z-10 px-2 text-xs">
-                {t("auth.or")}
-              </span>
-              <span className="bg-border absolute inset-x-0 top-1/2 h-px" />
-            </div>
+            {localEnabled ? (
+              <div className="relative py-1 text-center">
+                <span className="bg-card text-muted-foreground relative z-10 px-2 text-xs">
+                  {t("auth.or")}
+                </span>
+                <span className="bg-border absolute inset-x-0 top-1/2 h-px" />
+              </div>
+            ) : null}
           </>
         ) : null}
-        <div className="space-y-1">
-          <Label htmlFor="login-username">{t("auth.usernameLabel")}</Label>
-          <Input
-            id="login-username"
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-            autoComplete="username"
-            autoFocus
-          />
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="login-code">{t("auth.codeLabel")}</Label>
-          <Input
-            id="login-code"
-            value={code}
-            onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            className="font-mono tracking-[0.3em]"
-          />
-        </div>
-        {error ? <p className="text-destructive text-xs">{error}</p> : null}
-        <Button
-          type="submit"
-          className="w-full"
-          disabled={busy || code.length !== 6 || !username.trim()}
-        >
-          {busy ? <Loader2 className="animate-spin" /> : <ShieldCheck />}
-          {t("auth.login")}
-        </Button>
-      </form>
+
+        {localEnabled ? (
+          <form onSubmit={submit} className="space-y-4">
+            {passwordEnabled && totpEnabled ? (
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={mode === "password" ? "secondary" : "outline"}
+                  onClick={() => {
+                    setMode("password")
+                    setError("")
+                  }}
+                >
+                  <KeyRound /> {t("auth.method.password")}
+                </Button>
+                <Button
+                  type="button"
+                  variant={mode === "code" ? "secondary" : "outline"}
+                  onClick={() => {
+                    setMode("code")
+                    setError("")
+                  }}
+                >
+                  <ShieldCheck /> {t("auth.method.totp")}
+                </Button>
+              </div>
+            ) : null}
+
+            <div className="space-y-1">
+              <Label htmlFor="login-username">{t("auth.usernameLabel")}</Label>
+              <Input
+                id="login-username"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                autoComplete="username"
+                autoFocus
+              />
+            </div>
+
+            {mode === "password" ? (
+              <div className="space-y-1">
+                <Label htmlFor="login-password">{t("auth.passwordLabel")}</Label>
+                <Input
+                  id="login-password"
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="current-password"
+                />
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <Label htmlFor="login-code">{t("auth.codeLabel")}</Label>
+                <Input
+                  id="login-code"
+                  value={code}
+                  onChange={(event) =>
+                    setCode(event.target.value.replace(/\D/g, "").slice(0, 6))
+                  }
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  className="font-mono tracking-[0.3em]"
+                />
+              </div>
+            )}
+
+            {error ? <p className="text-destructive text-xs">{error}</p> : null}
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={
+                busy ||
+                !username.trim() ||
+                (mode === "password" ? password.length === 0 : code.length !== 6)
+              }
+            >
+              {busy ? <Loader2 className="animate-spin" /> : <ShieldCheck />}
+              {t("auth.login")}
+            </Button>
+          </form>
+        ) : null}
+      </div>
     </AuthLayout>
   )
 }

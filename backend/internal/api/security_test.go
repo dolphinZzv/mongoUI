@@ -1,12 +1,14 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"mongoui/internal/auth"
 	"mongoui/internal/config"
 	"mongoui/internal/mongoclient"
 )
@@ -117,5 +119,115 @@ func TestRedactConnection(t *testing.T) {
 	// A URI without credentials is returned unchanged.
 	if got := redactURI("mongodb://host:27017"); got != "mongodb://host:27017" {
 		t.Fatalf("no-credential uri changed: %s", got)
+	}
+}
+
+func loginCookie(t *testing.T, handler http.Handler, username, password string) *http.Cookie {
+	t.Helper()
+	body := fmt.Sprintf(`{"username":%q,"password":%q,"method":"password"}`, username, password)
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login = %d: %s", rec.Code, rec.Body.String())
+	}
+	for _, cookie := range rec.Result().Cookies() {
+		if cookie.Name == "mongoui_session" {
+			return cookie
+		}
+	}
+	t.Fatal("login did not set a session cookie")
+	return nil
+}
+
+func TestServerSettingsRequireAdmin(t *testing.T) {
+	store, err := config.NewStore(filepath.Join(t.TempDir(), "connections.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := config.NewSettings(config.DefaultMCPSettings())
+	manager, err := auth.New(t.TempDir(), nil, []byte("test-master-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.SetupWithPassword("admin", "admin password"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.CreatePasswordUser("viewer", auth.RoleReadWrite, "viewer password"); err != nil {
+		t.Fatal(err)
+	}
+	handler := New(store, mongoclient.NewManager(), true, "test", nil, manager, settings).Router(nil)
+	cookie := loginCookie(t, handler, "viewer", "viewer password")
+
+	paths := []struct{ method, path, body string }{
+		{http.MethodPut, "/api/update", `{"auto":false}`},
+		{http.MethodPost, "/api/update/check", ""},
+		{http.MethodPost, "/api/update/install", ""},
+		{http.MethodPut, "/api/mcp", `{"enabled":true}`},
+	}
+	for _, tc := range paths {
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("%s %s as readwrite = %d, want 403 (body %s)", tc.method, tc.path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestPersonalAccessTokenScopesThroughAPI(t *testing.T) {
+	store, err := config.NewStore(filepath.Join(t.TempDir(), "connections.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := config.NewSettings(config.DefaultMCPSettings())
+	manager, err := auth.New(t.TempDir(), nil, []byte("test-master-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.SetupWithPassword("admin", "admin password"); err != nil {
+		t.Fatal(err)
+	}
+	viewer, err := manager.CreatePasswordUser("viewer", auth.RoleReadWrite, "viewer password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readToken, _, err := manager.CreateToken(viewer.ID, "read", []string{auth.ScopeRead}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeToken, _, err := manager.CreateToken(viewer.ID, "write", []string{auth.ScopeWrite}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := New(store, mongoclient.NewManager(), true, "test", nil, manager, settings).Router(nil)
+
+	// Read tokens can list connections but must not create them.
+	req := httptest.NewRequest(http.MethodGet, "/api/connections", nil)
+	req.Header.Set("Authorization", "Bearer "+readToken)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("read token GET connections = %d: %s", rec.Code, rec.Body.String())
+	}
+	body := `{"name":"local","uri":"mongodb://localhost:27017"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/connections", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+readToken)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("read token create connection = %d, want 403: %s", rec.Code, rec.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodPost, "/api/connections", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+writeToken)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("write token create connection = %d: %s", rec.Code, rec.Body.String())
 	}
 }

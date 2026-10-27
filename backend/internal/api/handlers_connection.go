@@ -85,6 +85,9 @@ func (a *API) getConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) createConnection(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAccountWrite(w, r) {
+		return
+	}
 	var in connectionInput
 	if err := decodeJSON(r, &in); err != nil {
 		badRequest(w, err)
@@ -109,6 +112,9 @@ func (a *API) createConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) updateConnection(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAccountWrite(w, r) {
+		return
+	}
 	var in connectionInput
 	if err := decodeJSON(r, &in); err != nil {
 		badRequest(w, err)
@@ -148,6 +154,9 @@ func (a *API) updateConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) deleteConnection(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAccountWrite(w, r) {
+		return
+	}
 	id := chi.URLParam(r, "id")
 	a.mgr.Disconnect(id)
 	if err := a.store.Delete(id); err != nil {
@@ -162,6 +171,9 @@ func (a *API) deleteConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) connect(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAccountWrite(w, r) {
+		return
+	}
 	id := chi.URLParam(r, "id")
 	c, found := a.store.Get(id)
 	if !found {
@@ -178,6 +190,9 @@ func (a *API) connect(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) disconnect(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAccountWrite(w, r) {
+		return
+	}
 	id := chi.URLParam(r, "id")
 	a.mgr.Disconnect(id)
 	ok(w, map[string]any{"id": id, "connected": false})

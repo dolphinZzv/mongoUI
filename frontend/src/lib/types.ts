@@ -156,6 +156,8 @@ export interface ExplainRequest {
 
 export type AuthRole = "admin" | "readwrite" | "readonly"
 
+export type AuthScope = "read" | "write" | "admin"
+
 export interface AuthStatus {
   enabled: boolean
   authenticated: boolean
@@ -163,6 +165,10 @@ export interface AuthStatus {
   username?: string
   role?: AuthRole
   source?: string
+  scopes?: AuthScope[]
+  hasPassword?: boolean
+  passwordEnabled?: boolean
+  totpEnabled?: boolean
   oidc?: { enabled: boolean; buttonLabel?: string }
 }
 
@@ -177,8 +183,25 @@ export interface AuthUser {
   username: string
   role: AuthRole
   createdAt: string
-  source?: "totp" | "oidc"
+  source?: "password" | "totp" | "oidc"
+  hasPassword?: boolean
+  hasTOTP?: boolean
   email?: string
+}
+
+export interface AuthToken {
+  id: string
+  name: string
+  prefix: string
+  scopes: AuthScope[]
+  createdAt: string
+  lastUsedAt?: string
+  expiresAt?: string
+}
+
+export interface AuthTokenCreate {
+  token: string
+  info: AuthToken
 }
 
 export interface OIDCConfig {

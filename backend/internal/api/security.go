@@ -47,6 +47,17 @@ func (a *API) requireWrite(w http.ResponseWriter, r *http.Request) bool {
 	return false
 }
 
+// requireAccountWrite checks only the account/token write scope. It is used for
+// server-side configuration changes that are not tied to a read-only data
+// connection (creating or editing connection profiles, connect/disconnect).
+func (a *API) requireAccountWrite(w http.ResponseWriter, r *http.Request) bool {
+	if a.auth != nil && !a.auth.CanWrite(r) {
+		fail(w, http.StatusForbidden, errReadOnlyAccount)
+		return false
+	}
+	return true
+}
+
 // requireWritableConnection is requireWrite for an arbitrary connection id,
 // used when the target of a cross-connection copy is not the URL's connection.
 func (a *API) requireWritableConnection(w http.ResponseWriter, id string) bool {

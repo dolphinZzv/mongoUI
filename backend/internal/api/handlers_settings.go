@@ -20,6 +20,9 @@ func (a *API) getMCPSettings(w http.ResponseWriter, _ *http.Request) {
 // without specifying the read group enables it, so read tools are available by
 // default while the write group stays opt-in.
 func (a *API) updateMCPSettings(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAdmin(w, r) {
+		return
+	}
 	var in mcpSettingsInput
 	if err := decodeJSON(r, &in); err != nil {
 		badRequest(w, err)

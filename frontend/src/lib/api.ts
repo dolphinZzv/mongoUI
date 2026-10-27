@@ -2,8 +2,11 @@ import type {
   AggregateResult,
   AuditEntry,
   AuthRole,
+  AuthScope,
   AuthSetup,
   AuthStatus,
+  AuthToken,
+  AuthTokenCreate,
   AuthUser,
   AuthUserSetup,
   BackupFile,
@@ -288,11 +291,34 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ code }),
     }),
+  authSetupPassword: (username: string, password: string) =>
+    request<{ enabled: boolean; username: string; role: AuthRole }>("/auth/setup/password", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    }),
   authLogin: (username: string, code: string) =>
     request<{ authenticated: boolean; username?: string; role?: AuthRole }>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ username, code }),
     }),
+  authLoginPassword: (username: string, password: string) =>
+    request<{ authenticated: boolean; username?: string; role?: AuthRole }>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password, method: "password" }),
+    }),
+  authChangePassword: (currentPassword: string, newPassword: string) =>
+    request<{ updated: boolean }>("/auth/password", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
+  listAuthTokens: () => request<AuthToken[]>("/auth/tokens", { cache: "no-store" }),
+  createAuthToken: (name: string, scopes: AuthScope[], expiresAt?: string) =>
+    request<AuthTokenCreate>("/auth/tokens", {
+      method: "POST",
+      body: JSON.stringify({ name, scopes, expiresAt }),
+    }),
+  deleteAuthToken: (id: string) =>
+    request<{ deleted: string }>(`/auth/tokens/${enc(id)}`, { method: "DELETE" }),
   authLogout: () => request<{ authenticated: boolean }>("/auth/logout", { method: "POST" }),
   authOIDCConfig: () =>
     request<{ enabled: boolean; buttonLabel?: string }>("/auth/oidc/config"),
@@ -307,6 +333,16 @@ export const api = {
     request<AuthUserSetup>("/auth/users", {
       method: "POST",
       body: JSON.stringify({ username, role }),
+    }),
+  createAuthUserPassword: (username: string, role: AuthRole, password: string) =>
+    request<AuthUser>("/auth/users", {
+      method: "POST",
+      body: JSON.stringify({ username, role, password }),
+    }),
+  updateAuthUserPassword: (id: string, password: string) =>
+    request<{ id: string; role?: AuthRole }>(`/auth/users/${enc(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ password }),
     }),
   confirmAuthUser: (id: string, code: string) =>
     request<AuthUser>(`/auth/users/${enc(id)}/confirm`, {

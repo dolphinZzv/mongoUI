@@ -20,7 +20,10 @@ jobs:
     runs-on: ubuntu-latest
     services:
       mongo:
-        image: mongo:8
+        # MongoDB 8.0 crashes on the kernel currently used by GitHub runners
+        # (SERVER-121912). The integration tests only need the generic driver
+        # API, so use 7.x until an 8.x image includes the tcmalloc fix.
+        image: mongo:7
         ports:
           - 27017:27017
         # Wait until mongod accepts connections before running the job; the

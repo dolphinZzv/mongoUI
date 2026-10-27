@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Settings2Icon,
   SunIcon,
+  UserRound,
   Users,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -42,6 +43,7 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { useAuth } from "@/components/auth-gate"
 import { LazyMount } from "@/components/lazy-mount"
+import { Badge } from "@/components/ui/badge"
 import { api } from "@/lib/api"
 import { copyToClipboard } from "@/lib/clipboard"
 import { LOCALES, useI18n } from "@/lib/i18n"
@@ -71,7 +73,7 @@ interface SettingsMenuProps {
 export function SettingsMenu({ authEnabled }: SettingsMenuProps) {
   const { t, locale, setLocale } = useI18n()
   const { theme, setTheme } = useTheme()
-  const { role } = useAuth()
+  const { role, username, source } = useAuth()
   const [usersOpen, setUsersOpen] = React.useState(false)
   const [backupsOpen, setBackupsOpen] = React.useState(false)
   const [oidcOpen, setOidcOpen] = React.useState(false)
@@ -187,6 +189,23 @@ export function SettingsMenu({ authEnabled }: SettingsMenuProps) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80">
+        {authEnabled && username ? (
+          <>
+            <DropdownMenuLabel className="flex items-center gap-2">
+              <UserRound className="size-4" />
+              <span className="min-w-0 flex-1 truncate">{username}</span>
+              <span className="text-muted-foreground text-[10px] uppercase">
+                {source === "oidc" ? t("users.source.oidc") : t("users.source.totp")}
+              </span>
+              {role ? (
+                <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                  {t(`users.role.${role}`)}
+                </Badge>
+              ) : null}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
         {/* Browser agent ------------------------------------------------------ */}
         <DropdownMenuLabel className="flex items-center gap-2">
           <BotIcon className="size-4" /> {t("agent.title")}

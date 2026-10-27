@@ -508,6 +508,8 @@ const en: Record<string, string> = {
   "users.desc": "Manage the accounts that can sign in and their roles.",
   "users.add": "Add",
   "users.username": "Username",
+  "users.current": "current",
+  "users.count": "Accounts: {{count}}",
   "users.role": "Role",
   "users.role.admin": "Admin",
   "users.role.readwrite": "Read / write",

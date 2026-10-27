@@ -273,6 +273,11 @@ func (m *Manager) ConfirmSetup(code string) (string, error) {
 	delete(m.pending, "initial")
 	m.enabled = true
 	if err := m.save(); err != nil {
+		// Keep memory consistent with disk so a failed write does not leave a
+		// half-created account that disappears on the next restart.
+		m.users = m.users[:len(m.users)-1]
+		m.enabled = false
+		m.pending["initial"] = pending
 		return "", err
 	}
 	return user.ID, nil
@@ -372,6 +377,10 @@ func (m *Manager) ConfirmUserSetup(id, code string) (User, error) {
 	m.users = append(m.users, user)
 	delete(m.pending, id)
 	if err := m.save(); err != nil {
+		// Roll back the in-memory append when persistence fails; otherwise the
+		// account appears in the list until the next restart, then vanishes.
+		m.users = m.users[:len(m.users)-1]
+		m.pending[id] = pending
 		return User{}, err
 	}
 	return user, nil
@@ -391,8 +400,13 @@ func (m *Manager) UpdateUserRole(id string, role Role) error {
 		if m.users[i].Role == RoleAdmin && role != RoleAdmin && m.adminCount() <= 1 {
 			return errors.New("cannot remove the last admin")
 		}
+		oldRole := m.users[i].Role
 		m.users[i].Role = role
-		return m.save()
+		if err := m.save(); err != nil {
+			m.users[i].Role = oldRole
+			return err
+		}
+		return nil
 	}
 	return errors.New("account not found")
 }
@@ -408,8 +422,16 @@ func (m *Manager) DeleteUser(id string) error {
 		if m.users[i].Role == RoleAdmin && m.adminCount() <= 1 {
 			return errors.New("cannot delete the last admin")
 		}
+		removed := m.users[i]
 		m.users = append(m.users[:i], m.users[i+1:]...)
-		return m.save()
+		if err := m.save(); err != nil {
+			// Put the account back so memory still matches the on-disk state.
+			m.users = append(m.users, User{})
+			copy(m.users[i+1:], m.users[i:])
+			m.users[i] = removed
+			return err
+		}
+		return nil
 	}
 	return errors.New("account not found")
 }
@@ -603,6 +625,10 @@ type codeRequest struct {
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	// Account data is security-sensitive and must never be served from a browser
+	// or reverse-proxy cache; otherwise a newly added account can stay invisible.
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }

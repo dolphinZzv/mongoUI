@@ -505,6 +505,8 @@ const zh: Record<string, string> = {
   "users.desc": "管理可登录的账号及其角色。",
   "users.add": "添加",
   "users.username": "用户名",
+  "users.current": "当前",
+  "users.count": "账号：{{count}}",
   "users.role": "角色",
   "users.role.admin": "管理员",
   "users.role.readwrite": "读写",

@@ -1,7 +1,9 @@
 import * as React from "react"
-import { Loader2, Plus, ShieldCheck, Trash2 } from "lucide-react"
+import { Loader2, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
+import { useAuth } from "@/components/auth-gate"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -33,6 +35,7 @@ const ROLES: AuthRole[] = ["admin", "readwrite", "readonly"]
 /** Admin-only account management: list, add (TOTP), change role, delete. */
 export function UsersDialog({ open, onOpenChange }: UsersDialogProps) {
   const { t } = useI18n()
+  const { username: currentUsername } = useAuth()
   const [users, setUsers] = React.useState<AuthUser[]>([])
   const [loading, setLoading] = React.useState(false)
   const [adding, setAdding] = React.useState(false)
@@ -45,7 +48,7 @@ export function UsersDialog({ open, onOpenChange }: UsersDialogProps) {
   const load = React.useCallback(async () => {
     setLoading(true)
     try {
-      setUsers(await api.listAuthUsers())
+      setUsers((await api.listAuthUsers()) ?? [])
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("users.failed"))
     } finally {
@@ -159,6 +162,21 @@ export function UsersDialog({ open, onOpenChange }: UsersDialogProps) {
           </form>
         ) : (
           <>
+            <div className="flex shrink-0 items-center justify-between gap-2">
+              <p className="text-muted-foreground text-xs">
+                {t("users.count", { count: users.length })}
+              </p>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => void load()}
+                disabled={loading}
+                title={t("common.refresh")}
+                aria-label={t("common.refresh")}
+              >
+                <RefreshCw className={loading ? "animate-spin" : ""} />
+              </Button>
+            </div>
             <div className="scrollbar-thin min-h-0 flex-1 space-y-2 overflow-auto">
               {loading && users.length === 0 ? (
                 <div className="text-muted-foreground flex justify-center py-6">
@@ -176,6 +194,11 @@ export function UsersDialog({ open, onOpenChange }: UsersDialogProps) {
                       <span className="text-muted-foreground ml-1.5 text-[10px] uppercase">
                         {user.source === "oidc" ? t("users.source.oidc") : t("users.source.totp")}
                       </span>
+                      {currentUsername && user.username === currentUsername ? (
+                        <Badge variant="secondary" className="ml-1.5 px-1 py-0 text-[9px]">
+                          {t("users.current")}
+                        </Badge>
+                      ) : null}
                     </p>
                     <p className="text-muted-foreground text-[11px]">
                       {user.email ? `${user.email} · ` : ""}

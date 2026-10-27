@@ -478,6 +478,7 @@ func (m *Manager) provisionOIDCUser(username, email string, role Role, cfg *OIDC
 		if m.users[i].Source != "oidc" {
 			return User{}, errors.New("this username belongs to a local account")
 		}
+		oldRole, oldEmail := m.users[i].Role, m.users[i].Email
 		if cfg.SyncRole {
 			m.users[i].Role = role
 		}
@@ -485,6 +486,7 @@ func (m *Manager) provisionOIDCUser(username, email string, role Role, cfg *OIDC
 			m.users[i].Email = email
 		}
 		if err := m.save(); err != nil {
+			m.users[i].Role, m.users[i].Email = oldRole, oldEmail
 			return User{}, err
 		}
 		return m.users[i], nil
@@ -507,6 +509,7 @@ func (m *Manager) provisionOIDCUser(username, email string, role Role, cfg *OIDC
 	}
 	m.users = append(m.users, user)
 	if err := m.save(); err != nil {
+		m.users = m.users[:len(m.users)-1]
 		return User{}, err
 	}
 	return user, nil

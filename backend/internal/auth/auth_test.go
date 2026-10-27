@@ -259,3 +259,35 @@ func TestWrongMasterKeyFails(t *testing.T) {
 		t.Fatal("expected a decryption error with the wrong master key")
 	}
 }
+
+func TestListUsersReturnsAllAccountsAndNoStore(t *testing.T) {
+	m := newTestManager(t)
+	secret, _, _, _ := m.BeginSetup()
+	adminID, err := m.ConfirmSetup(newCode(t, secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"alice", "bob"} {
+		id, secret, _, _, err := m.BeginUserSetup(name, RoleReadWrite)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := m.ConfirmUserSetup(id, newCode(t, secret)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	m.handleListUsers(rec, requestWithSession(m, adminID))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
+	}
+	for _, name := range []string{"admin", "alice", "bob"} {
+		if !strings.Contains(rec.Body.String(), `"username":"`+name+`"`) {
+			t.Fatalf("account %q missing from %s", name, rec.Body.String())
+		}
+	}
+}

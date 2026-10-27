@@ -20,6 +20,7 @@ interface AuthContextValue {
   enabled: boolean
   username?: string
   role?: AuthRole
+  source?: string
 }
 
 const AuthContext = React.createContext<AuthContextValue>({ enabled: false })
@@ -75,7 +76,12 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }
   return (
     <AuthContext.Provider
-      value={{ enabled: status.enabled, username: status.username, role: status.role }}
+      value={{
+        enabled: status.enabled,
+        username: status.username,
+        role: status.role,
+        source: status.source,
+      }}
     >
       {children}
     </AuthContext.Provider>

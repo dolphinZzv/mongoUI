@@ -281,7 +281,7 @@ export const api = {
     }),
 
   // auth ------------------------------------------------------------------------
-  authStatus: () => request<AuthStatus>("/auth/status"),
+  authStatus: () => request<AuthStatus>("/auth/status", { cache: "no-store" }),
   authSetupBegin: () => request<AuthSetup>("/auth/setup/begin", { method: "POST" }),
   authSetupConfirm: (code: string) =>
     request<{ enabled: boolean }>("/auth/setup/confirm", {
@@ -302,7 +302,7 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(input),
     }),
-  listAuthUsers: () => request<AuthUser[]>("/auth/users"),
+  listAuthUsers: () => request<AuthUser[]>("/auth/users", { cache: "no-store" }),
   createAuthUser: (username: string, role: AuthRole) =>
     request<AuthUserSetup>("/auth/users", {
       method: "POST",

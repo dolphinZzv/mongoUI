@@ -283,7 +283,10 @@ func (a *API) listBackups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.backups.mu.Lock()
-	tasks := append([]BackupTask(nil), a.backups.tasks...)
+	// Use a non-nil slice so an empty task list is encoded as [] rather than
+	// null; the UI iterates this value directly.
+	tasks := make([]BackupTask, len(a.backups.tasks))
+	copy(tasks, a.backups.tasks)
 	for i := range tasks {
 		tasks[i].Running = a.backups.running[tasks[i].ID]
 	}

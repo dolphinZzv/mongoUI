@@ -54,7 +54,9 @@ export function BackupsDialog({ open, onOpenChange }: BackupsDialogProps) {
     setLoading(true)
     try {
       const res = await api.listBackups()
-      setTasks(res.tasks)
+      // Older servers may encode an empty list as null; never let that crash
+      // the dialog while it renders.
+      setTasks(res.tasks ?? [])
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("backups.failed"))
     } finally {
@@ -126,7 +128,7 @@ export function BackupsDialog({ open, onOpenChange }: BackupsDialogProps) {
   const refreshSilently = React.useCallback(async () => {
     try {
       const res = await api.listBackups()
-      setTasks(res.tasks)
+      setTasks(res.tasks ?? [])
     } catch {
       /* polling errors are not worth a toast */
     }
@@ -161,7 +163,7 @@ export function BackupsDialog({ open, onOpenChange }: BackupsDialogProps) {
     setFilesLoading(true)
     try {
       const res = await api.listBackupFiles(task.id)
-      setFiles(res.files)
+      setFiles(res.files ?? [])
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("backups.failed"))
     } finally {

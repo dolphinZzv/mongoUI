@@ -40,7 +40,7 @@ import { ColumnsPicker } from "@/components/documents/columns-picker"
 import { DocumentsPagination } from "@/components/documents/documents-pagination"
 import { DocumentsTableStates } from "@/components/documents/documents-table-states"
 import { DocumentsCardList } from "@/components/documents/documents-card-list"
-import { CellContextMenu, CellValue } from "@/components/documents/cell"
+import { CellContextMenu, CellValue, InlineCellEditor } from "@/components/documents/cell"
 import { DocumentsMoreMenu } from "@/components/documents/documents-more-menu"
 import { ViewsMenu } from "@/components/documents/views-menu"
 import { Label } from "@/components/ui/label"
@@ -177,6 +177,8 @@ export function DocumentsTab({
     column: string
   } | null>(null)
   const [activeRow, setActiveRow] = React.useState<number | null>(null)
+  const [inlineEdit, setInlineEdit] = React.useState<{ row: number; column: string } | null>(null)
+  const [inlineBusy, setInlineBusy] = React.useState(false)
   const [allMatching, setAllMatching] = React.useState(false)
   const [updateOpen, setUpdateOpen] = React.useState(false)
   const [updateValue, setUpdateValue] = React.useState('{\n  "$set": {\n    \n  }\n}')
@@ -238,6 +240,7 @@ export function DocumentsTab({
 
       setLoading(true)
       setError(null)
+      setInlineEdit(null)
       // Cancel any request still in flight so a slow earlier query cannot
       // overwrite the results of a newer one.
       abortRef.current?.abort()
@@ -861,6 +864,76 @@ export function DocumentsTab({
     await load({})
   }
 
+  const canEditCell = (row: number, column: string) => {
+    if (readOnly || column === "_id") return false
+    const doc = documents[row]
+    return Boolean(doc && "_id" in doc)
+  }
+
+  const beginInlineEdit = (row: number, column: string) => {
+    if (!canEditCell(row, column)) return
+    setCellMenu(null)
+    setActiveRow(row)
+    setInlineEdit({ row, column })
+  }
+
+  // Only close the editor if the user is still on the cell that was saved;
+  // clicking another cell while a save is in flight must not close the new one.
+  const closeInlineEdit = (row: number, column: string) => {
+    setInlineEdit((current) =>
+      current && current.row === row && current.column === column ? null : current,
+    )
+  }
+
+  const saveInlineEdit = async (
+    row: number,
+    column: string,
+    value: unknown,
+  ): Promise<boolean> => {
+    const doc = documents[row]
+    if (!doc || !("_id" in doc)) {
+      toast.error(t("docs.noId"))
+      return false
+    }
+    // No-op edits should just close the editor.
+    if (JSON.stringify(doc[column]) === JSON.stringify(value)) {
+      closeInlineEdit(row, column)
+      return true
+    }
+
+    const targetId = documentId(doc)
+    setInlineBusy(true)
+    try {
+      await api.update(connectionId, database, collection, {
+        filter: { _id: doc._id },
+        update:
+          value === undefined
+            ? { $unset: { [column]: "" } }
+            : { $set: { [column]: value } },
+      })
+      setResult((prev) => {
+        if (!prev) return prev
+        const nextDocuments = prev.documents.map((entry, index) => {
+          const matches = targetId !== null ? documentId(entry) === targetId : index === row
+          if (!matches) return entry
+          const next = { ...entry }
+          if (value === undefined) delete next[column]
+          else next[column] = value
+          return next
+        })
+        return { ...prev, documents: nextDocuments }
+      })
+      toast.success(t("docs.updated"))
+      closeInlineEdit(row, column)
+      return true
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("docs.updateFailed"))
+      return false
+    } finally {
+      setInlineBusy(false)
+    }
+  }
+
   const restoreDocuments = React.useCallback(
     async (docs: MongoDocument[]) => {
       if (docs.length === 0) return
@@ -1134,7 +1207,10 @@ export function DocumentsTab({
             onInsert={() => setEditing({ mode: "insert" })}
             onImport={() => setTransfer("import")}
             onToggleOne={toggleOne}
-            onEdit={(doc) => setEditing({ mode: "edit", document: doc })}
+            onEdit={(doc) => {
+              setInlineEdit(null)
+              setEditing({ mode: "edit", document: doc })
+            }}
           />
         </div>
         <div className="hidden md:block">
@@ -1316,6 +1392,7 @@ export function DocumentsTab({
                       dragMovedRef.current = false
                       return
                     }
+                    setInlineEdit(null)
                     if (!readOnly) setEditing({ mode: "edit", document: doc })
                   }}
                 >
@@ -1335,12 +1412,15 @@ export function DocumentsTab({
                     const left = frozen.offsets[column]
                     const isLastPinned =
                       isPinned && pinnedColumns[pinnedColumns.length - 1] === column
+                    const isEditing =
+                      inlineEdit?.row === index && inlineEdit.column === column
                     return (
                       <TableCell
                         key={column}
                         data-column={column}
                         className={cn(
-                          "max-w-[320px] truncate",
+                          "max-w-[320px]",
+                          !isEditing && "truncate",
                           isPinned && "cell-frozen sticky z-10",
                           isLastPinned && frozen.scrolled && PINNED_EDGE_SHADOW,
                         )}
@@ -1354,8 +1434,22 @@ export function DocumentsTab({
                             : {}),
                           ...(isPinned && left !== undefined ? { left } : {}),
                         }}
+                        onDoubleClick={(event) => {
+                          if (!canEditCell(index, column)) return
+                          event.stopPropagation()
+                          beginInlineEdit(index, column)
+                        }}
                       >
-                        <CellValue value={doc[column]} />
+                        {isEditing ? (
+                          <InlineCellEditor
+                            value={doc[column]}
+                            busy={inlineBusy}
+                            onSave={(value) => saveInlineEdit(index, column, value)}
+                            onCancel={() => setInlineEdit(null)}
+                          />
+                        ) : (
+                          <CellValue value={doc[column]} />
+                        )}
                       </TableCell>
                     )
                   })}
@@ -1369,7 +1463,10 @@ export function DocumentsTab({
                       <DropdownMenuContent align="end" className="w-48">
                         <DropdownMenuItem
                           disabled={readOnly}
-                          onSelect={() => setEditing({ mode: "edit", document: doc })}
+                          onSelect={() => {
+                            setInlineEdit(null)
+                            setEditing({ mode: "edit", document: doc })
+                          }}
                         >
                           <Pencil /> {t("docs.editDocument")}
                         </DropdownMenuItem>
@@ -1471,6 +1568,11 @@ export function DocumentsTab({
           value={cellValue}
           document={cellDoc}
           onCopy={copyCellMenu}
+          onEdit={
+            canEditCell(cellMenu.row, cellMenu.column)
+              ? () => beginInlineEdit(cellMenu.row, cellMenu.column)
+              : undefined
+          }
         />
       ) : null}
 

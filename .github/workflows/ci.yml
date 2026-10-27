@@ -23,6 +23,14 @@ jobs:
         image: mongo:8
         ports:
           - 27017:27017
+        # Wait until mongod accepts connections before running the job; the
+        # integration tests otherwise fail with "connection refused" on a slow
+        # runner.
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok'"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
     env:
       MONGOUI_TEST_MONGO_URI: mongodb://127.0.0.1:27017
     defaults:
@@ -51,6 +59,18 @@ jobs:
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           "$(go env GOPATH)/bin/govulncheck" ./...
+
+      - name: Wait for MongoDB
+        run: |
+          for i in $(seq 1 60); do
+            if nc -z 127.0.0.1 27017; then
+              echo "MongoDB is accepting connections"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::MongoDB did not become ready on 127.0.0.1:27017"
+          exit 1
 
       - name: Test
         run: go test ./... -race -covermode=atomic -coverprofile=coverage.out

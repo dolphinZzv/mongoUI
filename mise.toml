@@ -7,8 +7,8 @@
 # `node`, `pnpm` and `go` below are the single source of truth for local
 # development, CI and the Docker build.
 [tools]
-node = "24"
+go = "1.27.3"
+node = "26.12.1"
 # Use the npm backend: the aqua build of pnpm 12 ships a tarball layout that
 # this mise/aqua registry version cannot match.
-"npm:pnpm" = "12.4.1"
-go = "1.26.10"
+"npm:pnpm" = "12.15.0"

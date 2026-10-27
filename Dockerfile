@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1
 
 # --- Front-end build --------------------------------------------------------
-FROM node:24-alpine AS frontend
+FROM node:26-alpine AS frontend
 WORKDIR /src/frontend
-# Activate the pnpm version pinned by "packageManager" in package.json.
-RUN corepack enable
+# Install the pnpm version pinned in mise.toml / package.json.
+RUN npm install -g pnpm@12.15.0
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY frontend/ ./
@@ -13,7 +13,7 @@ ARG APP_VERSION=dev
 RUN VITE_APP_VERSION="${APP_VERSION#v}" pnpm run build
 
 # --- Backend build ----------------------------------------------------------
-FROM golang:1.26-alpine AS backend
+FROM golang:1.27-alpine AS backend
 WORKDIR /src/backend
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download

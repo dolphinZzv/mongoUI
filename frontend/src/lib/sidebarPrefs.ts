@@ -34,6 +34,29 @@ export function writeExpanded(state: ExpandedState): void {
   }
 }
 
+// --- system collections ------------------------------------------------------
+
+const SHOW_SYSTEM_COLLECTIONS_KEY = "mongoui-sidebar-show-system"
+
+/** MongoDB's internal collections all live under the `system.` namespace. */
+export const isSystemCollection = (name: string) => name.startsWith("system.")
+
+export function readShowSystemCollections(): boolean {
+  try {
+    return localStorage.getItem(SHOW_SYSTEM_COLLECTIONS_KEY) === "1"
+  } catch {
+    return false
+  }
+}
+
+export function writeShowSystemCollections(show: boolean): void {
+  try {
+    localStorage.setItem(SHOW_SYSTEM_COLLECTIONS_KEY, show ? "1" : "0")
+  } catch {
+    /* storage may be unavailable */
+  }
+}
+
 // --- pinned connections / databases / collections ---------------------------
 
 const PINNED_KEY = "mongoui-sidebar-pinned"

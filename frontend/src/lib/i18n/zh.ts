@@ -56,6 +56,17 @@ const zh: Record<string, string> = {
   "palette.navigate": "导航",
   "palette.run": "执行",
 
+  // 顶栏搜索
+  "headerSearch.placeholder": "搜索连接、数据库、集合…",
+  "headerSearch.navigation": "导航",
+  "headerSearch.tabs": "已打开标签",
+  "headerSearch.collections": "集合",
+  "headerSearch.actions": "操作",
+  "headerSearch.globalSearch": "在数据库中搜索“{{term}}”",
+  "headerSearch.commandPalette": "打开命令面板",
+  "headerSearch.empty": "没有匹配项",
+  "headerSearch.searching": "正在搜索…",
+
   // 全库搜索
   "search.title": "全库搜索",
   "search.desc": "在某个数据库的所有集合中按值或字段名搜索。",
@@ -149,6 +160,7 @@ const zh: Record<string, string> = {
   "sidebar.filter": "过滤连接、数据库、集合…",
   "sidebar.filterAria": "过滤连接、数据库与集合",
   "sidebar.clearFilter": "清除过滤",
+  "sidebar.showSystemCollections": "显示系统集合",
   "sidebar.nothingMatches": "没有匹配“{{query}}”的内容。",
   "sidebar.loadingConnections": "正在加载连接…",
   "sidebar.noConnections": "还没有连接",

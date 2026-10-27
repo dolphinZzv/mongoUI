@@ -53,7 +53,13 @@ export function useFrozenColumns(
 
     const measure = () => {
       frame = 0
-      const leading = leadingWidth > 0 ? leadingWidth : 0
+      // The leading gutter (row-select checkbox) is laid out by the table, so
+      // its real width can differ from the nominal `w-10` (auto table layout
+      // distributes extra space). Measure it instead of trusting 40px, or the
+      // first pinned header will sit underneath the checkbox column.
+      const leadingCell = root.querySelector<HTMLElement>("th[data-sticky-checkbox]")
+      const measuredLeading = leadingCell?.getBoundingClientRect().width ?? 0
+      const leading = measuredLeading > 0 ? Math.ceil(measuredLeading) : leadingWidth
       const widthByColumn = new Map<string, number>()
       root.querySelectorAll<HTMLElement>("th[data-column]").forEach((th) => {
         const column = th.dataset.column
@@ -91,6 +97,9 @@ export function useFrozenColumns(
     measure()
     const observer = new ResizeObserver(schedule)
     observer.observe(root)
+    root.querySelectorAll<HTMLElement>("th[data-sticky-checkbox]").forEach((th) => {
+      observer.observe(th)
+    })
     root.querySelectorAll<HTMLElement>("th[data-column]").forEach((th) => {
       if (th.dataset.column && pinnedSet.has(th.dataset.column)) observer.observe(th)
     })

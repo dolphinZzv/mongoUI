@@ -34,6 +34,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
@@ -43,11 +44,14 @@ import {
   connPin,
   dbKey,
   dbPin,
+  isSystemCollection,
   pinnedFirst,
   readExpanded,
   readPinned,
+  readShowSystemCollections,
   writeExpanded,
   writePinned,
+  writeShowSystemCollections,
 } from "@/lib/sidebarPrefs"
 import { cn } from "@/lib/utils"
 import type { CollectionInfo, Connection, DatabaseInfo, Selection } from "@/lib/types"
@@ -98,6 +102,9 @@ export function AppSidebar({
   const [busyConn, setBusyConn] = React.useState<Record<string, boolean>>({})
   const [filter, setFilter] = React.useState("")
   const [pinned, setPinned] = React.useState<Set<string>>(() => readPinned())
+  const [showSystemCollections, setShowSystemCollections] = React.useState(
+    () => readShowSystemCollections(),
+  )
 
   const [dbDialogFor, setDbDialogFor] = React.useState<string | null>(null)
   const [colDialogFor, setColDialogFor] = React.useState<{ connectionId: string; database: string } | null>(null)
@@ -234,6 +241,10 @@ export function AppSidebar({
   React.useEffect(() => {
     writePinned(pinned)
   }, [pinned])
+
+  React.useEffect(() => {
+    writeShowSystemCollections(showSystemCollections)
+  }, [showSystemCollections])
 
   const togglePin = React.useCallback((key: string) => {
     setPinned((prev) => {
@@ -385,7 +396,11 @@ export function AppSidebar({
       return !dbs.some((database) => {
         if (matches(database.name)) return true
         const key = dbKey(connection.id, database.name)
-        return (collections[key] ?? []).some((collection) => matches(collection.name))
+        return (collections[key] ?? []).some(
+          (collection) =>
+            (showSystemCollections || !isSystemCollection(collection.name)) &&
+            matches(collection.name),
+        )
       })
     })
 
@@ -430,6 +445,7 @@ export function AppSidebar({
         const [connectionId, database, collection] = key.slice(2).split("::")
         const connection = connections.find((c) => c.id === connectionId)
         if (!connection || !database || !collection) continue
+        if (!showSystemCollections && isSystemCollection(collection)) continue
         items.push({
           key,
           label: `${connection.name} / ${database} / ${collection}`,
@@ -441,7 +457,7 @@ export function AppSidebar({
     }
     return items
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pinned, connections, onSelect])
+  }, [pinned, connections, onSelect, showSystemCollections])
 
   const pinnedQueries = usePinnedQueries()
   const pinnedQueryItems = React.useMemo(
@@ -517,6 +533,20 @@ export function AppSidebar({
               <X className="size-3.5" />
             </button>
           ) : null}
+        </div>
+        <div className="mt-1.5 flex items-center justify-between gap-2 px-1">
+          <label
+            htmlFor="sidebar-show-system-collections"
+            className="text-muted-foreground cursor-pointer text-[11px]"
+          >
+            {t("sidebar.showSystemCollections")}
+          </label>
+          <Switch
+            id="sidebar-show-system-collections"
+            checked={showSystemCollections}
+            onCheckedChange={setShowSystemCollections}
+            aria-label={t("sidebar.showSystemCollections")}
+          />
         </div>
       </div>
 
@@ -678,7 +708,11 @@ export function AppSidebar({
               ? dbs.filter((database) => {
                   if (connectionMatches || matches(database.name)) return true
                   const key = dbKey(connection.id, database.name)
-                  return (collections[key] ?? []).some((collection) => matches(collection.name))
+                  return (collections[key] ?? []).some(
+                    (collection) =>
+                      (showSystemCollections || !isSystemCollection(collection.name)) &&
+                      matches(collection.name),
+                  )
                 })
               : dbs
             if (filtering && !connectionMatches && visibleDbs.length === 0) return null
@@ -805,7 +839,10 @@ export function AppSidebar({
                     {orderedDbs.map((database) => {
                       const key = dbKey(connection.id, database.name)
                       const dbOpen = filtering || Boolean(expandedDbs[key])
-                      const allCols = collections[key] ?? []
+                      const allCols = (collections[key] ?? []).filter(
+                        (collection) =>
+                          showSystemCollections || !isSystemCollection(collection.name),
+                      )
                       const dbMatches = matches(database.name)
                       const cols =
                         !filtering || connectionMatches || dbMatches

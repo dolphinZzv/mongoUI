@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { AppSidebar } from "@/components/app-sidebar"
 import { CollectionTabs } from "@/components/collection-tabs"
 import { ConnectionStatus } from "@/components/connection-status"
+import { HeaderSearch } from "@/components/header-search"
 import { useAuth } from "@/components/auth-gate"
 import { LazyMount } from "@/components/lazy-mount"
 import { SettingsMenu } from "@/components/settings-menu"
@@ -84,6 +85,7 @@ export default function App() {
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [paletteOpen, setPaletteOpen] = React.useState(false)
   const [searchOpen, setSearchOpen] = React.useState(false)
+  const [searchTerm, setSearchTerm] = React.useState("")
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false)
   const [auditOpen, setAuditOpen] = React.useState(false)
   const [profileOpen, setProfileOpen] = React.useState(false)
@@ -331,6 +333,11 @@ export default function App() {
     },
     [navigate],
   )
+
+  const openGlobalSearch = React.useCallback((term?: string) => {
+    setSearchTerm(term ?? "")
+    setSearchOpen(true)
+  }, [])
 
   const activeTabKey = selection.kind === "collection" ? tabKey(selection) : null
 
@@ -592,6 +599,14 @@ export default function App() {
               )}
             </div>
             <div className="ml-auto flex items-center gap-2">
+              <HeaderSearch
+                connections={connections}
+                tabs={tabs}
+                onSelect={handleSelect}
+                onOpenQuery={handleOpenQuery}
+                onOpenGlobalSearch={openGlobalSearch}
+                onOpenPalette={() => setPaletteOpen(true)}
+              />
               {selectedConnection ? (
                 <ConnectionStatus
                   connection={selectedConnection}
@@ -601,7 +616,7 @@ export default function App() {
               <Button
                 variant="ghost"
                 size="icon-sm"
-                onClick={() => setSearchOpen(true)}
+                onClick={() => openGlobalSearch()}
                 title={t("search.title")}
                 aria-label={t("search.title")}
               >
@@ -612,7 +627,7 @@ export default function App() {
                 size="sm"
                 onClick={() => setPaletteOpen(true)}
                 title={t("palette.open")}
-                className="text-muted-foreground gap-2"
+                className="text-muted-foreground gap-2 lg:hidden"
               >
                 <Search className="size-3.5" />
                 <kbd className="hidden font-mono text-[10px] sm:inline">
@@ -698,7 +713,7 @@ export default function App() {
           onTabChange={handleTabChange}
           onNewConnection={openNewConnection}
           onRefresh={() => void refreshConnections()}
-          onGlobalSearch={() => setSearchOpen(true)}
+          onGlobalSearch={() => openGlobalSearch()}
           onAudit={() => setAuditOpen(true)}
           onProfile={() => setProfileOpen(true)}
           onShortcuts={() => setShortcutsOpen(true)}
@@ -710,6 +725,7 @@ export default function App() {
           onOpenChange={setSearchOpen}
           connections={connections}
           selection={selection}
+          initialTerm={searchTerm}
           onOpenQuery={handleOpenQuery}
         />
       </LazyMount>

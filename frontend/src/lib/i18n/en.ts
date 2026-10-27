@@ -56,6 +56,17 @@ const en: Record<string, string> = {
   "palette.navigate": "Navigate",
   "palette.run": "Run",
 
+  // header search
+  "headerSearch.placeholder": "Search connections, databases, collections…",
+  "headerSearch.navigation": "Navigation",
+  "headerSearch.tabs": "Open tabs",
+  "headerSearch.collections": "Collections",
+  "headerSearch.actions": "Actions",
+  "headerSearch.globalSearch": "Search database for “{{term}}”",
+  "headerSearch.commandPalette": "Open command palette",
+  "headerSearch.empty": "No matches",
+  "headerSearch.searching": "Searching…",
+
   // global search
   "search.title": "Search database",
   "search.desc": "Find a value or field name across every collection in a database.",
@@ -150,6 +161,7 @@ const en: Record<string, string> = {
   "sidebar.filter": "Filter connections, databases, collections…",
   "sidebar.filterAria": "Filter connections, databases and collections",
   "sidebar.clearFilter": "Clear filter",
+  "sidebar.showSystemCollections": "Show system collections",
   "sidebar.nothingMatches": "Nothing matches “{{query}}”.",
   "sidebar.loadingConnections": "Loading connections…",
   "sidebar.noConnections": "No connections yet",

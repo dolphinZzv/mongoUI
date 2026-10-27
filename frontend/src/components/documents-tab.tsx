@@ -110,7 +110,7 @@ const MongoQueryBuilder = React.lazy(() =>
 /** Inset shadow marking the right edge of the frozen region once scrolled. */
 const PINNED_EDGE_SHADOW = "cell-frozen-edge"
 
-/** Width of the leading row-select column (Tailwind `w-10`). */
+/** Fallback width of the leading row-select column (Tailwind `w-10`). */
 const CHECKBOX_COLUMN_WIDTH = 40
 
 interface DocumentsTabProps {
@@ -393,7 +393,8 @@ export function DocumentsTab({
   }, [viewsStoreKey, views])
 
   // Frozen columns: the hook measures the pinned header widths and hands back
-  // the `left` offset for each one. The checkbox gutter is a fixed 2.5rem cell.
+  // the `left` offset for each one. The checkbox gutter is measured too, with
+  // this value as the fallback while the table is hidden.
   const frozen = useFrozenColumns(pinnedColumns, CHECKBOX_COLUMN_WIDTH)
 
   const setColumnHidden = React.useCallback((column: string, hidden: boolean) => {

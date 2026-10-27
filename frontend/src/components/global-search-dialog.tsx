@@ -30,6 +30,8 @@ interface GlobalSearchDialogProps {
   onOpenChange: (open: boolean) => void
   connections: Connection[]
   selection: Selection
+  /** Prefill the term, e.g. when opened from the header quick search. */
+  initialTerm?: string
   onOpenQuery: (selection: Selection, filter: string) => void
 }
 
@@ -39,6 +41,7 @@ export function GlobalSearchDialog({
   onOpenChange,
   connections,
   selection,
+  initialTerm,
   onOpenQuery,
 }: GlobalSearchDialogProps) {
   const { t } = useI18n()
@@ -51,6 +54,11 @@ export function GlobalSearchDialog({
   const [loading, setLoading] = React.useState(false)
   const [searched, setSearched] = React.useState(false)
   const [results, setResults] = React.useState<SearchHit[]>([])
+
+  React.useEffect(() => {
+    if (!open) return
+    setTerm(initialTerm ?? "")
+  }, [open, initialTerm])
 
   React.useEffect(() => {
     if (!open) return

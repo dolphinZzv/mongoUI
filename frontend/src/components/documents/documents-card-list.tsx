@@ -23,6 +23,8 @@ interface DocumentsCardListProps {
   onImport: () => void
   onToggleOne: (id: string, checked: boolean) => void
   onEdit: (doc: MongoDocument) => void
+  /** Open the read-only full-value preview for a field. */
+  onPreview?: (column: string, value: unknown) => void
 }
 
 const MAX_CARD_FIELDS = 8
@@ -46,6 +48,7 @@ export function DocumentsCardList({
   onImport,
   onToggleOne,
   onEdit,
+  onPreview,
 }: DocumentsCardListProps) {
   const { t } = useI18n()
 
@@ -142,7 +145,10 @@ export function DocumentsCardList({
               >
                 <div className="flex items-center gap-1">
                   <span className="min-w-0 flex-1 truncate">
-                    <CellValue value={"_id" in doc ? doc._id : undefined} />
+                    <CellValue
+                      value={"_id" in doc ? doc._id : undefined}
+                      onExpand={onPreview ? () => onPreview("_id", doc._id) : undefined}
+                    />
                   </span>
                   {!readOnly ? (
                     <Pencil className="text-muted-foreground size-3 shrink-0" />
@@ -155,7 +161,10 @@ export function DocumentsCardList({
                         {column}
                       </dt>
                       <dd className="min-w-0 flex-1">
-                        <CellValue value={doc[column]} />
+                        <CellValue
+                          value={doc[column]}
+                          onExpand={onPreview ? () => onPreview(column, doc[column]) : undefined}
+                        />
                       </dd>
                     </div>
                   ))}

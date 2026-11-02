@@ -322,6 +322,8 @@ const en: Record<string, string> = {
   "docs.showOnly": "Show only this column",
   "docs.copyValue": "Copy value",
   "docs.copyValueJson": "Copy value as JSON",
+  "docs.viewFullValueHint": "Click to view the full value",
+  "docs.valuePreviewDesc": "{{type}} · {{count}} characters",
   "docs.copyId": "Copy _id",
   "docs.copyDocument": "Copy document",
   "docs.copyAsSet": "Copy as $set update",

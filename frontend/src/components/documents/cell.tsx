@@ -6,16 +6,61 @@ import { useI18n } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 import type { MongoDocument } from "@/lib/types"
 
+/** Values longer than this are truncated in the grid and can be previewed. */
+export const CELL_PREVIEW_LENGTH = 90
+
+/** Whether a value is too large to show in a single table cell. */
+export function isPreviewableValue(value: unknown): boolean {
+  const text = formatValue(value)
+  return text.length > CELL_PREVIEW_LENGTH || text.includes("\n")
+}
+
+/** True when the rendered cell value is clipped by its column. */
+export function cellValueOverflows(container: HTMLElement | null): boolean {
+  const value = container?.querySelector<HTMLElement>("[data-cell-value]")
+  return Boolean(value && value.scrollWidth > value.clientWidth + 1)
+}
+
+interface CellValueProps {
+  value: unknown
+  /** Enables a click-through preview for values that do not fit in the cell. */
+  onExpand?: () => void
+}
+
 /** A single BSON value rendered as a type-colored, truncated monospace cell. */
-export function CellValue({ value }: { value: unknown }) {
+export function CellValue({ value, onExpand }: CellValueProps) {
+  const { t } = useI18n()
   const type = valueType(value)
   const text = formatValue(value)
   if (value === null || value === undefined) {
     return <span className="text-muted-foreground font-mono text-xs italic">null</span>
   }
-  const display = text.length > 90 ? `${text.slice(0, 90)}…` : text
+  const expandable = Boolean(onExpand) && isPreviewableValue(value)
+  const display =
+    text.length > CELL_PREVIEW_LENGTH ? `${text.slice(0, CELL_PREVIEW_LENGTH)}…` : text
   return (
-    <span className={cn("font-mono text-xs", classForType(type))} title={text}>
+    <span
+      data-cell-value
+      className={cn(
+        "block max-w-full truncate font-mono text-xs",
+        classForType(type),
+        expandable &&
+          "cursor-pointer hover:underline hover:decoration-dotted hover:underline-offset-2",
+      )}
+      title={expandable ? t("docs.viewFullValueHint") : text}
+      onClick={
+        onExpand
+          ? (event) => {
+              // A shorter value can still be clipped by a narrow column.
+              if (!isPreviewableValue(value) && !cellValueOverflows(event.currentTarget)) {
+                return
+              }
+              event.stopPropagation()
+              onExpand()
+            }
+          : undefined
+      }
+    >
       {display}
     </span>
   )

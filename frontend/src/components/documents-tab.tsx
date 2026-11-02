@@ -40,7 +40,14 @@ import { ColumnsPicker } from "@/components/documents/columns-picker"
 import { DocumentsPagination } from "@/components/documents/documents-pagination"
 import { DocumentsTableStates } from "@/components/documents/documents-table-states"
 import { DocumentsCardList } from "@/components/documents/documents-card-list"
-import { CellContextMenu, CellValue, InlineCellEditor } from "@/components/documents/cell"
+import {
+  CellContextMenu,
+  CellValue,
+  InlineCellEditor,
+  cellValueOverflows,
+  isPreviewableValue,
+} from "@/components/documents/cell"
+import { CellValueDialog } from "@/components/documents/cell-value-dialog"
 import { DocumentsMoreMenu } from "@/components/documents/documents-more-menu"
 import { ViewsMenu } from "@/components/documents/views-menu"
 import { Label } from "@/components/ui/label"
@@ -175,6 +182,10 @@ export function DocumentsTab({
     y: number
     row: number
     column: string
+  } | null>(null)
+  const [valuePreview, setValuePreview] = React.useState<{
+    column: string
+    value: unknown
   } | null>(null)
   const [activeRow, setActiveRow] = React.useState<number | null>(null)
   const [inlineEdit, setInlineEdit] = React.useState<{ row: number; column: string } | null>(null)
@@ -1212,6 +1223,9 @@ export function DocumentsTab({
               setInlineEdit(null)
               setEditing({ mode: "edit", document: doc })
             }}
+            onPreview={
+              readOnly ? (column, value) => setValuePreview({ column, value }) : undefined
+            }
           />
         </div>
         <div className="hidden md:block">
@@ -1415,6 +1429,7 @@ export function DocumentsTab({
                       isPinned && pinnedColumns[pinnedColumns.length - 1] === column
                     const isEditing =
                       inlineEdit?.row === index && inlineEdit.column === column
+                    const previewable = readOnly && isPreviewableValue(doc[column])
                     return (
                       <TableCell
                         key={column}
@@ -1422,6 +1437,7 @@ export function DocumentsTab({
                         className={cn(
                           "max-w-[320px]",
                           !isEditing && "truncate",
+                          previewable && "cursor-pointer",
                           isPinned && "cell-frozen sticky z-10",
                           isLastPinned && frozen.scrolled && PINNED_EDGE_SHADOW,
                         )}
@@ -1435,6 +1451,14 @@ export function DocumentsTab({
                             : {}),
                           ...(isPinned && left !== undefined ? { left } : {}),
                         }}
+                        onClick={
+                          readOnly
+                            ? (event) => {
+                                if (!cellValueOverflows(event.currentTarget)) return
+                                setValuePreview({ column, value: doc[column] })
+                              }
+                            : undefined
+                        }
                         onDoubleClick={(event) => {
                           if (!canEditCell(index, column)) return
                           event.stopPropagation()
@@ -1449,7 +1473,14 @@ export function DocumentsTab({
                             onCancel={() => setInlineEdit(null)}
                           />
                         ) : (
-                          <CellValue value={doc[column]} />
+                          <CellValue
+                            value={doc[column]}
+                            onExpand={
+                              readOnly
+                                ? () => setValuePreview({ column, value: doc[column] })
+                                : undefined
+                            }
+                          />
                         )}
                       </TableCell>
                     )
@@ -1576,6 +1607,15 @@ export function DocumentsTab({
           }
         />
       ) : null}
+
+      <CellValueDialog
+        open={valuePreview !== null}
+        onOpenChange={(open) => {
+          if (!open) setValuePreview(null)
+        }}
+        column={valuePreview?.column ?? ""}
+        value={valuePreview?.value}
+      />
 
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
         <DialogContent className="sm:max-w-md">

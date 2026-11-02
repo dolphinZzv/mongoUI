@@ -11,10 +11,15 @@ import {
 } from "@/components/ui/table"
 import { useFrozenColumns } from "@/hooks/useFrozenColumns"
 import { useI18n } from "@/lib/i18n"
-import { classForType, formatValue, valueType } from "@/lib/mongo"
 import { readResultPinned, resultPinnedKey, writeResultPinned } from "@/lib/resultTablePrefs"
 import { cn } from "@/lib/utils"
 import type { MongoDocument } from "@/lib/types"
+import {
+  CellValue,
+  cellValueOverflows,
+  isPreviewableValue,
+} from "@/components/documents/cell"
+import { CellValueDialog } from "@/components/documents/cell-value-dialog"
 
 /** Inset shadow marking the right edge of the frozen region once scrolled. */
 const PINNED_EDGE_SHADOW = "cell-frozen-edge"
@@ -35,6 +40,10 @@ export function ResultTable({ documents, columns, storageKey }: ResultTableProps
   const { t } = useI18n()
   const prefsKey = resultPinnedKey(storageKey)
   const [pinned, setPinned] = React.useState<string[]>(() => readResultPinned(prefsKey))
+  const [valuePreview, setValuePreview] = React.useState<{
+    column: string
+    value: unknown
+  } | null>(null)
 
   // Reload the stored choice when the caller switches collection/tab.
   React.useEffect(() => {
@@ -65,87 +74,101 @@ export function ResultTable({ documents, columns, storageKey }: ResultTableProps
   }
 
   return (
-    <div
-      ref={frozen.scrollRef}
-      onScroll={frozen.onScroll}
-      className="scrollbar-thin min-h-0 flex-1 overflow-auto"
-    >
-      <Table>
-        <TableHeader className="bg-background sticky top-0 z-20">
-          <TableRow className="hover:bg-transparent">
-            {displayColumns.map((column) => {
-              const isPinned = pinnedSet.has(column)
-              const left = frozen.offsets[column]
-              const isLastPinned =
-                isPinned && pinnedColumns[pinnedColumns.length - 1] === column
-              return (
-                <TableHead
-                  key={column}
-                  data-column={column}
-                  scope="col"
-                  className={cn(
-                    "group font-mono text-xs",
-                    isPinned ? "cell-frozen sticky z-30" : "relative",
-                    isLastPinned && frozen.scrolled && PINNED_EDGE_SHADOW,
-                  )}
-                  style={isPinned && left !== undefined ? { left } : undefined}
-                >
-                  <div className="flex items-center gap-1">
-                    <span className="truncate">{column}</span>
-                    <button
-                      type="button"
-                      onClick={() => togglePinned(column)}
-                      title={isPinned ? t("docs.unpinColumn") : t("docs.pinColumn")}
-                      aria-label={isPinned ? t("docs.unpinColumn") : t("docs.pinColumn")}
-                      aria-pressed={isPinned}
-                      className={cn(
-                        "shrink-0 rounded p-0.5 transition-opacity",
-                        isPinned
-                          ? "text-primary opacity-100"
-                          : "text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
-                      )}
-                    >
-                      {isPinned ? <PinOff className="size-3" /> : <Pin className="size-3" />}
-                    </button>
-                  </div>
-                </TableHead>
-              )
-            })}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {documents.map((doc, index) => (
-            <TableRow key={index}>
+    <>
+      <div
+        ref={frozen.scrollRef}
+        onScroll={frozen.onScroll}
+        className="scrollbar-thin min-h-0 flex-1 overflow-auto"
+      >
+        <Table>
+          <TableHeader className="bg-background sticky top-0 z-20">
+            <TableRow className="hover:bg-transparent">
               {displayColumns.map((column) => {
-                const value = doc[column]
                 const isPinned = pinnedSet.has(column)
                 const left = frozen.offsets[column]
                 const isLastPinned =
                   isPinned && pinnedColumns[pinnedColumns.length - 1] === column
                 return (
-                  <TableCell
+                  <TableHead
                     key={column}
                     data-column={column}
+                    scope="col"
                     className={cn(
-                      "max-w-[320px] truncate",
-                      isPinned && "cell-frozen sticky z-10",
+                      "group font-mono text-xs",
+                      isPinned ? "cell-frozen sticky z-30" : "relative",
                       isLastPinned && frozen.scrolled && PINNED_EDGE_SHADOW,
                     )}
                     style={isPinned && left !== undefined ? { left } : undefined}
                   >
-                    <span
-                      className={cn("font-mono text-xs", classForType(valueType(value)))}
-                      title={formatValue(value)}
-                    >
-                      {formatValue(value).slice(0, 90)}
-                    </span>
-                  </TableCell>
+                    <div className="flex items-center gap-1">
+                      <span className="truncate">{column}</span>
+                      <button
+                        type="button"
+                        onClick={() => togglePinned(column)}
+                        title={isPinned ? t("docs.unpinColumn") : t("docs.pinColumn")}
+                        aria-label={isPinned ? t("docs.unpinColumn") : t("docs.pinColumn")}
+                        aria-pressed={isPinned}
+                        className={cn(
+                          "shrink-0 rounded p-0.5 transition-opacity",
+                          isPinned
+                            ? "text-primary opacity-100"
+                            : "text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+                        )}
+                      >
+                        {isPinned ? <PinOff className="size-3" /> : <Pin className="size-3" />}
+                      </button>
+                    </div>
+                  </TableHead>
                 )
               })}
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+          </TableHeader>
+          <TableBody>
+            {documents.map((doc, index) => (
+              <TableRow key={index}>
+                {displayColumns.map((column) => {
+                  const value = doc[column]
+                  const isPinned = pinnedSet.has(column)
+                  const left = frozen.offsets[column]
+                  const isLastPinned =
+                    isPinned && pinnedColumns[pinnedColumns.length - 1] === column
+                  const previewable = isPreviewableValue(value)
+                  return (
+                    <TableCell
+                      key={column}
+                      data-column={column}
+                      className={cn(
+                        "max-w-[320px] truncate",
+                        previewable && "cursor-pointer",
+                        isPinned && "cell-frozen sticky z-10",
+                        isLastPinned && frozen.scrolled && PINNED_EDGE_SHADOW,
+                      )}
+                      style={isPinned && left !== undefined ? { left } : undefined}
+                      onClick={(event) => {
+                        if (!cellValueOverflows(event.currentTarget)) return
+                        setValuePreview({ column, value })
+                      }}
+                    >
+                      <CellValue
+                        value={value}
+                        onExpand={() => setValuePreview({ column, value })}
+                      />
+                    </TableCell>
+                  )
+                })}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <CellValueDialog
+        open={valuePreview !== null}
+        onOpenChange={(open) => {
+          if (!open) setValuePreview(null)
+        }}
+        column={valuePreview?.column ?? ""}
+        value={valuePreview?.value}
+      />
+    </>
   )
 }

@@ -321,6 +321,8 @@ const zh: Record<string, string> = {
   "docs.showOnly": "仅显示该列",
   "docs.copyValue": "复制值",
   "docs.copyValueJson": "复制值为 JSON",
+  "docs.viewFullValueHint": "点击查看完整内容",
+  "docs.valuePreviewDesc": "{{type}} · {{count}} 个字符",
   "docs.copyId": "复制 _id",
   "docs.copyDocument": "复制文档",
   "docs.copyAsSet": "复制为 $set 更新",

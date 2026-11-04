@@ -45,13 +45,16 @@ import {
   dbKey,
   dbPin,
   isSystemCollection,
+  isSystemDatabase,
   pinnedFirst,
   readExpanded,
   readPinned,
   readShowSystemCollections,
+  readShowSystemDatabases,
   writeExpanded,
   writePinned,
   writeShowSystemCollections,
+  writeShowSystemDatabases,
 } from "@/lib/sidebarPrefs"
 import { cn } from "@/lib/utils"
 import type { CollectionInfo, Connection, DatabaseInfo, Selection } from "@/lib/types"
@@ -104,6 +107,9 @@ export function AppSidebar({
   const [pinned, setPinned] = React.useState<Set<string>>(() => readPinned())
   const [showSystemCollections, setShowSystemCollections] = React.useState(
     () => readShowSystemCollections(),
+  )
+  const [showSystemDatabases, setShowSystemDatabases] = React.useState(
+    () => readShowSystemDatabases(),
   )
 
   const [dbDialogFor, setDbDialogFor] = React.useState<string | null>(null)
@@ -245,6 +251,10 @@ export function AppSidebar({
   React.useEffect(() => {
     writeShowSystemCollections(showSystemCollections)
   }, [showSystemCollections])
+
+  React.useEffect(() => {
+    writeShowSystemDatabases(showSystemDatabases)
+  }, [showSystemDatabases])
 
   const togglePin = React.useCallback((key: string) => {
     setPinned((prev) => {
@@ -394,6 +404,7 @@ export function AppSidebar({
       if (matches(connection.name)) return false
       const dbs = databases[connection.id] ?? []
       return !dbs.some((database) => {
+        if (!showSystemDatabases && isSystemDatabase(database.name)) return false
         if (matches(database.name)) return true
         const key = dbKey(connection.id, database.name)
         return (collections[key] ?? []).some(
@@ -431,6 +442,7 @@ export function AppSidebar({
         const [connectionId, database] = key.slice(2).split("::")
         const connection = connections.find((c) => c.id === connectionId)
         if (!connection || !database) continue
+        if (!showSystemDatabases && isSystemDatabase(database)) continue
         items.push({
           key,
           label: `${connection.name} / ${database}`,
@@ -445,6 +457,7 @@ export function AppSidebar({
         const [connectionId, database, collection] = key.slice(2).split("::")
         const connection = connections.find((c) => c.id === connectionId)
         if (!connection || !database || !collection) continue
+        if (!showSystemDatabases && isSystemDatabase(database)) continue
         if (!showSystemCollections && isSystemCollection(collection)) continue
         items.push({
           key,
@@ -457,17 +470,18 @@ export function AppSidebar({
     }
     return items
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pinned, connections, onSelect, showSystemCollections])
+  }, [pinned, connections, onSelect, showSystemCollections, showSystemDatabases])
 
   const pinnedQueries = usePinnedQueries()
   const pinnedQueryItems = React.useMemo(
     () =>
       pinnedQueries.flatMap((query) => {
+        if (!showSystemDatabases && isSystemDatabase(query.database)) return []
         const connection = connections.find((c) => c.id === query.connectionId)
         if (!connection) return []
         return [{ query, connectionName: connection.name }]
       }),
-    [pinnedQueries, connections],
+    [pinnedQueries, connections, showSystemDatabases],
   )
 
   const [renamingKey, setRenamingKey] = React.useState<string | null>(null)
@@ -546,6 +560,20 @@ export function AppSidebar({
             checked={showSystemCollections}
             onCheckedChange={setShowSystemCollections}
             aria-label={t("sidebar.showSystemCollections")}
+          />
+        </div>
+        <div className="mt-1 flex items-center justify-between gap-2 px-1">
+          <label
+            htmlFor="sidebar-show-system-databases"
+            className="text-muted-foreground cursor-pointer text-[11px]"
+          >
+            {t("sidebar.showSystemDatabases")}
+          </label>
+          <Switch
+            id="sidebar-show-system-databases"
+            checked={showSystemDatabases}
+            onCheckedChange={setShowSystemDatabases}
+            aria-label={t("sidebar.showSystemDatabases")}
           />
         </div>
       </div>
@@ -703,7 +731,9 @@ export function AppSidebar({
             const isExpanded = filtering || Boolean(expandedConns[connection.id])
             const isSelected =
               selection.kind === "connection" && selection.connectionId === connection.id
-            const dbs = databases[connection.id] ?? []
+            const dbs = (databases[connection.id] ?? []).filter(
+              (database) => showSystemDatabases || !isSystemDatabase(database.name),
+            )
             const visibleDbs = filtering
               ? dbs.filter((database) => {
                   if (connectionMatches || matches(database.name)) return true

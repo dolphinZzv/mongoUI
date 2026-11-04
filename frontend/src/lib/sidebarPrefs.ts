@@ -34,12 +34,19 @@ export function writeExpanded(state: ExpandedState): void {
   }
 }
 
-// --- system collections ------------------------------------------------------
+// --- system databases / collections ------------------------------------------
 
 const SHOW_SYSTEM_COLLECTIONS_KEY = "mongoui-sidebar-show-system"
+const SHOW_SYSTEM_DATABASES_KEY = "mongoui-sidebar-show-system-databases"
 
 /** MongoDB's internal collections all live under the `system.` namespace. */
 export const isSystemCollection = (name: string) => name.startsWith("system.")
+
+/** MongoDB ships with these administrative databases on every deployment. */
+const SYSTEM_DATABASES = new Set(["admin", "config", "local"])
+
+export const isSystemDatabase = (name: string) =>
+  SYSTEM_DATABASES.has(name.trim().toLowerCase())
 
 export function readShowSystemCollections(): boolean {
   try {
@@ -52,6 +59,22 @@ export function readShowSystemCollections(): boolean {
 export function writeShowSystemCollections(show: boolean): void {
   try {
     localStorage.setItem(SHOW_SYSTEM_COLLECTIONS_KEY, show ? "1" : "0")
+  } catch {
+    /* storage may be unavailable */
+  }
+}
+
+export function readShowSystemDatabases(): boolean {
+  try {
+    return localStorage.getItem(SHOW_SYSTEM_DATABASES_KEY) === "1"
+  } catch {
+    return false
+  }
+}
+
+export function writeShowSystemDatabases(show: boolean): void {
+  try {
+    localStorage.setItem(SHOW_SYSTEM_DATABASES_KEY, show ? "1" : "0")
   } catch {
     /* storage may be unavailable */
   }

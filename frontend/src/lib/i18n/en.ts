@@ -162,6 +162,7 @@ const en: Record<string, string> = {
   "sidebar.filterAria": "Filter connections, databases and collections",
   "sidebar.clearFilter": "Clear filter",
   "sidebar.showSystemCollections": "Show system collections",
+  "sidebar.showSystemDatabases": "Show system databases",
   "sidebar.nothingMatches": "Nothing matches “{{query}}”.",
   "sidebar.loadingConnections": "Loading connections…",
   "sidebar.noConnections": "No connections yet",

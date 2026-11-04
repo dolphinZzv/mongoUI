@@ -161,6 +161,7 @@ const zh: Record<string, string> = {
   "sidebar.filterAria": "过滤连接、数据库与集合",
   "sidebar.clearFilter": "清除过滤",
   "sidebar.showSystemCollections": "显示系统集合",
+  "sidebar.showSystemDatabases": "显示系统数据库",
   "sidebar.nothingMatches": "没有匹配“{{query}}”的内容。",
   "sidebar.loadingConnections": "正在加载连接…",
   "sidebar.noConnections": "还没有连接",

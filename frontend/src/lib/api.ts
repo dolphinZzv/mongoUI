@@ -19,6 +19,8 @@ import type {
   DeleteRequest,
   ExplainRequest,
   ExportResult,
+  FeedbackInput,
+  FeedbackResult,
   FindRequest,
   FindResult,
   ImportResult,
@@ -388,6 +390,10 @@ export const api = {
     request<UpdateSettings>("/update", { method: "PUT", body: JSON.stringify(input) }),
   checkUpdate: () => request<UpdateStatus>("/update/check", { method: "POST" }),
   installUpdate: () => request<UpdateStatus>("/update/install", { method: "POST" }),
+
+  // feedback --------------------------------------------------------------------
+  submitFeedback: (input: FeedbackInput) =>
+    request<FeedbackResult>("/feedback", { method: "POST", body: JSON.stringify(input) }),
 
   // indexes ---------------------------------------------------------------------
   listIndexes: (id: string, db: string, col: string) =>

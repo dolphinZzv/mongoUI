@@ -2,8 +2,9 @@
 // binary and installs it. It is driven by the persisted update settings so the
 // user can disable it (or change the interval) from the UI.
 //
-// The updater replaces the on-disk binary but does not restart the running
-// process: it reports RestartRequired so the UI can ask the user to restart.
+// The updater replaces the on-disk binary and reports RestartRequired. When the
+// process is managed by a service (systemd/launchd), SetRestartAfterUpdate can
+// trigger a clean exit so the service manager starts the new binary.
 package autoupdate
 
 import (
@@ -35,6 +36,9 @@ type Updater struct {
 
 	mu     sync.Mutex
 	status Status
+
+	onRestart       func()
+	restartSignaled bool
 
 	stop chan struct{}
 	wg   sync.WaitGroup
@@ -85,6 +89,16 @@ func (u *Updater) Stop() {
 	case <-done:
 	case <-time.After(2 * time.Second):
 	}
+}
+
+// SetRestartAfterUpdate installs a callback invoked once after a successful
+// binary replacement. A service manager can use it to exit cleanly and be
+// restarted with the new binary.
+func (u *Updater) SetRestartAfterUpdate(fn func()) {
+	u.mu.Lock()
+	u.onRestart = fn
+	u.restartSignaled = false
+	u.mu.Unlock()
 }
 
 // Status returns a copy of the current updater state.
@@ -149,8 +163,17 @@ func (u *Updater) Update() (Status, error) {
 	u.status.InstalledVersion = latest
 	u.status.RestartRequired = true
 	u.status.LastError = ""
+	var restart func()
+	if u.onRestart != nil && !u.restartSignaled {
+		u.restartSignaled = true
+		restart = u.onRestart
+	}
+	status := u.status
 	u.mu.Unlock()
-	return u.Status(), nil
+	if restart != nil {
+		restart()
+	}
+	return status, nil
 }
 
 func (u *Updater) setCheck(latest string) {

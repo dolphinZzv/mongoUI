@@ -8,7 +8,7 @@
 #   --version <v>     install a specific version (default: latest release)
 #   --dir <path>      install directory (default: /usr/local/bin or ~/.local/bin)
 #   --repo <o/n>      GitHub repository (default: dolphinZzv/mongoUI)
-#   --service         also install a systemd unit (Linux, needs root)
+#   --service         also install a system service (Linux systemd / macOS launchd, needs root)
 #   VERSION, INSTALL_DIR, REPO environment variables behave the same way.
 #
 set -eu
@@ -176,32 +176,15 @@ echo "==> Installing to ${INSTALL_DIR}/${BIN_NAME}"
 chmod +x "$tmp_dir/$BIN_NAME"
 mv -f "$tmp_dir/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
 
-# --- optional systemd unit --------------------------------------------------
+# --- optional system service ------------------------------------------------
 
 if [ "$WITH_SERVICE" -eq 1 ]; then
-  if [ "$os" = "linux" ] && command -v systemctl >/dev/null 2>&1 && [ "$(id -u)" -eq 0 ]; then
-    unit=/etc/systemd/system/mongoui.service
-    echo "==> Writing ${unit}"
-    cat > "$unit" <<EOF
-[Unit]
-Description=mongoui MongoDB manager
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=${INSTALL_DIR}/${BIN_NAME} -addr :8080 -data /var/lib/mongoui
-Restart=on-failure
-User=root
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    systemctl daemon-reload
-    systemctl enable --now mongoui
-    echo "    service enabled: systemctl status mongoui"
-  else
-    echo "    warning: --service requires Linux, systemd and root" >&2
+  if [ "$(id -u)" -ne 0 ]; then
+    echo "error: --service requires root; re-run with sudo" >&2
+    exit 1
   fi
+  echo "==> Installing system service"
+  "$INSTALL_DIR/$BIN_NAME" service install -addr :8080 -repo "$REPO"
 fi
 
 # --- done -------------------------------------------------------------------
@@ -222,7 +205,10 @@ esac
 echo ""
 echo "Start the server:"
 echo "  ${BIN_NAME} -addr :8080"
-echo "Run in the background:"
+echo "Run as a system service (starts at boot, auto-restarts):"
+echo "  sudo ${BIN_NAME} service install -addr :8080"
+echo "  ${BIN_NAME} service status"
+echo "Run in the background without a service manager:"
 echo "  ${BIN_NAME} -daemon -addr :8080"
 echo "Update to the latest release:"
 echo "  ${BIN_NAME} update"

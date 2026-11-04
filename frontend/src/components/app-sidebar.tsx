@@ -37,6 +37,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { api } from "@/lib/api"
+import { compileTextFilter } from "@/lib/filter"
 import { useI18n } from "@/lib/i18n"
 import { removePinnedQuery, renamePinnedQuery, usePinnedQueries, type PinnedQuery } from "@/lib/pinnedQueries"
 import {
@@ -155,9 +156,9 @@ export function AppSidebar({
     }
   }, [])
 
-  const query = filter.trim().toLowerCase()
+  const query = filter.trim()
   const filtering = query.length > 0
-  const matches = (value: string) => value.toLowerCase().includes(query)
+  const matches = React.useMemo(() => compileTextFilter(query), [query])
 
   // While filtering, make sure nested databases/collections are loaded so the
   // search covers the whole tree rather than only expanded branches.
@@ -548,6 +549,9 @@ export function AppSidebar({
             </button>
           ) : null}
         </div>
+        <p className="text-muted-foreground mt-1 px-1 text-[10px]">
+          {t("sidebar.filterSyntax")}
+        </p>
         <div className="mt-1.5 flex items-center justify-between gap-2 px-1">
           <label
             htmlFor="sidebar-show-system-collections"

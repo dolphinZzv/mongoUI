@@ -157,10 +157,26 @@ const en: Record<string, string> = {
   "update.failed": "Update action failed",
   "update.error": "Last error: {{error}}",
 
+  // feedback
+  "feedback.button": "Feedback",
+  "feedback.title": "Send feedback",
+  "feedback.desc": "Found a bug or have an idea? Submit it as a GitHub issue.",
+  "feedback.subject": "Title",
+  "feedback.subjectPlaceholder": "Short summary",
+  "feedback.details": "Description",
+  "feedback.detailsPlaceholder": "What happened? What did you expect?",
+  "feedback.contextHint": "Your MongoUI version and browser information will be attached to the issue.",
+  "feedback.send": "Submit feedback",
+  "feedback.sending": "Submitting…",
+  "feedback.sent": "Feedback submitted — thank you!",
+  "feedback.failed": "Could not submit feedback",
+  "feedback.dismiss": "Hide feedback button",
+
   // sidebar
   "sidebar.filter": "Filter connections, databases, collections…",
   "sidebar.filterAria": "Filter connections, databases and collections",
   "sidebar.clearFilter": "Clear filter",
+  "sidebar.filterSyntax": "Wildcards: * any, ? one · Regex: /pattern/flags",
   "sidebar.showSystemCollections": "Show system collections",
   "sidebar.showSystemDatabases": "Show system databases",
   "sidebar.nothingMatches": "Nothing matches “{{query}}”.",

@@ -100,6 +100,7 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 			r.Use(a.auditMiddleware)
 
 			r.Get("/audit", a.listAudit)
+			r.Post("/feedback", a.submitFeedback)
 
 			r.Get("/backups", a.listBackups)
 			r.Post("/backups", a.createBackup)

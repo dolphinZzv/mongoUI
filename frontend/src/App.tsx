@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { AppSidebar } from "@/components/app-sidebar"
 import { CollectionTabs } from "@/components/collection-tabs"
 import { ConnectionStatus } from "@/components/connection-status"
+import { FeedbackWidget } from "@/components/feedback-widget"
 import { HeaderSearch } from "@/components/header-search"
 import { useAuth } from "@/components/auth-gate"
 import { LazyMount } from "@/components/lazy-mount"
@@ -89,6 +90,7 @@ export default function App() {
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false)
   const [auditOpen, setAuditOpen] = React.useState(false)
   const [profileOpen, setProfileOpen] = React.useState(false)
+  const [feedbackOpen, setFeedbackOpen] = React.useState(false)
   const [tabs, setTabs] = React.useState<CollectionTab[]>(() => readTabs())
   const [editingConnection, setEditingConnection] = React.useState<Connection | null>(null)
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
@@ -644,7 +646,7 @@ export default function App() {
               >
                 <SquareTerminal />
               </Button>
-              <SettingsMenu authEnabled={authEnabled} />
+              <SettingsMenu authEnabled={authEnabled} onFeedback={() => setFeedbackOpen(true)} />
             </div>
           </header>
           <CollectionTabs
@@ -741,6 +743,7 @@ export default function App() {
         />
       </LazyMount>
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+      <FeedbackWidget open={feedbackOpen} onOpenChange={setFeedbackOpen} />
       <Toaster />
       </TooltipProvider>
     </ThemeProvider>

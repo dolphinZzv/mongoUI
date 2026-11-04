@@ -26,6 +26,7 @@ import (
 	"mongoui/internal/daemon"
 	"mongoui/internal/mcp"
 	"mongoui/internal/mongoclient"
+	"mongoui/internal/service"
 	"mongoui/internal/update"
 	"mongoui/web"
 )
@@ -45,6 +46,8 @@ func main() {
 			os.Exit(runUpdate(os.Args[2:]))
 		case "mcp":
 			os.Exit(runMCP(os.Args[2:]))
+		case "service":
+			os.Exit(runService(os.Args[2:]))
 		}
 	}
 
@@ -170,8 +173,20 @@ func main() {
 
 	updaterEnabled := update.IsReleaseVersion(version) && !envBool("MONGOUI_DISABLE_AUTOUPDATE")
 	var updater *autoupdate.Updater
+	restartCh := make(chan struct{}, 1)
 	if updaterEnabled {
 		updater = autoupdate.New(version, envOr("MONGOUI_REPO", update.DefaultRepo), settings)
+		if envBool("MONGOUI_RESTART_AFTER_UPDATE") {
+			// The unit installed by `mongoui service install` sets this, so a
+			// self-update ends with a clean exit and systemd/launchd starts the
+			// new binary without manual intervention.
+			updater.SetRestartAfterUpdate(func() {
+				select {
+				case restartCh <- struct{}{}:
+				default:
+				}
+			})
+		}
 		updater.Start()
 		defer updater.Stop()
 	} else {
@@ -214,9 +229,12 @@ func main() {
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	<-stop
-
-	log.Printf("shutting down...")
+	select {
+	case <-stop:
+		log.Printf("shutting down...")
+	case <-restartCh:
+		log.Printf("update installed; restarting via the service manager...")
+	}
 	mgr.CloseAll()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -276,6 +294,136 @@ func runMCP(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// runService implements the `mongoui service` subcommand: install and manage
+// a systemd/launchd service, including automatic restart after self-updates.
+func runService(args []string) int {
+	if len(args) == 0 {
+		serviceUsage()
+		return 2
+	}
+	action := args[0]
+	switch action {
+	case "-h", "--help", "help":
+		serviceUsage()
+		return 0
+	}
+
+	flags := flag.NewFlagSet("service "+action, flag.ContinueOnError)
+	name := flags.String("name", "mongoui", "service name")
+	addr := flags.String("addr", envOr("MONGOUI_ADDR", ":8080"), "HTTP listen address")
+	dataDir := flags.String("data", envOr("MONGOUI_DATA", service.DefaultDataDir()), "data directory")
+	user := flags.String("user", "", "run the service as this user (default: root)")
+	repo := flags.String("repo", envOr("MONGOUI_REPO", update.DefaultRepo), "GitHub repository for self-updates and feedback")
+	noStart := flags.Bool("no-start", false, "install/enable without starting now")
+	lines := flags.Int("lines", 100, "number of log lines to show")
+	if err := flags.Parse(args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if err := service.ValidateName(*name); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 2
+	}
+
+	switch action {
+	case "install":
+		exe, err := os.Executable()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: cannot resolve executable: %v\n", err)
+			return 1
+		}
+		cfg := service.Config{
+			Name:     *name,
+			ExecPath: exe,
+			Addr:     *addr,
+			DataDir:  *dataDir,
+			User:     *user,
+			Repo:     *repo,
+			NoStart:  *noStart,
+		}
+		if err := service.Install(cfg); err != nil {
+			serviceError(err)
+			return 1
+		}
+		if *noStart {
+			fmt.Printf("service %q installed (not started)\n", *name)
+		} else {
+			fmt.Printf("service %q installed and started\n", *name)
+		}
+		fmt.Printf("  data: %s\n", *dataDir)
+		fmt.Printf("  logs: mongoui service logs -name %s\n", *name)
+	case "uninstall":
+		if err := service.Uninstall(*name); err != nil {
+			serviceError(err)
+			return 1
+		}
+		fmt.Printf("service %q removed (data directory kept)\n", *name)
+	case "start":
+		if err := service.Start(*name); err != nil {
+			serviceError(err)
+			return 1
+		}
+	case "stop":
+		if err := service.Stop(*name); err != nil {
+			serviceError(err)
+			return 1
+		}
+	case "restart":
+		if err := service.Restart(*name); err != nil {
+			serviceError(err)
+			return 1
+		}
+	case "status":
+		if err := service.Status(*name); err != nil {
+			serviceError(err)
+			return 1
+		}
+	case "logs":
+		if err := service.Logs(*name, *lines); err != nil {
+			serviceError(err)
+			return 1
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "error: unknown service action %q\n\n", action)
+		serviceUsage()
+		return 2
+	}
+	return 0
+}
+
+func serviceError(err error) {
+	fmt.Fprintln(os.Stderr, "error:", err)
+}
+
+func serviceUsage() {
+	fmt.Print(`Usage: mongoui service <action> [options]
+
+Install mongoui as a system service. The installed unit starts at boot, is
+restarted automatically, and restarts itself after the built-in updater
+installs a new binary.
+
+Actions:
+  install      install and start the service (Linux systemd / macOS launchd)
+  uninstall    stop, disable and remove the service (keeps data)
+  start        start the service
+  stop         stop the service
+  restart      restart the service
+  status       show the service status
+  logs         show recent service logs
+
+Options:
+  -name string    service name (default "mongoui")
+  -addr string    HTTP listen address (default ":8080")
+  -data string    data directory (default /var/lib/mongoui)
+  -user string    run as this user (default: root)
+  -repo string    GitHub repository for updates
+  -no-start       install without starting now
+  -lines int      log lines for the logs action (default 100)
+`)
 }
 
 // runUpdate implements the `mongoui update` subcommand.

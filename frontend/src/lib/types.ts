@@ -286,6 +286,15 @@ export interface UpdateState {
   status: UpdateStatus | null
 }
 
+export interface FeedbackInput {
+  title: string
+  body: string
+}
+
+export interface FeedbackResult {
+  url: string
+}
+
 export interface IndexInfo {
   v?: number
   key: Record<string, unknown>

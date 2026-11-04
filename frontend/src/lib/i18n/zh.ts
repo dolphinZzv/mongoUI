@@ -156,10 +156,26 @@ const zh: Record<string, string> = {
   "update.failed": "更新操作失败",
   "update.error": "上次错误：{{error}}",
 
+  // feedback
+  "feedback.button": "反馈",
+  "feedback.title": "发送反馈",
+  "feedback.desc": "遇到问题或有建议？提交一个 GitHub Issue。",
+  "feedback.subject": "标题",
+  "feedback.subjectPlaceholder": "简要描述",
+  "feedback.details": "详情",
+  "feedback.detailsPlaceholder": "发生了什么？你期望的结果是什么？",
+  "feedback.contextHint": "提交时会附带 MongoUI 版本和浏览器信息。",
+  "feedback.send": "提交反馈",
+  "feedback.sending": "正在提交…",
+  "feedback.sent": "反馈已提交，谢谢！",
+  "feedback.failed": "反馈提交失败",
+  "feedback.dismiss": "隐藏反馈按钮",
+
   // sidebar
   "sidebar.filter": "过滤连接、数据库、集合…",
   "sidebar.filterAria": "过滤连接、数据库与集合",
   "sidebar.clearFilter": "清除过滤",
+  "sidebar.filterSyntax": "通配符：* 任意字符，? 单个字符 · 正则：/表达式/标志",
   "sidebar.showSystemCollections": "显示系统集合",
   "sidebar.showSystemDatabases": "显示系统数据库",
   "sidebar.nothingMatches": "没有匹配“{{query}}”的内容。",

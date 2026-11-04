@@ -11,6 +11,7 @@ import {
   Loader2,
   LockKeyhole,
   LogOut,
+  MessageSquare,
   MonitorIcon,
   MoonIcon,
   RefreshCw,
@@ -71,6 +72,7 @@ const PasswordDialog = React.lazy(() =>
 
 interface SettingsMenuProps {
   authEnabled: boolean
+  onFeedback: () => void
 }
 
 /**
@@ -78,7 +80,7 @@ interface SettingsMenuProps {
  * switches (master switch + read/write tool groups), the language and theme
  * pickers, and (when TOTP is on) sign-out.
  */
-export function SettingsMenu({ authEnabled }: SettingsMenuProps) {
+export function SettingsMenu({ authEnabled, onFeedback }: SettingsMenuProps) {
   const { t, locale, setLocale } = useI18n()
   const { theme, setTheme } = useTheme()
   const { role, username, source } = useAuth()
@@ -424,6 +426,11 @@ export function SettingsMenu({ authEnabled }: SettingsMenuProps) {
             </DropdownMenuSubContent>
           </DropdownMenuSub>
         </DropdownMenuGroup>
+
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={onFeedback}>
+          <MessageSquare /> {t("feedback.button")}
+        </DropdownMenuItem>
 
         {authEnabled ? (
           <>

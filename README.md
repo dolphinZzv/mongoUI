@@ -74,8 +74,9 @@ MongoUI 是一个用 Go + React 编写的 MongoDB 可视化管理工具。前端
 - **个人访问令牌（PAT）**：为 API 客户端签发带作用域（`read` / `write` / `admin`）的令牌，权限不会超过账号当前角色。
 - **单点登录（OIDC）**：接入任意 OpenID Connect 提供方，支持发现、PKCE、JWKS 校验与「用户组 → 角色」映射，可限制邮箱域名 / 邮箱。
 - **定时备份**：按计划把集合导出为 JSON/CSV 文件，保留最近若干份，并记录上次运行状态。
+- **内置反馈**：右下角 Feedback 入口通过服务端 `gh` CLI 创建 GitHub Issue，支持关闭并从设置菜单重新打开。
 - **登录（账号密码 / TOTP）**、后退 / 前进与刷新可恢复的 URL 状态。
-- 守护进程（`-daemon`）、一键安装脚本、Homebrew formula（`brew services`）、Docker 镜像与**内置自动更新**。
+- 守护进程（`-daemon`）、系统服务安装（`service`，systemd / launchd）、一键安装脚本、Homebrew formula（`brew services`）、Docker 镜像与**内置自动更新**。
 
 ## 快速开始
 
@@ -132,7 +133,7 @@ make docker-mongo   # docker run -p 27017:27017 mongo:8
 curl -fsSL https://raw.githubusercontent.com/dolphinZzv/mongoUI/main/scripts/install.sh | sh
 ```
 
-指定版本、目录，或顺便安装 systemd 服务：
+指定版本、目录，或顺便安装系统服务（Linux systemd / macOS launchd）：
 
 ```bash
 # 指定版本与安装目录
@@ -363,6 +364,10 @@ curl -H "Authorization: Bearer moui_pat_xxx" https://your-host/api/connections
 | — | `MONGOUI_KNOWN_HOSTS` | `~/.ssh/known_hosts` | SSH 跳板机主机密钥校验文件 |
 | — | `MONGOUI_SECRET_KEY` | 自动生成 | 加密连接密钥的主密钥（32 字节 hex/base64）；不填则用 `<data>/secret.key` |
 | — | `MONGOUI_ALLOW_ORIGIN` | 空 | 允许跨域访问的来源（逗号分隔）；默认仅同源 |
+| — | `MONGOUI_REPO` | `dolphinZzv/mongoUI` | 自更新检查与反馈 Issue 的目标仓库 |
+| — | `MONGOUI_FEEDBACK_REPO` | 同 `MONGOUI_REPO` | 单独指定反馈 Issue 的目标仓库 |
+| — | `MONGOUI_DISABLE_AUTOUPDATE` | 关 | 设为真值时禁用内置自动更新 |
+| — | `MONGOUI_RESTART_AFTER_UPDATE` | 关 | 更新后干净退出以便服务管理器重启（`service` 安装时自动设置） |
 
 ```bash
 ./bin/mongoui -addr :9000 -data /var/lib/mongoui
@@ -383,7 +388,23 @@ curl -H "Authorization: Bearer moui_pat_xxx" https://your-host/api/connections
 
 `mongodb+srv://` 同样可用：SRV 解析在本机完成，随后由 SSH 服务器去连接解析出的节点。
 
-### 后台运行（守护进程）
+### 后台运行与服务管理
+
+推荐用内置的 `service` 命令交给系统服务管理器，开机自启、异常退出自动拉起，并在自更新替换二进制后自动重启：
+
+```bash
+sudo mongoui service install -addr :8080   # 安装并启动（Linux systemd / macOS launchd）
+sudo mongoui service install --no-start     # 只安装，暂不启动
+mongoui service status                       # 查看状态
+mongoui service restart                      # 重启
+mongoui service logs                         # 查看日志（systemd 用 journalctl）
+sudo mongoui service uninstall               # 卸载服务，保留数据
+```
+
+- 默认数据目录：Linux `/var/lib/mongoui`，macOS `/usr/local/var/mongoui`；可用 `-data` 覆盖。
+- 默认以 root 运行，便于自更新替换 `/usr/local/bin/mongoui`；可用 `-user <name>` 指定运行用户，此时需确保该用户对二进制和数据目录有写权限。
+- 服务单元设置 `Restart=always` / launchd `KeepAlive`，并通过 `MONGOUI_RESTART_AFTER_UPDATE=1` 让自更新完成后干净退出，由服务管理器自动启动新版本。
+- 没有 systemd / launchd 时仍可使用 `-daemon`；Windows 请使用 NSSM 或 Windows 服务。
 
 ```bash
 mongoui -addr :8080 -daemon     # 后台启动
@@ -392,7 +413,7 @@ mongoui -stop                   # 停止
 ```
 
 - pid 默认 `<data>/mongoui.pid`，日志默认 `<data>/mongoui.log`，可用 `-pidfile` / `-logfile` 覆盖。
-- Windows 不支持 `-daemon`，请使用 NSSM、任务计划程序或 Windows 服务。
+- `-daemon` 不会在进程退出后自动拉起，更新后也需要手动重启；长期运行请优先使用 `service` 或 Docker。
 
 ### 自动更新
 
@@ -405,7 +426,23 @@ mongoui update -force     # 已是新版也重新安装
 mongoui update -version v0.2.25
 ```
 
-配置保存在 `<data>/settings.json` 的 `update` 字段；仓库地址可用 `-repo owner/name` 或 `MONGOUI_REPO` 覆盖。更新后需重启进程。
+配置保存在 `<data>/settings.json` 的 `update` 字段；仓库地址可用 `-repo owner/name` 或 `MONGOUI_REPO` 覆盖。通过 `service` 安装的实例会在更新后自动重启；`-daemon` 或无服务管理器的实例需手动重启进程。
+
+### 反馈与 Issue
+
+界面右下角的 **Feedback** 按钮会打开反馈对话框，提交后由 Go 后端调用服务器上的 `gh` CLI 创建 GitHub Issue。首次使用前需要在服务器上安装并登录 GitHub CLI（服务模式下请以实际运行用户执行）：
+
+```bash
+# Linux: apt install gh / dnf install gh；macOS: brew install gh
+gh auth login
+# 无浏览器的服务器可使用令牌登录
+gh auth login --with-token < token.txt
+```
+
+- 目标仓库默认是 `MONGOUI_REPO`，也可用 `MONGOUI_FEEDBACK_REPO` 单独指定。
+- Issue 正文会自动附上 MongoUI 版本和浏览器 User-Agent，不会上传连接配置或凭据。
+- 右下角按钮可用 `×` 隐藏，之后可从「设置 → 反馈」重新打开。
+- `gh` 未安装或未登录时，界面会显示后端返回的具体错误。
 
 ## 安全说明
 
@@ -427,6 +464,7 @@ mongoUI
 │   ├── internal/api/        HTTP 路由与处理器（REST）
 │   ├── internal/mcp/        MCP server（stdio / HTTP）
 │   ├── internal/mongoclient 连接管理（含 SSH 隧道）
+│   ├── internal/service     系统服务安装（systemd / launchd）
 │   ├── internal/config      连接 / 设置持久化与加密
 │   └── web/                 go:embed 前端构建产物
 ├── frontend/                React + TypeScript 单页应用
@@ -478,7 +516,7 @@ git push origin main v0.2.26
 可由另一个管理员在 **设置 → 账号** 中重置该本地账号的密码，或直接删除 `<data>/auth.json` 后重启重新进入首次设置（会清空所有账号与令牌）。
 
 **Q：Windows 上能后台常驻吗？**
-`-daemon` 仅支持 Unix；Windows 请用 NSSM 或 Windows 服务。
+`-daemon` 与 `service` 目前仅支持 Unix；Windows 请用 NSSM、任务计划程序或 Windows 服务包装。
 
 **Q：容器里连不上宿主机 MongoDB？**
 Linux 用 `--network host`，或把连接串指向宿主机 IP；Docker Desktop 用 `host.docker.internal:27017`。

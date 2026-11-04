@@ -148,7 +148,7 @@ export function ColumnsPicker({
                     "shrink-0 rounded p-0.5 transition-opacity",
                     pinnedSet.has(column)
                       ? "text-primary opacity-100"
-                      : "text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+                      : "text-muted-foreground opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
                   )}
                 >
                   <Pin className={cn("size-3.5", pinnedSet.has(column) && "fill-current")} />

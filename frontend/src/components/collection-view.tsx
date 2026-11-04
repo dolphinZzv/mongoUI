@@ -73,8 +73,9 @@ export function CollectionView({
         onValueChange={onTabChange}
         className="flex h-full min-h-0 flex-col gap-0"
       >
-        <div className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
-          <Table2 className="text-muted-foreground size-4" />
+      <div className="flex shrink-0 flex-col gap-2 border-b px-4 py-2 sm:h-14 sm:flex-row sm:items-center sm:gap-3 sm:py-0">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Table2 className="text-muted-foreground size-4 shrink-0" />
           <div className="flex min-w-0 items-baseline gap-1.5">
             <span className="text-muted-foreground truncate text-sm">{database}</span>
             <span className="text-muted-foreground">/</span>
@@ -95,18 +96,32 @@ export function CollectionView({
             disabled={readOnly}
             onClick={() => setCopyOpen(true)}
             title={t("copy.action")}
+            aria-label={t("copy.action")}
           >
             <FolderInput />
           </Button>
-          <TabsList className="ml-auto">
-            <TabsTrigger value="documents">{t("collection.tab.documents")}</TabsTrigger>
-            <TabsTrigger value="sql">{t("collection.tab.sql")}</TabsTrigger>
-            <TabsTrigger value="aggregation">{t("collection.tab.aggregation")}</TabsTrigger>
-            <TabsTrigger value="indexes">{t("collection.tab.indexes")}</TabsTrigger>
-            <TabsTrigger value="schema">{t("collection.tab.schema")}</TabsTrigger>
-            <TabsTrigger value="stats">{t("collection.tab.stats")}</TabsTrigger>
-          </TabsList>
         </div>
+        <TabsList className="scrollbar-thin w-full justify-start overflow-x-auto sm:ml-auto sm:w-auto">
+          <TabsTrigger value="documents" className="shrink-0 px-1.5 sm:px-3">
+            {t("collection.tab.documents")}
+          </TabsTrigger>
+          <TabsTrigger value="sql" className="shrink-0 px-1.5 sm:px-3">
+            {t("collection.tab.sql")}
+          </TabsTrigger>
+          <TabsTrigger value="aggregation" className="shrink-0 px-1.5 sm:px-3">
+            {t("collection.tab.aggregation")}
+          </TabsTrigger>
+          <TabsTrigger value="indexes" className="shrink-0 px-1.5 sm:px-3">
+            {t("collection.tab.indexes")}
+          </TabsTrigger>
+          <TabsTrigger value="schema" className="shrink-0 px-1.5 sm:px-3">
+            {t("collection.tab.schema")}
+          </TabsTrigger>
+          <TabsTrigger value="stats" className="shrink-0 px-1.5 sm:px-3">
+            {t("collection.tab.stats")}
+          </TabsTrigger>
+        </TabsList>
+      </div>
 
         <TabsContent value="documents" className="min-h-0 flex-1">
           <DocumentsTab

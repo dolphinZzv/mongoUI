@@ -55,7 +55,7 @@ export function CollectionTabs({
                 aria-label={t("tabs.close")}
                 title={t("tabs.close")}
                 onClick={() => onClose(tab)}
-                className="hover:text-foreground shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100"
+                className="hover:text-foreground shrink-0 rounded p-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
               >
                 <X className="size-3" />
               </button>

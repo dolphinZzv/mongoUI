@@ -12,6 +12,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  SlidersHorizontal,
   Table2,
   Trash2,
   Unplug,
@@ -33,6 +34,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -526,8 +532,8 @@ export function AppSidebar({
         </div>
       </div>
 
-      <div className="shrink-0 border-b px-2 py-2">
-        <div className="relative">
+      <div className="flex shrink-0 items-center gap-1 border-b px-2 py-2">
+        <div className="relative min-w-0 flex-1">
           <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
           <Input
             value={filter}
@@ -549,37 +555,55 @@ export function AppSidebar({
             </button>
           ) : null}
         </div>
-        <p className="text-muted-foreground mt-1 px-1 text-[10px]">
-          {t("sidebar.filterSyntax")}
-        </p>
-        <div className="mt-1.5 flex items-center justify-between gap-2 px-1">
-          <label
-            htmlFor="sidebar-show-system-collections"
-            className="text-muted-foreground cursor-pointer text-[11px]"
-          >
-            {t("sidebar.showSystemCollections")}
-          </label>
-          <Switch
-            id="sidebar-show-system-collections"
-            checked={showSystemCollections}
-            onCheckedChange={setShowSystemCollections}
-            aria-label={t("sidebar.showSystemCollections")}
-          />
-        </div>
-        <div className="mt-1 flex items-center justify-between gap-2 px-1">
-          <label
-            htmlFor="sidebar-show-system-databases"
-            className="text-muted-foreground cursor-pointer text-[11px]"
-          >
-            {t("sidebar.showSystemDatabases")}
-          </label>
-          <Switch
-            id="sidebar-show-system-databases"
-            checked={showSystemDatabases}
-            onCheckedChange={setShowSystemDatabases}
-            aria-label={t("sidebar.showSystemDatabases")}
-          />
-        </div>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              title={t("sidebar.filterOptions")}
+              aria-label={t("sidebar.filterOptions")}
+            >
+              <SlidersHorizontal />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-64 space-y-3">
+            <div className="space-y-1">
+              <p className="text-xs font-medium">{t("sidebar.filterSyntaxTitle")}</p>
+              <p className="text-muted-foreground text-[11px] leading-relaxed">
+                {t("sidebar.filterSyntax")}
+              </p>
+            </div>
+            <div className="bg-border h-px" />
+            <div className="flex items-center justify-between gap-3">
+              <label
+                htmlFor="sidebar-show-system-collections"
+                className="cursor-pointer text-xs"
+              >
+                {t("sidebar.showSystemCollections")}
+              </label>
+              <Switch
+                id="sidebar-show-system-collections"
+                checked={showSystemCollections}
+                onCheckedChange={setShowSystemCollections}
+                aria-label={t("sidebar.showSystemCollections")}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <label
+                htmlFor="sidebar-show-system-databases"
+                className="cursor-pointer text-xs"
+              >
+                {t("sidebar.showSystemDatabases")}
+              </label>
+              <Switch
+                id="sidebar-show-system-databases"
+                checked={showSystemDatabases}
+                onCheckedChange={setShowSystemDatabases}
+                aria-label={t("sidebar.showSystemDatabases")}
+              />
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
@@ -614,7 +638,7 @@ export function AppSidebar({
                     type="button"
                     onClick={() => togglePin(item.key)}
                     aria-label={t("sidebar.unpin")}
-                    className="text-muted-foreground hover:text-foreground shrink-0 p-0.5 opacity-0 group-hover:opacity-100"
+                    className="text-muted-foreground hover:text-foreground shrink-0 p-0.5 opacity-0 group-hover:opacity-100 max-md:opacity-100"
                   >
                     <PinOff className="size-3.5" />
                   </button>
@@ -686,7 +710,7 @@ export function AppSidebar({
                           onClick={() => startRename(query)}
                           aria-label={t("sidebar.renameQuery")}
                           title={t("sidebar.renameQuery")}
-                          className="text-muted-foreground hover:text-foreground shrink-0 p-0.5 opacity-0 group-hover:opacity-100"
+                          className="text-muted-foreground hover:text-foreground shrink-0 p-0.5 opacity-0 group-hover:opacity-100 max-md:opacity-100"
                         >
                           <Pencil className="size-3.5" />
                         </button>
@@ -694,7 +718,7 @@ export function AppSidebar({
                           type="button"
                           onClick={() => removePinnedQuery(query)}
                           aria-label={t("sidebar.removePinnedQuery")}
-                          className="text-muted-foreground hover:text-foreground shrink-0 p-0.5 opacity-0 group-hover:opacity-100"
+                          className="text-muted-foreground hover:text-foreground shrink-0 p-0.5 opacity-0 group-hover:opacity-100 max-md:opacity-100"
                         >
                           <PinOff className="size-3.5" />
                         </button>
@@ -799,7 +823,7 @@ export function AppSidebar({
                         variant="ghost"
                         size="icon-sm"
                         aria-label={t("common.actions")}
-                        className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
+                        className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 max-md:opacity-100"
                       >
                         <Ellipsis />
                       </Button>
@@ -917,7 +941,7 @@ export function AppSidebar({
                                   variant="ghost"
                                   size="icon-sm"
                                   aria-label={t("common.actions")}
-                                  className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
+                                  className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 max-md:opacity-100"
                                 >
                                   <Ellipsis />
                                 </Button>
@@ -1036,7 +1060,7 @@ export function AppSidebar({
                                           variant="ghost"
                                           size="icon-sm"
                                           aria-label={t("common.actions")}
-                                          className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
+                                          className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 max-md:opacity-100"
                                         >
                                           <Ellipsis />
                                         </Button>

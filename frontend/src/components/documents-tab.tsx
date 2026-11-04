@@ -1035,7 +1035,7 @@ export function DocumentsTab({
       {/* Toolbar */}
       <div className="shrink-0 space-y-2 border-b p-3">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[12rem] flex-1">
+          <div className="relative min-w-[12rem] flex-1 basis-full sm:basis-auto">
             <MongoFilterEditor
               value={filter}
               onChange={setFilter}
@@ -1049,6 +1049,30 @@ export function DocumentsTab({
               suggestions={allColumns}
             />
           </div>
+          {loading ? (
+            <Button variant="outline" onClick={cancelLoad} title={t("docs.cancelQuery")}>
+              <Ban /> {t("docs.cancelQuery")}
+            </Button>
+          ) : (
+            <Button onClick={() => void load({ skip: 0 })}>
+              <Play /> {t("common.run")}
+            </Button>
+          )}
+          <Button variant="outline" size="icon" onClick={() => void load({})} title={t("common.refresh")} aria-label={t("common.refresh")}>
+            <RefreshCw className={cn(loading && "animate-spin")} />
+          </Button>
+          <Button
+            className="ml-auto sm:ml-0"
+            onClick={() => setEditing({ mode: "insert" })}
+            disabled={readOnly}
+            title={readOnly ? t("docs.readonlyTip") : t("docs.insertTitle")}
+          >
+            <Plus /> {t("docs.insert")}
+          </Button>
+        </div>
+
+        {/* Secondary query tools, grouped and scrollable on narrow screens. */}
+        <div className="scrollbar-thin flex items-center gap-1.5 overflow-x-auto pb-0.5">
           <RecentQueries
             items={recentFilters}
             favorites={favoriteFilters}
@@ -1062,16 +1086,19 @@ export function DocumentsTab({
           />
           <Button
             variant="outline"
-            size="icon"
+            size="sm"
+            className="h-9"
             onClick={() => setBuilderOpen(true)}
             title={t("filter.builder")}
             aria-label={t("filter.builder")}
           >
             <ListFilter />
+            <span className="hidden sm:inline">{t("filter.builder")}</span>
           </Button>
           <Button
             variant={isFilterPinned ? "secondary" : "outline"}
-            size="icon"
+            size="sm"
+            className="h-9"
             onClick={() =>
               togglePinnedQuery({ connectionId, database, collection, filter: pinnedFilter })
             }
@@ -1079,6 +1106,9 @@ export function DocumentsTab({
             aria-label={isFilterPinned ? t("filter.unpin") : t("filter.pin")}
           >
             {isFilterPinned ? <PinOff /> : <Pin />}
+            <span className="hidden sm:inline">
+              {isFilterPinned ? t("filter.unpin") : t("filter.pin")}
+            </span>
           </Button>
           <ColumnsPicker
             columns={allColumns}
@@ -1098,27 +1128,17 @@ export function DocumentsTab({
             onPin={pinView}
             onDelete={deleteView}
           />
-          {loading ? (
-            <Button variant="outline" onClick={cancelLoad} title={t("docs.cancelQuery")}>
-              <Ban /> {t("docs.cancelQuery")}
-            </Button>
-          ) : (
-            <Button onClick={() => void load({ skip: 0 })}>
-              <Play /> {t("common.run")}
-            </Button>
-          )}
-          <Button variant="outline" size="icon" onClick={() => void load({})} title={t("common.refresh")}>
-            <RefreshCw className={cn(loading && "animate-spin")} />
-          </Button>
+          <div className="bg-border mx-1 h-5 w-px shrink-0" />
           <Button
             variant="outline"
-            size="icon"
+            size="sm"
+            className="h-9 gap-1"
             onClick={() => setShowOptions((prev) => !prev)}
             title={t("docs.sortProjection")}
             aria-label={t("docs.sortProjection")}
-            className="w-12 gap-1"
           >
             <Rows3 />
+            <span className="hidden lg:inline">{t("docs.sortProjection")}</span>
             <ChevronDown className={cn("transition-transform", showOptions && "rotate-180")} />
           </Button>
           <DocumentsMoreMenu
@@ -1142,13 +1162,6 @@ export function DocumentsTab({
               copyText(toSQL(collection, { filter, sort, projection, skip, limit }))
             }
           />
-          <Button
-            onClick={() => setEditing({ mode: "insert" })}
-            disabled={readOnly}
-            title={readOnly ? t("docs.readonlyTip") : t("docs.insertTitle")}
-          >
-            <Plus /> {t("docs.insert")}
-          </Button>
         </div>
 
         {showOptions ? (

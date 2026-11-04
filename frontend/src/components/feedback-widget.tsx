@@ -85,7 +85,7 @@ export function FeedbackWidget({ open, onOpenChange }: FeedbackWidgetProps) {
       {hidden ? null : (
         <div
           data-testid="feedback-widget"
-          className="bg-background/95 fixed right-4 bottom-4 z-40 flex items-center rounded-full border p-1 shadow-lg backdrop-blur"
+          className="bg-background/95 fixed right-4 bottom-16 z-40 hidden items-center rounded-full border p-1 shadow-lg backdrop-blur sm:flex"
         >
           <button
             type="button"

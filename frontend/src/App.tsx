@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Database, Leaf, Loader2, Menu, PanelLeft, PanelLeftClose, Plus, ScanSearch, Search, Server, SquareTerminal, Table2, X } from "lucide-react"
+import { Database, Keyboard, Leaf, Loader2, Menu, PanelLeft, PanelLeftClose, Plus, ScanSearch, Search, Server, SquareTerminal, Table2, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { AppSidebar } from "@/components/app-sidebar"
@@ -9,7 +9,7 @@ import { FeedbackWidget } from "@/components/feedback-widget"
 import { HeaderSearch } from "@/components/header-search"
 import { useAuth } from "@/components/auth-gate"
 import { LazyMount } from "@/components/lazy-mount"
-import { SettingsMenu } from "@/components/settings-menu"
+import { SettingsDialog } from "@/components/settings-dialog"
 import { ShortcutsDialog } from "@/components/shortcuts-dialog"
 import { Button } from "@/components/ui/button"
 import { Toaster } from "@/components/ui/sonner"
@@ -495,9 +495,35 @@ export default function App() {
           </div>
 
           {connections.length === 0 ? (
-            <Button className="mt-8" onClick={openNewConnection}>
-              <Plus /> {t("app.newConnection")}
-            </Button>
+            <div className="bg-card mt-8 w-full rounded-2xl border p-6 text-left shadow-sm">
+              <h2 className="text-base font-semibold">{t("onboarding.title")}</h2>
+              <p className="text-muted-foreground mt-1 text-sm">{t("onboarding.desc")}</p>
+              <ol className="mt-5 space-y-4">
+                {[
+                  ["onboarding.step1", "onboarding.step1Desc"],
+                  ["onboarding.step2", "onboarding.step2Desc"],
+                  ["onboarding.step3", "onboarding.step3Desc"],
+                ].map(([title, description], index) => (
+                  <li key={title} className="flex gap-3">
+                    <span className="bg-primary/10 text-primary flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold">
+                      {index + 1}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{t(title)}</p>
+                      <p className="text-muted-foreground text-xs">{t(description)}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+              <div className="mt-6 flex flex-wrap gap-2">
+                <Button onClick={openNewConnection}>
+                  <Plus /> {t("app.newConnection")}
+                </Button>
+                <Button variant="outline" onClick={() => setShortcutsOpen(true)}>
+                  <Keyboard /> {t("shortcuts.title")}
+                </Button>
+              </div>
+            </div>
           ) : (
             <div className="mt-8 w-full">
               <p className="text-muted-foreground mb-3 text-xs tracking-wide uppercase">
@@ -518,10 +544,22 @@ export default function App() {
                   </Button>
                 ))}
               </div>
+              <div className="mt-5 flex flex-wrap justify-center gap-2">
+                <Button variant="outline" size="sm" onClick={openNewConnection}>
+                  <Plus /> {t("app.newConnection")}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setPaletteOpen(true)}>
+                  <Search /> {t("palette.open")}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setShortcutsOpen(true)}>
+                  <Keyboard /> {t("shortcuts.title")}
+                </Button>
+              </div>
             </div>
           )}
 
-          <p className="text-muted-foreground mt-10 text-xs">
+          <p className="text-muted-foreground mt-8 text-xs">{t("app.shortcutHint")}</p>
+          <p className="text-muted-foreground mt-2 text-xs">
             MongoUI v{__APP_VERSION__}
           </p>
         </div>
@@ -619,8 +657,8 @@ export default function App() {
                 variant="ghost"
                 size="icon-sm"
                 onClick={() => openGlobalSearch()}
-                title={t("search.title")}
-                aria-label={t("search.title")}
+                title={t("search.globalTitle")}
+                aria-label={t("search.globalTitle")}
               >
                 <ScanSearch />
               </Button>
@@ -646,7 +684,7 @@ export default function App() {
               >
                 <SquareTerminal />
               </Button>
-              <SettingsMenu authEnabled={authEnabled} onFeedback={() => setFeedbackOpen(true)} />
+              <SettingsDialog authEnabled={authEnabled} onFeedback={() => setFeedbackOpen(true)} />
             </div>
           </header>
           <CollectionTabs

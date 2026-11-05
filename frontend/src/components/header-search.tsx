@@ -3,6 +3,7 @@ import { Database, Filter, Loader2, Search, Server, Table2 } from "lucide-react"
 
 import { Input } from "@/components/ui/input"
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
+import { collectionLabel, databaseLabel, useAliases } from "@/lib/aliases"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { usePinnedQueries } from "@/lib/pinnedQueries"
@@ -47,6 +48,7 @@ export function HeaderSearch({
   onOpenPalette,
 }: HeaderSearchProps) {
   const { t } = useI18n()
+  const aliases = useAliases()
   const pinnedQueries = usePinnedQueries()
   const [query, setQuery] = React.useState("")
   const [open, setOpen] = React.useState(false)
@@ -209,11 +211,23 @@ export function HeaderSearch({
     }
 
     for (const tab of tabs) {
-      if (!matches(tab.collection, tab.database, connectionName(tab.connectionId))) continue
+      const dbName = databaseLabel(aliases, tab.connectionId, tab.database)
+      const colName = collectionLabel(aliases, tab.connectionId, tab.database, tab.collection)
+      if (
+        !matches(
+          tab.collection,
+          tab.database,
+          colName,
+          dbName,
+          connectionName(tab.connectionId),
+        )
+      ) {
+        continue
+      }
       next.push({
         id: `tab:${tab.key}`,
-        label: tab.collection,
-        hint: `${connectionName(tab.connectionId)} / ${tab.database}`,
+        label: colName,
+        hint: `${connectionName(tab.connectionId)} / ${dbName}`,
         group: groups.tabs,
         icon: <Table2 />,
         run: () => {
@@ -231,14 +245,31 @@ export function HeaderSearch({
     for (const pinned of pinnedQueries) {
       const connection = connections.find((entry) => entry.id === pinned.connectionId)
       if (!connection) continue
-      const label = pinned.name?.trim() || pinned.collection
-      if (!matches(label, pinned.collection, pinned.database, connection.name, pinned.filter)) {
+      const dbName = databaseLabel(aliases, pinned.connectionId, pinned.database)
+      const colName = collectionLabel(
+        aliases,
+        pinned.connectionId,
+        pinned.database,
+        pinned.collection,
+      )
+      const label = pinned.name?.trim() || colName
+      if (
+        !matches(
+          label,
+          pinned.collection,
+          pinned.database,
+          colName,
+          dbName,
+          connection.name,
+          pinned.filter,
+        )
+      ) {
         continue
       }
       next.push({
         id: `query:${pinned.connectionId}:${pinned.database}:${pinned.collection}:${pinned.filter}`,
         label,
-        hint: `${connection.name} / ${pinned.database} / ${pinned.collection}`,
+        hint: `${connection.name} / ${dbName} / ${colName}`,
         group: groups.queries,
         icon: <Filter />,
         run: () => {
@@ -260,12 +291,21 @@ export function HeaderSearch({
     for (const connection of connections) {
       if (!connection.connected) continue
       for (const database of databases[connection.id] ?? []) {
+        const dbName = databaseLabel(aliases, connection.id, database.name)
         for (const collection of collections[dbKey(connection.id, database.name)] ?? []) {
-          if (!matches(collection.name, database.name, connection.name)) continue
+          const colName = collectionLabel(
+            aliases,
+            connection.id,
+            database.name,
+            collection.name,
+          )
+          if (!matches(collection.name, database.name, colName, dbName, connection.name)) {
+            continue
+          }
           collectionItems.push({
             id: `col:${connection.id}:${database.name}:${collection.name}`,
-            label: collection.name,
-            hint: `${connection.name} / ${database.name}`,
+            label: colName,
+            hint: `${connection.name} / ${dbName}`,
             group: groups.collections,
             icon: <Table2 />,
             run: () => {
@@ -316,6 +356,7 @@ export function HeaderSearch({
     pinnedQueries,
     databases,
     collections,
+    aliases,
     t,
     close,
     onSelect,

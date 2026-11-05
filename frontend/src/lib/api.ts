@@ -1,5 +1,7 @@
 import type {
   AggregateResult,
+  AliasState,
+  AliasUpdate,
   AuditEntry,
   AuthRole,
   AuthScope,
@@ -394,6 +396,11 @@ export const api = {
   // feedback --------------------------------------------------------------------
   submitFeedback: (input: FeedbackInput) =>
     request<FeedbackResult>("/feedback", { method: "POST", body: JSON.stringify(input) }),
+
+  // aliases ---------------------------------------------------------------------
+  getAliases: () => request<AliasState>("/aliases"),
+  updateAlias: (input: AliasUpdate) =>
+    request<AliasState>("/aliases", { method: "PATCH", body: JSON.stringify(input) }),
 
   // indexes ---------------------------------------------------------------------
   listIndexes: (id: string, db: string, col: string) =>

@@ -1,6 +1,7 @@
 import { X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { collectionLabel, databaseLabel, useAliases } from "@/lib/aliases"
 import { useI18n } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 import type { CollectionTab } from "@/lib/collectionTabs"
@@ -22,6 +23,7 @@ export function CollectionTabs({
   onCloseAll,
 }: CollectionTabsProps) {
   const { t } = useI18n()
+  const aliases = useAliases()
   if (tabs.length === 0) return null
 
   return (
@@ -29,6 +31,13 @@ export function CollectionTabs({
       <div className="scrollbar-thin flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
         {tabs.map((tab) => {
           const active = tab.key === activeKey
+          const dbName = databaseLabel(aliases, tab.connectionId, tab.database)
+          const colName = collectionLabel(
+            aliases,
+            tab.connectionId,
+            tab.database,
+            tab.collection,
+          )
           return (
             <div
               key={tab.key}
@@ -46,9 +55,9 @@ export function CollectionTabs({
                 className="min-w-0 flex-1 truncate text-left"
                 title={`${tab.database} / ${tab.collection}`}
               >
-                <span className="text-muted-foreground">{tab.database}</span>
+                <span className="text-muted-foreground">{dbName}</span>
                 <span className="text-muted-foreground"> / </span>
-                <span className="font-medium">{tab.collection}</span>
+                <span className="font-medium">{colName}</span>
               </button>
               <button
                 type="button"

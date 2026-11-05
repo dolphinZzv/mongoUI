@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { collectionLabel, databaseLabel, useAliases } from "@/lib/aliases"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { prettyJSON } from "@/lib/mongo"
@@ -45,6 +46,7 @@ export function GlobalSearchDialog({
   onOpenQuery,
 }: GlobalSearchDialogProps) {
   const { t } = useI18n()
+  const aliases = useAliases()
   const [connectionId, setConnectionId] = React.useState("")
   const [database, setDatabase] = React.useState("")
   const [databases, setDatabases] = React.useState<DatabaseInfo[]>([])
@@ -152,7 +154,7 @@ export function GlobalSearchDialog({
               <SelectContent>
                 {databases.map((entry) => (
                   <SelectItem key={entry.name} value={entry.name}>
-                    {entry.name}
+                    {databaseLabel(aliases, connectionId, entry.name)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -223,7 +225,7 @@ export function GlobalSearchDialog({
                     onClick={() => openHit(hit)}
                     className="min-w-0 flex-1 truncate text-left text-sm font-medium hover:underline"
                   >
-                    {hit.collection}
+                    {collectionLabel(aliases, connectionId, database, hit.collection)}
                   </button>
                   <span className="text-muted-foreground shrink-0 text-xs">
                     {t("search.matches", { count: hit.count })}

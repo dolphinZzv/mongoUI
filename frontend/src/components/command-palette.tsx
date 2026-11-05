@@ -23,6 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { collectionLabel, databaseLabel, useAliases } from "@/lib/aliases"
 import { useI18n } from "@/lib/i18n"
 import { usePinnedQueries } from "@/lib/pinnedQueries"
 import { COLLECTION_TABS } from "@/lib/router"
@@ -73,6 +74,7 @@ export function CommandPalette({
 }: CommandPaletteProps) {
   const { t, setLocale } = useI18n()
   const { setTheme } = useTheme()
+  const aliases = useAliases()
   const pinnedQueries = usePinnedQueries()
   const [query, setQuery] = React.useState("")
   const [active, setActive] = React.useState(0)
@@ -136,9 +138,16 @@ export function CommandPalette({
     for (const pinned of pinnedQueries) {
       const connection = connections.find((c) => c.id === pinned.connectionId)
       if (!connection) continue
+      const dbName = databaseLabel(aliases, pinned.connectionId, pinned.database)
+      const colName = collectionLabel(
+        aliases,
+        pinned.connectionId,
+        pinned.database,
+        pinned.collection,
+      )
       items.push({
         id: `query:${pinned.connectionId}:${pinned.database}:${pinned.collection}:${pinned.filter}`,
-        label: `${connection.name} / ${pinned.database} / ${pinned.collection}`,
+        label: `${connection.name} / ${dbName} / ${colName}`,
         hint: pinned.filter,
         keywords: pinned.filter,
         icon: <Star />,
@@ -255,6 +264,7 @@ export function CommandPalette({
     onShortcuts,
     setTheme,
     setLocale,
+    aliases,
   ])
 
   const filtered = React.useMemo(() => {

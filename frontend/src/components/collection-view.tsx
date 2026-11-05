@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DocumentsTab } from "@/components/documents-tab"
 import { LazyMount, TabFallback } from "@/components/lazy-mount"
+import { collectionLabel, databaseLabel, useAliases } from "@/lib/aliases"
 import { copyToClipboard } from "@/lib/clipboard"
 import { useI18n } from "@/lib/i18n"
 import type { DocsQueryState } from "@/lib/router"
@@ -53,7 +54,10 @@ export function CollectionView({
   const [copied, setCopied] = React.useState(false)
   const [copyOpen, setCopyOpen] = React.useState(false)
   const { t } = useI18n()
+  const aliases = useAliases()
   const activeTab = tab ?? "documents"
+  const dbName = databaseLabel(aliases, connectionId, database)
+  const colName = collectionLabel(aliases, connectionId, database, collection)
 
   const copyPath = async () => {
     const ok = await copyToClipboard(`${database}.${collection}`)
@@ -76,10 +80,13 @@ export function CollectionView({
       <div className="flex shrink-0 flex-col gap-2 border-b px-4 py-2 sm:h-14 sm:flex-row sm:items-center sm:gap-3 sm:py-0">
         <div className="flex min-w-0 items-center gap-1.5">
           <Table2 className="text-muted-foreground size-4 shrink-0" />
-          <div className="flex min-w-0 items-baseline gap-1.5">
-            <span className="text-muted-foreground truncate text-sm">{database}</span>
+          <div
+            className="flex min-w-0 items-baseline gap-1.5"
+            title={`${database}.${collection}`}
+          >
+            <span className="text-muted-foreground truncate text-sm">{dbName}</span>
             <span className="text-muted-foreground">/</span>
-            <span className="truncate font-medium">{collection}</span>
+            <span className="truncate font-medium">{colName}</span>
           </div>
           <Button
             variant="ghost"

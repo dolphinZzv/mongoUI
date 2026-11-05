@@ -14,12 +14,14 @@ import {
   Search,
   SlidersHorizontal,
   Table2,
+  Tag,
   Trash2,
   Unplug,
   X,
 } from "lucide-react"
 import { toast } from "sonner"
 
+import { AliasDialog } from "@/components/alias-dialog"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { Input } from "@/components/ui/input"
@@ -43,6 +45,14 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { api } from "@/lib/api"
+import {
+  aliasCollectionKey,
+  aliasDbKey,
+  collectionLabel,
+  databaseLabel,
+  useAliases,
+  type AliasTarget,
+} from "@/lib/aliases"
 import { compileTextFilter } from "@/lib/filter"
 import { useI18n } from "@/lib/i18n"
 import { removePinnedQuery, renamePinnedQuery, usePinnedQueries, type PinnedQuery } from "@/lib/pinnedQueries"
@@ -111,6 +121,8 @@ export function AppSidebar({
   const [failedCols, setFailedCols] = React.useState<Record<string, boolean>>({})
   const [busyConn, setBusyConn] = React.useState<Record<string, boolean>>({})
   const [filter, setFilter] = React.useState("")
+  const aliases = useAliases()
+  const [aliasTarget, setAliasTarget] = React.useState<AliasTarget | null>(null)
   const [pinned, setPinned] = React.useState<Set<string>>(() => readPinned())
   const [showSystemCollections, setShowSystemCollections] = React.useState(
     () => readShowSystemCollections(),
@@ -412,12 +424,15 @@ export function AppSidebar({
       const dbs = databases[connection.id] ?? []
       return !dbs.some((database) => {
         if (!showSystemDatabases && isSystemDatabase(database.name)) return false
-        if (matches(database.name)) return true
+        if (matches(database.name) || matches(databaseLabel(aliases, connection.id, database.name))) {
+          return true
+        }
         const key = dbKey(connection.id, database.name)
         return (collections[key] ?? []).some(
           (collection) =>
             (showSystemCollections || !isSystemCollection(collection.name)) &&
-            matches(collection.name),
+            (matches(collection.name) ||
+              matches(collectionLabel(aliases, connection.id, database.name, collection.name))),
         )
       })
     })
@@ -431,6 +446,7 @@ export function AppSidebar({
     const items: {
       key: string
       label: string
+      title?: string
       kind: "connection" | "database" | "collection"
       onClick: () => void
     }[] = []
@@ -452,7 +468,8 @@ export function AppSidebar({
         if (!showSystemDatabases && isSystemDatabase(database)) continue
         items.push({
           key,
-          label: `${connection.name} / ${database}`,
+          label: `${connection.name} / ${databaseLabel(aliases, connectionId, database)}`,
+          title: `${connection.name} / ${database}`,
           kind: "database",
           onClick: () => {
             setExpandedConns((prev) => ({ ...prev, [connectionId]: true }))
@@ -468,7 +485,8 @@ export function AppSidebar({
         if (!showSystemCollections && isSystemCollection(collection)) continue
         items.push({
           key,
-          label: `${connection.name} / ${database} / ${collection}`,
+          label: `${connection.name} / ${databaseLabel(aliases, connectionId, database)} / ${collectionLabel(aliases, connectionId, database, collection)}`,
+          title: `${connection.name} / ${database} / ${collection}`,
           kind: "collection",
           onClick: () =>
             onSelect({ kind: "collection", connectionId, database, collection }),
@@ -477,7 +495,7 @@ export function AppSidebar({
     }
     return items
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pinned, connections, onSelect, showSystemCollections, showSystemDatabases])
+  }, [pinned, connections, onSelect, showSystemCollections, showSystemDatabases, aliases])
 
   const pinnedQueries = usePinnedQueries()
   const pinnedQueryItems = React.useMemo(
@@ -488,7 +506,7 @@ export function AppSidebar({
         if (!connection) return []
         return [{ query, connectionName: connection.name }]
       }),
-    [pinnedQueries, connections, showSystemDatabases],
+    [pinnedQueries, connections, showSystemDatabases, aliases],
   )
 
   const [renamingKey, setRenamingKey] = React.useState<string | null>(null)
@@ -630,7 +648,7 @@ export function AppSidebar({
                     onClick={item.onClick}
                     data-testid={`pinned-${item.key}`}
                     className="min-w-0 flex-1 truncate text-left text-sm"
-                    title={item.label}
+                    title={item.title ?? item.label}
                   >
                     {item.label}
                   </button>
@@ -653,7 +671,8 @@ export function AppSidebar({
               </p>
               {pinnedQueryItems.map(({ query, connectionName }) => {
                 const key = pinnedQueryKey(query)
-                const defaultLabel = `${connectionName} / ${query.database} / ${query.collection}`
+                const actualLabel = `${connectionName} / ${query.database} / ${query.collection}`
+                const defaultLabel = `${connectionName} / ${databaseLabel(aliases, query.connectionId, query.database)} / ${collectionLabel(aliases, query.connectionId, query.database, query.collection)}`
                 const label = query.name?.trim() || defaultLabel
                 return (
                   <div
@@ -695,7 +714,7 @@ export function AppSidebar({
                           )
                         }
                         className="min-w-0 flex-1 text-left"
-                        title={`${defaultLabel}\n${query.filter}`}
+                        title={`${actualLabel}\n${query.filter}`}
                       >
                         <span className="block truncate text-sm">{label}</span>
                         <span className="text-muted-foreground block truncate font-mono text-[10px]">
@@ -764,12 +783,21 @@ export function AppSidebar({
             )
             const visibleDbs = filtering
               ? dbs.filter((database) => {
-                  if (connectionMatches || matches(database.name)) return true
+                  if (
+                    connectionMatches ||
+                    matches(database.name) ||
+                    matches(databaseLabel(aliases, connection.id, database.name))
+                  ) {
+                    return true
+                  }
                   const key = dbKey(connection.id, database.name)
                   return (collections[key] ?? []).some(
                     (collection) =>
                       (showSystemCollections || !isSystemCollection(collection.name)) &&
-                      matches(collection.name),
+                      (matches(collection.name) ||
+                        matches(
+                          collectionLabel(aliases, connection.id, database.name, collection.name),
+                        )),
                   )
                 })
               : dbs
@@ -901,11 +929,23 @@ export function AppSidebar({
                         (collection) =>
                           showSystemCollections || !isSystemCollection(collection.name),
                       )
-                      const dbMatches = matches(database.name)
+                      const dbName = databaseLabel(aliases, connection.id, database.name)
+                      const dbMatches = matches(database.name) || matches(dbName)
                       const cols =
                         !filtering || connectionMatches || dbMatches
                           ? allCols
-                          : allCols.filter((collection) => matches(collection.name))
+                          : allCols.filter(
+                              (collection) =>
+                                matches(collection.name) ||
+                                matches(
+                                  collectionLabel(
+                                    aliases,
+                                    connection.id,
+                                    database.name,
+                                    collection.name,
+                                  ),
+                                ),
+                            )
                       const orderedCols = pinnedFirst(cols, pinned, (col) =>
                         colPin(connection.id, database.name, col.name),
                       )
@@ -933,7 +973,7 @@ export function AppSidebar({
                               className="min-w-0 flex-1 truncate text-left text-sm"
                               title={database.name}
                             >
-                              {database.name}
+                              {dbName}
                             </button>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
@@ -957,6 +997,17 @@ export function AppSidebar({
                                   }
                                 >
                                   <Plus /> {t("sidebar.createCollection")}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onSelect={() =>
+                                    setAliasTarget({
+                                      kind: "database",
+                                      connectionId: connection.id,
+                                      database: database.name,
+                                    })
+                                  }
+                                >
+                                  <Tag /> {aliases.databases[aliasDbKey(connection.id, database.name)] ? t("alias.edit") : t("alias.set")}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onSelect={() => togglePin(dbPin(connection.id, database.name))}
@@ -1028,6 +1079,12 @@ export function AppSidebar({
                                   selection.connectionId === connection.id &&
                                   selection.database === database.name &&
                                   selection.collection === collection.name
+                                const colName = collectionLabel(
+                                  aliases,
+                                  connection.id,
+                                  database.name,
+                                  collection.name,
+                                )
                                 return (
                                   <div
                                     key={collection.name}
@@ -1052,7 +1109,7 @@ export function AppSidebar({
                                       className="min-w-0 flex-1 truncate text-left text-sm"
                                       title={collection.name}
                                     >
-                                      {collection.name}
+                                      {colName}
                                     </button>
                                     <DropdownMenu>
                                       <DropdownMenuTrigger asChild>
@@ -1066,6 +1123,27 @@ export function AppSidebar({
                                         </Button>
                                       </DropdownMenuTrigger>
                                       <DropdownMenuContent align="start" className="w-48">
+                                        <DropdownMenuItem
+                                          onSelect={() =>
+                                            setAliasTarget({
+                                              kind: "collection",
+                                              connectionId: connection.id,
+                                              database: database.name,
+                                              collection: collection.name,
+                                            })
+                                          }
+                                        >
+                                          <Tag />{" "}
+                                          {aliases.collections[
+                                            aliasCollectionKey(
+                                              connection.id,
+                                              database.name,
+                                              collection.name,
+                                            )
+                                          ]
+                                            ? t("alias.edit")
+                                            : t("alias.set")}
+                                        </DropdownMenuItem>
                                         <DropdownMenuItem
                                           onSelect={() =>
                                             togglePin(
@@ -1189,6 +1267,12 @@ export function AppSidebar({
         confirmLabel={confirmContent?.confirmLabel}
         confirmText={confirmContent?.confirmText}
         onConfirm={runConfirm}
+      />
+      <AliasDialog
+        target={aliasTarget}
+        onOpenChange={(open) => {
+          if (!open) setAliasTarget(null)
+        }}
       />
     </div>
   )

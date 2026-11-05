@@ -13,6 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { databaseLabel, useAliases } from "@/lib/aliases"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { formatBytes } from "@/lib/mongo"
@@ -41,6 +42,7 @@ function display(value: unknown): string {
 
 export function ConnectionOverview({ connection }: ConnectionOverviewProps) {
   const { t } = useI18n()
+  const aliases = useAliases()
   const [databases, setDatabases] = React.useState<DatabaseInfo[]>([])
   const [totalSize, setTotalSize] = React.useState(0)
   const [server, setServer] = React.useState<Record<string, unknown> | null>(null)
@@ -177,9 +179,12 @@ export function ConnectionOverview({ connection }: ConnectionOverviewProps) {
                   {databases.map((database) => (
                     <TableRow key={database.name}>
                       <TableCell>
-                        <span className="flex items-center gap-2 text-sm">
+                        <span
+                          className="flex items-center gap-2 text-sm"
+                          title={database.name}
+                        >
                           <Database className="text-muted-foreground size-3.5" />
-                          {database.name}
+                          {databaseLabel(aliases, connection.id, database.name)}
                         </span>
                       </TableCell>
                       <TableCell className="text-muted-foreground text-right text-xs">

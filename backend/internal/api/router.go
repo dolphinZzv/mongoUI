@@ -100,6 +100,8 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 			r.Use(a.auditMiddleware)
 
 			r.Get("/audit", a.listAudit)
+			r.Get("/aliases", a.getAliases)
+			r.Patch("/aliases", a.updateAlias)
 			r.Post("/feedback", a.submitFeedback)
 
 			r.Get("/backups", a.listBackups)

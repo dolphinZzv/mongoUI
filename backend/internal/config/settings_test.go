@@ -73,3 +73,50 @@ func TestUpdateIntervalBounds(t *testing.T) {
 		t.Fatalf("interval = %v, want 30m", got)
 	}
 }
+
+func TestAliasSettingsPersist(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	s, err := LoadSettings(path, DefaultMCPSettings())
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := s.GetAliases(); len(got.Databases) != 0 || len(got.Collections) != 0 {
+		t.Fatalf("defaults = %#v, want empty aliases", got)
+	}
+
+	aliases, err := s.SetAlias("database", "c1", "orders", "", "Orders DB")
+	if err != nil {
+		t.Fatalf("set database alias: %v", err)
+	}
+	if aliases.Databases["c1::orders"] != "Orders DB" {
+		t.Fatalf("database alias not returned: %#v", aliases)
+	}
+	aliases, err = s.SetAlias("collection", "c1", "orders", "items", "Items EN")
+	if err != nil {
+		t.Fatalf("set collection alias: %v", err)
+	}
+	if aliases.Collections["c1::orders::items"] != "Items EN" {
+		t.Fatalf("collection alias not returned: %#v", aliases)
+	}
+
+	reloaded, err := LoadSettings(path, DefaultMCPSettings())
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	got := reloaded.GetAliases()
+	if got.Databases["c1::orders"] != "Orders DB" ||
+		got.Collections["c1::orders::items"] != "Items EN" {
+		t.Fatalf("reloaded aliases = %#v", got)
+	}
+
+	if _, err := reloaded.SetAlias("database", "c1", "orders", "", ""); err != nil {
+		t.Fatalf("remove alias: %v", err)
+	}
+	again, err := LoadSettings(path, DefaultMCPSettings())
+	if err != nil {
+		t.Fatalf("reload after remove: %v", err)
+	}
+	if _, found := again.GetAliases().Databases["c1::orders"]; found {
+		t.Fatalf("database alias should be removed")
+	}
+}

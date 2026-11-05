@@ -295,6 +295,21 @@ export interface FeedbackResult {
   url: string
 }
 
+export type AliasKind = "database" | "collection"
+
+export interface AliasState {
+  databases: Record<string, string>
+  collections: Record<string, string>
+}
+
+export interface AliasUpdate {
+  kind: AliasKind
+  connectionId: string
+  database: string
+  collection?: string
+  alias: string
+}
+
 export interface IndexInfo {
   v?: number
   key: Record<string, unknown>

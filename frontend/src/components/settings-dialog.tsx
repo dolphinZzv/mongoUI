@@ -20,6 +20,7 @@ import {
   Settings2Icon,
   ShieldCheck,
   SunIcon,
+  Tag,
   Ticket,
   UserRound,
   Users,
@@ -44,6 +45,7 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { useAuth } from "@/components/auth-gate"
+import { refreshTeamAliases, setAliasMode, useAliasStore } from "@/lib/aliases"
 import { LazyMount } from "@/components/lazy-mount"
 import { api } from "@/lib/api"
 import { copyToClipboard } from "@/lib/clipboard"
@@ -72,6 +74,7 @@ const PasswordDialog = React.lazy(() =>
 type SettingsSectionId =
   | "account"
   | "appearance"
+  | "aliases"
   | "agent"
   | "mcp"
   | "updates"
@@ -101,6 +104,7 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
   const [oidcOpen, setOidcOpen] = React.useState(false)
   const [tokensOpen, setTokensOpen] = React.useState(false)
   const [passwordOpen, setPasswordOpen] = React.useState(false)
+  const aliasStore = useAliasStore()
   const agentEnabled = useAgentEnabled()
   const agentTools = React.useMemo(() => agentToolList(), [])
   const webmcp = React.useMemo(() => webMcpAvailable(), [])
@@ -142,6 +146,7 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
     }
     items.push(
       { id: "appearance", label: t("settings.section.appearance"), icon: <Palette /> },
+      { id: "aliases", label: t("alias.settingsTitle"), icon: <Tag /> },
       { id: "agent", label: t("settings.section.agent"), icon: <BotIcon /> },
     )
     if (isAdmin) {
@@ -397,6 +402,81 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
                       </SelectContent>
                     </Select>
                   </div>
+                </Panel>
+              ) : null}
+
+              {section === "aliases" ? (
+                <Panel
+                  title={t("alias.settingsTitle")}
+                  description={t("alias.settingsDesc")}
+                >
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {(
+                      [
+                        {
+                          id: "local" as const,
+                          title: t("alias.modeLocal"),
+                          description: t("alias.modeLocalDesc"),
+                          icon: <MonitorIcon />,
+                        },
+                        {
+                          id: "team" as const,
+                          title: t("alias.modeTeam"),
+                          description: t("alias.modeTeamDesc"),
+                          icon: <Users />,
+                        },
+                      ]
+                    ).map((option) => {
+                      const active = aliasStore.mode === option.id
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => setAliasMode(option.id)}
+                          aria-pressed={active}
+                          className={cn(
+                            "flex flex-col gap-2 rounded-lg border p-4 text-left transition-colors",
+                            active
+                              ? "border-primary bg-primary/5"
+                              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                          )}
+                        >
+                          <span className="flex items-center gap-2 text-sm font-medium">
+                            <span className="[&_svg]:size-4">{option.icon}</span>
+                            <span className="flex-1">{option.title}</span>
+                            {active ? <CheckIcon className="size-4 text-primary" /> : null}
+                          </span>
+                          <span className="text-xs leading-relaxed">{option.description}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {aliasStore.mode === "team" ? (
+                    <div className="space-y-2 rounded-lg border p-4 text-sm">
+                      {aliasStore.teamLoading ? (
+                        <p className="text-muted-foreground flex items-center gap-2 text-xs">
+                          <Loader2 className="size-3.5 animate-spin" />
+                          {t("alias.teamLoading")}
+                        </p>
+                      ) : aliasStore.teamError ? (
+                        <>
+                          <p className="text-destructive text-xs">
+                            {t("alias.teamError")}: {aliasStore.teamError}
+                          </p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void refreshTeamAliases().catch(() => undefined)}
+                          >
+                            {t("common.retry")}
+                          </Button>
+                        </>
+                      ) : (
+                        <p className="text-muted-foreground text-xs">{t("alias.teamWriteHint")}</p>
+                      )}
+                    </div>
+                  ) : null}
                 </Panel>
               ) : null}
 

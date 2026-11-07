@@ -23,6 +23,8 @@ export interface DocsQueryState {
   projection: string
   limit: number
   skip: number
+  /** Explicit pinned columns when present in the URL; absent means use local prefs. */
+  pinned?: string[]
 }
 
 export const DOCS_QUERY_DEFAULTS: DocsQueryState = {
@@ -50,7 +52,7 @@ export const COLLECTION_TABS = [
 
 const TAB_SET = new Set<string>(COLLECTION_TABS)
 
-const DOCS_PARAM_KEYS = ["filter", "sort", "projection", "limit", "skip"] as const
+const DOCS_PARAM_KEYS = ["filter", "sort", "projection", "limit", "skip", "pin"] as const
 
 function seg(value: string): string {
   return encodeURIComponent(value)
@@ -66,12 +68,19 @@ function parseCount(value: string | null, fallback: number, min = 0): number {
 function parseDocs(search: string): DocsQueryState | undefined {
   const params = new URLSearchParams(search)
   if (!DOCS_PARAM_KEYS.some((key) => params.has(key))) return undefined
+  const pinValues = params.getAll("pin")
+  const pinned = params.has("pin")
+    ? pinValues.length === 1 && pinValues[0] === ""
+      ? []
+      : pinValues.filter((value) => value !== "")
+    : undefined
   return {
     filter: params.get("filter") ?? DOCS_QUERY_DEFAULTS.filter,
     sort: params.get("sort") ?? DOCS_QUERY_DEFAULTS.sort,
     projection: params.get("projection") ?? DOCS_QUERY_DEFAULTS.projection,
     limit: parseCount(params.get("limit"), DOCS_QUERY_DEFAULTS.limit, 1),
     skip: parseCount(params.get("skip"), DOCS_QUERY_DEFAULTS.skip),
+    pinned,
   }
 }
 
@@ -102,6 +111,13 @@ export function buildPath(selection: Selection, tab?: string, docs?: DocsQuerySt
         }
         if (docs.skip !== DOCS_QUERY_DEFAULTS.skip) {
           params.set("skip", String(docs.skip))
+        }
+        if (docs.pinned !== undefined) {
+          if (docs.pinned.length === 0) {
+            params.append("pin", "")
+          } else {
+            for (const column of docs.pinned) params.append("pin", column)
+          }
         }
       }
       const query = params.toString()

@@ -155,7 +155,8 @@ interface EditingState {
 /** Compact, allocation-light signature used to detect external URL changes. */
 function docsQuerySignature(docs?: DocsQueryState): string {
   const value = docs ?? DOCS_QUERY_DEFAULTS
-  return `${value.filter}\u0000${value.sort}\u0000${value.projection}\u0000${value.limit}\u0000${value.skip}`
+  const pinned = value.pinned === undefined ? "local" : value.pinned.join("\u0001")
+  return `${value.filter}\u0000${value.sort}\u0000${value.projection}\u0000${value.limit}\u0000${value.skip}\u0000${pinned}`
 }
 
 export function DocumentsTab({
@@ -211,7 +212,12 @@ export function DocumentsTab({
   const [updateOpen, setUpdateOpen] = React.useState(false)
   const [updateValue, setUpdateValue] = React.useState('{\n  "$set": {\n    \n  }\n}')
   const prefsKey = columnPrefsKey(connectionId, database, collection)
-  const [prefs, setPrefs] = React.useState<ColumnPrefs>(() => readColumnPrefs(prefsKey))
+  const [prefs, setPrefs] = React.useState<ColumnPrefs>(() => {
+    const stored = readColumnPrefs(prefsKey)
+    return initialDocs?.pinned !== undefined
+      ? { ...stored, pinned: initialDocs.pinned }
+      : stored
+  })
   const viewsStoreKey = viewsKey(connectionId, database, collection)
   const [views, setViews] = React.useState<SavedView[]>(() => readViews(viewsStoreKey))
   const [viewDialogOpen, setViewDialogOpen] = React.useState(false)
@@ -340,12 +346,19 @@ export function DocumentsTab({
   // cleanup to avoid leaks.
   React.useEffect(() => {
     const timer = window.setTimeout(() => {
-      const next: DocsQueryState = { filter, sort, projection, limit, skip }
+      const next: DocsQueryState = {
+        filter,
+        sort,
+        projection,
+        limit,
+        skip,
+        pinned: prefs.pinned,
+      }
       appliedDocsRef.current = docsQuerySignature(next)
       onDocsChange?.(next)
     }, 300)
     return () => window.clearTimeout(timer)
-  }, [filter, sort, projection, limit, skip, onDocsChange])
+  }, [filter, sort, projection, limit, skip, prefs.pinned, onDocsChange])
 
   // Adopt query changes coming from the URL (back/forward) without clobbering
   // the user's in-flight edits.
@@ -358,7 +371,17 @@ export function DocumentsTab({
     setProjection(initialDocs?.projection ?? DOCS_QUERY_DEFAULTS.projection)
     setLimit(initialDocs?.limit ?? DOCS_QUERY_DEFAULTS.limit)
     setSkip(initialDocs?.skip ?? DOCS_QUERY_DEFAULTS.skip)
-  }, [initialDocs])
+    setPrefs((prev) => {
+      const nextPinned =
+        initialDocs?.pinned !== undefined
+          ? initialDocs.pinned
+          : readColumnPrefs(prefsKey).pinned
+      const same =
+        prev.pinned.length === nextPinned.length &&
+        prev.pinned.every((column, index) => column === nextPinned[index])
+      return same ? prev : { ...prev, pinned: nextPinned }
+    })
+  }, [initialDocs, prefsKey])
 
   const documents = result?.documents ?? []
   const allColumns = React.useMemo(() => collectColumns(documents), [documents])

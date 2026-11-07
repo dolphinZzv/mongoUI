@@ -4,6 +4,7 @@ import type {
   AIFilterResult,
   AISettings,
   AISettingsInput,
+  AITestResult,
   AliasState,
   AliasUpdate,
   AuditEntry,
@@ -410,6 +411,8 @@ export const api = {
   getAISettings: () => request<AISettings>("/ai"),
   updateAISettings: (input: AISettingsInput) =>
     request<AISettings>("/ai", { method: "PUT", body: JSON.stringify(input) }),
+  testAISettings: (input: AISettingsInput) =>
+    request<AITestResult>("/ai/test", { method: "POST", body: JSON.stringify(input) }),
   generateAIFilter: (input: AIFilterInput) =>
     request<AIFilterResult>("/ai/filter", { method: "POST", body: JSON.stringify(input) }),
 

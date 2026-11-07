@@ -47,7 +47,7 @@ func TestAISettingsEndpoints(t *testing.T) {
 	if data["hasAPIKey"] != true || data["apiKey"] != nil {
 		t.Fatalf("API key must be redacted: %#v", data)
 	}
-	cfg, err := settings.GetAI()
+	cfg, err := settings.GetAI(config.LocalAIUser)
 	if err != nil {
 		t.Fatalf("GetAI: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestAISettingsEndpoints(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("update without key status = %d body %#v", status, env)
 	}
-	cfg, _ = settings.GetAI()
+	cfg, _ = settings.GetAI(config.LocalAIUser)
 	if cfg.APIKey != "secret-key" {
 		t.Fatalf("empty apiKey should preserve the existing key")
 	}
@@ -110,6 +110,34 @@ func TestAIFilterRequiresConfiguration(t *testing.T) {
 	handler, _ := aiTestAPI(t)
 	status, _ := doJSON(t, handler, http.MethodPost, "/api/ai/filter",
 		`{"description":"active","database":"db","collection":"users","fields":["status"]}`)
+	if status != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", status, http.StatusServiceUnavailable)
+	}
+}
+
+func TestAITestEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{}"}}]}`))
+	}))
+	defer server.Close()
+
+	handler, _ := aiTestAPI(t)
+	status, env := doJSON(t, handler, http.MethodPost, "/api/ai/test",
+		`{"provider":"openai","baseURL":"`+server.URL+`","model":"test","apiKey":"secret"}`)
+	if status != http.StatusOK {
+		t.Fatalf("POST /api/ai/test status = %d body %#v", status, env)
+	}
+	data := dataOf(t, env)
+	if data["provider"] != "openai" || data["model"] != "test" {
+		t.Fatalf("unexpected test response: %#v", data)
+	}
+}
+
+func TestAITestEndpointRequiresCredentials(t *testing.T) {
+	handler, _ := aiTestAPI(t)
+	status, _ := doJSON(t, handler, http.MethodPost, "/api/ai/test",
+		`{"provider":"openai","baseURL":"https://api.openai.com/v1"}`)
 	if status != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d", status, http.StatusServiceUnavailable)
 	}

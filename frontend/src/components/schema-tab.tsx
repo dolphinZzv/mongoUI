@@ -49,12 +49,9 @@ export function SchemaTab({ connectionId, database, collection }: SchemaTabProps
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-3 border-b p-3">
         <ScanSearch className="text-muted-foreground size-4" />
-        <span className="text-sm">
-          Sampled <span className="font-semibold">{sampled}</span> document
-          {sampled === 1 ? "" : "s"}
-        </span>
+        <span className="text-sm">{t("schema.sampled", { count: sampled })}</span>
         <Button variant="outline" size="sm" className="ml-auto" onClick={() => void load()}>
-          <RefreshCw className={loading ? "animate-spin" : undefined} /> Re-sample
+          <RefreshCw className={loading ? "animate-spin" : undefined} /> {t("schema.resample")}
         </Button>
       </div>
 

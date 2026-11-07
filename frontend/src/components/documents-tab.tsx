@@ -24,6 +24,7 @@ import {
   SlidersHorizontal,
   ToggleLeft,
   Trash2,
+  X,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -152,6 +153,53 @@ interface EditingState {
   document?: MongoDocument
 }
 
+/** Signature of the parts that only change when the user runs a query. */
+function appliedQueryKey(filter: string, sort: string, projection: string): string {
+  return [filter, sort, projection].map((part) => part.trim()).join("\u0000")
+}
+
+/** Canonical JSON for comparing a sort/projection against the defaults. */
+function normalizedJSON(value: string): string {
+  const text = value.trim()
+  if (!text) return ""
+  try {
+    return JSON.stringify(JSON.parse(text))
+  } catch {
+    return text
+  }
+}
+
+/** A compact, dismissible summary of one active query part. */
+function QueryChip({
+  label,
+  value,
+  clearLabel,
+  onClear,
+}: {
+  label: string
+  value: string
+  clearLabel: string
+  onClear: () => void
+}) {
+  return (
+    <span className="bg-muted/60 inline-flex max-w-[26rem] items-center gap-1 rounded-full border py-0.5 pr-0.5 pl-2 text-[11px]">
+      <span className="text-muted-foreground shrink-0">{label}</span>
+      <span className="truncate font-mono" title={value}>
+        {value}
+      </span>
+      <button
+        type="button"
+        onClick={onClear}
+        aria-label={clearLabel}
+        title={clearLabel}
+        className="hover:bg-background focus-visible:ring-ring rounded-full p-1 focus-visible:ring-1"
+      >
+        <X className="size-3" />
+      </button>
+    </span>
+  )
+}
+
 /** Compact, allocation-light signature used to detect external URL changes. */
 function docsQuerySignature(docs?: DocsQueryState): string {
   const value = docs ?? DOCS_QUERY_DEFAULTS
@@ -176,6 +224,10 @@ export function DocumentsTab({
   const [limit, setLimit] = React.useState(initialDocs?.limit ?? DOCS_QUERY_DEFAULTS.limit)
   const [skip, setSkip] = React.useState(initialDocs?.skip ?? DOCS_QUERY_DEFAULTS.skip)
   const [showOptions, setShowOptions] = React.useState(false)
+  const rootRef = React.useRef<HTMLDivElement>(null)
+  const [appliedQuery, setAppliedQuery] = React.useState(() =>
+    appliedQueryKey(filter, sort, projection),
+  )
   const [result, setResult] = React.useState<FindResult | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -297,6 +349,7 @@ export function DocumentsTab({
         )
         if (seq !== requestSeqRef.current) return
         setResult(res)
+        setAppliedQuery(appliedQueryKey(filterText, sortText, projectionText))
         setSkip(res.skip)
         setSelected(new Set())
         setAllMatching(false)
@@ -331,10 +384,40 @@ export function DocumentsTab({
   }, [t])
 
   const filterActive = Boolean(filter.trim() && filter.trim() !== "{}")
+  const sortActive =
+    Boolean(sort.trim()) && normalizedJSON(sort) !== normalizedJSON(DOCS_QUERY_DEFAULTS.sort)
+  const projectionActive = Boolean(projection.trim()) && normalizedJSON(projection) !== "{}"
+  // The query on screen can differ from the inputs after the user edits a
+  // filter/sort/projection without pressing Run.
+  const queryDirty = appliedQueryKey(filter, sort, projection) !== appliedQuery
 
   const clearFilter = React.useCallback(() => {
     setFilter(DOCS_QUERY_DEFAULTS.filter)
     void load({ skip: 0, filter: DOCS_QUERY_DEFAULTS.filter })
+  }, [load])
+
+  const clearSort = React.useCallback(() => {
+    setSort(DOCS_QUERY_DEFAULTS.sort)
+    void load({ skip: 0, sort: DOCS_QUERY_DEFAULTS.sort })
+  }, [load])
+
+  const clearProjection = React.useCallback(() => {
+    setProjection(DOCS_QUERY_DEFAULTS.projection)
+    void load({ skip: 0, projection: DOCS_QUERY_DEFAULTS.projection })
+  }, [load])
+
+  // Cmd/Ctrl+Enter runs the query from anywhere in the documents view.
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key !== "Enter") return
+      const root = rootRef.current
+      const target = event.target as Node | null
+      if (!root || !target || !root.contains(target)) return
+      event.preventDefault()
+      void load({ skip: 0 })
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
   }, [load])
 
   // Last query signature we rendered; used to tell our own URL writes apart
@@ -1085,7 +1168,7 @@ export function DocumentsTab({
   const cellValue = cellDoc && cellMenu ? cellDoc[cellMenu.column] : undefined
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div ref={rootRef} className="flex h-full min-h-0 flex-col">
       {/* Toolbar */}
       <div className="shrink-0 space-y-2 border-b p-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -1094,7 +1177,7 @@ export function DocumentsTab({
               value={filter}
               onChange={setFilter}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
+                if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
                   e.preventDefault()
                   void load({ skip: 0 })
                 }
@@ -1108,7 +1191,7 @@ export function DocumentsTab({
               <Ban /> {t("docs.cancelQuery")}
             </Button>
           ) : (
-            <Button onClick={() => void load({ skip: 0 })}>
+            <Button onClick={() => void load({ skip: 0 })} title={t("docs.runShortcut")}>
               <Play /> {t("common.run")}
             </Button>
           )}
@@ -1217,6 +1300,43 @@ export function DocumentsTab({
             }
           />
         </div>
+
+        {filterActive || sortActive || projectionActive || queryDirty ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {filterActive ? (
+              <QueryChip
+                label={t("docs.filterChip")}
+                value={filter}
+                clearLabel={t("docs.clearChip", { name: t("docs.filterChip") })}
+                onClear={clearFilter}
+              />
+            ) : null}
+            {sortActive ? (
+              <QueryChip
+                label={t("docs.sortChip")}
+                value={sort}
+                clearLabel={t("docs.clearChip", { name: t("docs.sortChip") })}
+                onClear={clearSort}
+              />
+            ) : null}
+            {projectionActive ? (
+              <QueryChip
+                label={t("docs.projectionChip")}
+                value={projection}
+                clearLabel={t("docs.clearChip", { name: t("docs.projectionChip") })}
+                onClear={clearProjection}
+              />
+            ) : null}
+            {queryDirty ? (
+              <span
+                className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-700 dark:text-amber-300"
+                title={t("docs.unappliedHint")}
+              >
+                {t("docs.unapplied")}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
 
         {showOptions ? (
           <div className="grid gap-3 md:grid-cols-2">
@@ -1724,6 +1844,7 @@ export function DocumentsTab({
         }}
         onPrev={() => void load({ skip: Math.max(0, skip - limit) })}
         onNext={() => void load({ skip: skip + limit })}
+        onGoToPage={(next) => void load({ skip: Math.max(0, (next - 1) * limit) })}
         onDeleteMatching={() => setConfirm({ type: "filter" })}
       />
 

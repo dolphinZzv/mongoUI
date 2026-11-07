@@ -343,6 +343,11 @@ export interface AISettingsInput {
   clearADKToken?: boolean
 }
 
+export interface AITestResult {
+  provider: string
+  model: string
+}
+
 export interface AIFilterInput {
   description: string
   connectionId: string

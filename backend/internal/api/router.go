@@ -105,6 +105,7 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 
 			r.Get("/ai", a.getAISettings)
 			r.Put("/ai", a.updateAISettings)
+			r.Post("/ai/test", a.testAISettings)
 			r.Post("/ai/filter", a.generateAIFilter)
 			r.Post("/feedback", a.submitFeedback)
 

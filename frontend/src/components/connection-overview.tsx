@@ -1,6 +1,5 @@
 import * as React from "react"
-import { Database, HardDrive, Loader2, RefreshCw, Server, ShieldCheck } from "lucide-react"
-import { toast } from "sonner"
+import { AlertCircle, Database, HardDrive, Loader2, RefreshCw, Server, ShieldCheck } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -47,8 +46,10 @@ export function ConnectionOverview({ connection }: ConnectionOverviewProps) {
   const [totalSize, setTotalSize] = React.useState(0)
   const [server, setServer] = React.useState<Record<string, unknown> | null>(null)
   const [loading, setLoading] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
 
   const load = React.useCallback(async () => {
+    setError(null)
     if (!connection.connected) {
       setDatabases([])
       setServer(null)
@@ -64,11 +65,11 @@ export function ConnectionOverview({ connection }: ConnectionOverviewProps) {
       setTotalSize(dbResult.totalSize)
       setServer(serverResult)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("overview.loadDbFailed"))
+      setError(err instanceof Error ? err.message : t("overview.loadDbFailed"))
     } finally {
       setLoading(false)
     }
-  }, [connection.id, connection.connected])
+  }, [connection.id, connection.connected, t])
 
   React.useEffect(() => {
     void load()
@@ -93,20 +94,32 @@ export function ConnectionOverview({ connection }: ConnectionOverviewProps) {
           </Badge>
           {connection.readOnly ? (
             <Badge variant="outline">
-              <ShieldCheck /> Read-only
+              <ShieldCheck /> {t("overview.readOnly")}
             </Badge>
           ) : null}
           <Button variant="outline" size="sm" className="ml-auto" onClick={() => void load()}>
-            {loading ? <Loader2 className="animate-spin" /> : <RefreshCw />} Refresh
+            {loading ? <Loader2 className="animate-spin" /> : <RefreshCw />} {t("common.refresh")}
           </Button>
         </div>
         <p className="text-muted-foreground mt-2 font-mono text-xs">{maskUri(connection.uri)}</p>
       </div>
 
+      {error ? (
+        <div className="border-destructive/40 bg-destructive/5 text-destructive flex flex-wrap items-center gap-2 border-b px-4 py-2 text-xs">
+          <AlertCircle className="size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 truncate" title={error}>
+            {error}
+          </span>
+          <Button variant="outline" size="sm" onClick={() => void load()}>
+            {t("error.retry")}
+          </Button>
+        </div>
+      ) : null}
+
       {!connection.connected ? (
         <div className="text-muted-foreground flex h-64 flex-col items-center justify-center gap-2 text-sm">
           <Server className="size-8" />
-          Connect this connection to browse its server.
+          {t("overview.connectHint")}
         </div>
       ) : (
         <div className="space-y-4 p-4">

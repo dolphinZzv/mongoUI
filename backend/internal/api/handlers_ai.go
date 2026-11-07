@@ -19,6 +19,7 @@ const (
 	aiMaxDescription = 4000
 	aiMaxFields      = 200
 	aiFilterTimeout  = 90 * time.Second
+	aiTestTimeout    = 45 * time.Second
 )
 
 type aiSettingsView struct {
@@ -47,11 +48,21 @@ type aiSettingsInput struct {
 	ClearADKToken bool    `json:"clearADKToken"`
 }
 
-func (a *API) getAISettings(w http.ResponseWriter, r *http.Request) {
-	if !a.requireAdmin(w, r) {
-		return
+// aiUserKey scopes AI settings to the signed-in account. Auth-disabled
+// installs share the single "local" profile.
+func (a *API) aiUserKey(r *http.Request) string {
+	if a.auth == nil {
+		return config.LocalAIUser
 	}
-	cfg, err := a.settings.GetAI()
+	user, found := a.auth.Current(r)
+	if !found || strings.TrimSpace(user.ID) == "" {
+		return config.LocalAIUser
+	}
+	return user.ID
+}
+
+func (a *API) getAISettings(w http.ResponseWriter, r *http.Request) {
+	cfg, err := a.settings.GetAI(a.aiUserKey(r))
 	if err != nil {
 		serverError(w, err)
 		return
@@ -60,20 +71,66 @@ func (a *API) getAISettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) updateAISettings(w http.ResponseWriter, r *http.Request) {
-	if !a.requireAdmin(w, r) {
-		return
-	}
 	var in aiSettingsInput
 	if err := decodeJSON(r, &in); err != nil {
 		badRequest(w, err)
 		return
 	}
-	current, err := a.settings.GetAI()
+	key := a.aiUserKey(r)
+	current, err := a.settings.GetAI(key)
 	if err != nil {
 		serverError(w, err)
 		return
 	}
+	cfg, err := mergeAIInput(current, in)
+	if err != nil {
+		badRequest(w, err)
+		return
+	}
+	if err := a.settings.SetAI(key, cfg); err != nil {
+		serverError(w, err)
+		return
+	}
+	ok(w, aiView(cfg))
+}
 
+// testAISettings validates the submitted profile by asking the provider for a
+// trivial filter. Blank credentials fall back to the stored ones, so the form can
+// test unsaved edits without re-entering the API key.
+func (a *API) testAISettings(w http.ResponseWriter, r *http.Request) {
+	var in aiSettingsInput
+	if err := decodeJSON(r, &in); err != nil {
+		badRequest(w, err)
+		return
+	}
+	current, err := a.settings.GetAI(a.aiUserKey(r))
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	cfg, err := mergeAIInput(current, in)
+	if err != nil {
+		badRequest(w, err)
+		return
+	}
+	if err := validateAIConfig(cfg); err != nil {
+		fail(w, http.StatusServiceUnavailable, err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), aiTestTimeout)
+	defer cancel()
+	if _, err := ai.GenerateFilter(ctx, cfg, "Reply with the JSON object {} and nothing else."); err != nil {
+		fail(w, http.StatusBadGateway, err)
+		return
+	}
+	ok(w, map[string]string{"provider": cfg.Provider, "model": cfg.Model})
+}
+
+// mergeAIInput applies a partial settings update to current. Omitted fields keep
+// their stored value; empty credentials keep the stored secret unless a clear
+// flag is set.
+func mergeAIInput(current config.AISettings, in aiSettingsInput) (config.AISettings, error) {
 	current.Provider = strings.ToLower(strings.TrimSpace(in.Provider))
 	current.BaseURL = strings.TrimSpace(in.BaseURL)
 	current.Model = strings.TrimSpace(in.Model)
@@ -93,16 +150,25 @@ func (a *API) updateAISettings(w http.ResponseWriter, r *http.Request) {
 		current.ADKToken = strings.TrimSpace(*in.ADKToken)
 	}
 
-	cfg, err := normalizeAI(current)
-	if err != nil {
-		badRequest(w, err)
-		return
+	return normalizeAI(current)
+}
+
+// validateAIConfig rejects profiles that cannot be called yet, so callers get a
+// clear 503 instead of a provider error.
+func validateAIConfig(cfg config.AISettings) error {
+	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
+	case "":
+		return errors.New("AI is not configured for your account; add a BYOK provider in Settings → AI")
+	case "openai", "gemini":
+		if strings.TrimSpace(cfg.APIKey) == "" {
+			return errors.New("AI API key is not configured; add it in Settings → AI")
+		}
+	case "adk":
+		if strings.TrimSpace(cfg.ADKEndpoint) == "" {
+			return errors.New("Google ADK endpoint is not configured; add it in Settings → AI")
+		}
 	}
-	if err := a.settings.SetAI(cfg); err != nil {
-		serverError(w, err)
-		return
-	}
-	ok(w, aiView(cfg))
+	return nil
 }
 
 type aiFilterInput struct {
@@ -144,22 +210,13 @@ func (a *API) generateAIFilter(w http.ResponseWriter, r *http.Request) {
 		in.Fields[i] = strings.TrimSpace(field)
 	}
 
-	cfg, err := a.settings.GetAI()
+	cfg, err := a.settings.GetAI(a.aiUserKey(r))
 	if err != nil {
 		serverError(w, err)
 		return
 	}
-	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
-	if provider == "" {
-		fail(w, http.StatusServiceUnavailable, errors.New("AI is not configured; add a BYOK provider in Settings → AI"))
-		return
-	}
-	if (provider == "openai" || provider == "gemini") && cfg.APIKey == "" {
-		fail(w, http.StatusServiceUnavailable, errors.New("AI API key is not configured; add it in Settings → AI"))
-		return
-	}
-	if provider == "adk" && cfg.ADKEndpoint == "" {
-		fail(w, http.StatusServiceUnavailable, errors.New("Google ADK endpoint is not configured; add it in Settings → AI"))
+	if err := validateAIConfig(cfg); err != nil {
+		fail(w, http.StatusServiceUnavailable, err)
 		return
 	}
 

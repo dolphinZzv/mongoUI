@@ -135,7 +135,7 @@ func TestAISettingsEncryptedPersist(t *testing.T) {
 		t.Fatalf("load: %v", err)
 	}
 	s.SetCipher(cipher)
-	if err := s.SetAI(AISettings{
+	if err := s.SetAI("user-a", AISettings{
 		Provider: "openai",
 		BaseURL:  "https://api.openai.com/v1",
 		Model:    "gpt-4o-mini",
@@ -155,11 +155,77 @@ func TestAISettingsEncryptedPersist(t *testing.T) {
 		t.Fatalf("reload: %v", err)
 	}
 	reloaded.SetCipher(cipher)
-	cfg, err := reloaded.GetAI()
+	cfg, err := reloaded.GetAI("user-a")
 	if err != nil {
 		t.Fatalf("GetAI: %v", err)
 	}
 	if cfg.APIKey != "secret-key" {
 		t.Fatalf("API key did not round-trip: %#v", cfg)
+	}
+}
+
+func TestAISettingsPerUserIsolation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	cipher, err := NewCipher(make([]byte, 32))
+	if err != nil {
+		t.Fatalf("cipher: %v", err)
+	}
+	s, err := LoadSettings(path, DefaultMCPSettings())
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	s.SetCipher(cipher)
+
+	if err := s.SetAI("user-a", AISettings{Provider: "openai", APIKey: "key-a"}); err != nil {
+		t.Fatalf("set user-a: %v", err)
+	}
+	if err := s.SetAI("user-b", AISettings{Provider: "gemini", APIKey: "key-b"}); err != nil {
+		t.Fatalf("set user-b: %v", err)
+	}
+
+	userA, _ := s.GetAI("user-a")
+	userB, _ := s.GetAI("user-b")
+	if userA.APIKey != "key-a" || userB.APIKey != "key-b" {
+		t.Fatalf("profiles leaked across accounts: a=%#v b=%#v", userA, userB)
+	}
+	empty, err := s.GetAI("user-c")
+	if err != nil {
+		t.Fatalf("GetAI unknown: %v", err)
+	}
+	if empty.Provider != "" || empty.APIKey != "" {
+		t.Fatalf("unknown account should have no profile: %#v", empty)
+	}
+
+	// Clearing the provider removes only that account's entry.
+	if err := s.SetAI("user-a", AISettings{}); err != nil {
+		t.Fatalf("clear user-a: %v", err)
+	}
+	if cleared, _ := s.GetAI("user-a"); cleared.Provider != "" {
+		t.Fatalf("user-a profile should be removed: %#v", cleared)
+	}
+	if kept, _ := s.GetAI("user-b"); kept.Provider != "gemini" {
+		t.Fatalf("user-b profile should survive: %#v", kept)
+	}
+}
+
+func TestAISettingsLegacyMigration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	legacy := `{"ai":{"provider":"openai","apiKey":"legacy-key"}}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatalf("write legacy settings: %v", err)
+	}
+	s, err := LoadSettings(path, DefaultMCPSettings())
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	cfg, err := s.GetAI(LocalAIUser)
+	if err != nil {
+		t.Fatalf("GetAI: %v", err)
+	}
+	if cfg.Provider != "openai" || cfg.APIKey != "legacy-key" {
+		t.Fatalf("legacy profile was not migrated: %#v", cfg)
+	}
+	if _, exists := s.AIByUser["user-a"]; exists {
+		t.Fatalf("legacy profile must not be shared with accounts")
 	}
 }

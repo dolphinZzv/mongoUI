@@ -57,6 +57,7 @@ import { useTheme, type Theme } from "@/lib/theme"
 import type {
   AIProvider,
   AISettings,
+  AISettingsInput,
   OpenAIAPIMode,
   MCPSettings,
   UpdateSettings,
@@ -151,6 +152,7 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
   const [clearAIKey, setClearAIKey] = React.useState(false)
   const [clearADKToken, setClearADKToken] = React.useState(false)
   const [aiBusy, setAIBusy] = React.useState(false)
+  const [aiTesting, setAITesting] = React.useState(false)
 
   const isAdmin = !authEnabled || role === "admin"
   const mcpUrl = typeof window === "undefined" ? "/mcp" : `${window.location.origin}/mcp`
@@ -197,26 +199,42 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
     if (!open) return
     void refreshMCP()
     void refreshUpdate()
-    if (isAdmin) void refreshAI()
-  }, [open, isAdmin, refreshMCP, refreshUpdate, refreshAI])
+    void refreshAI()
+  }, [open, refreshMCP, refreshUpdate, refreshAI])
+
+  const aiInput = (): AISettingsInput => ({
+    provider: aiForm.provider,
+    baseURL: aiForm.baseURL,
+    model: aiForm.model,
+    apiMode: aiForm.apiMode,
+    apiKey: aiKey.trim() || undefined,
+    clearAPIKey: clearAIKey,
+    adkEndpoint: aiForm.adkEndpoint,
+    adkAppName: aiForm.adkAppName,
+    adkUserID: aiForm.adkUserID,
+    adkToken: aiToken.trim() || undefined,
+    clearADKToken,
+  })
+
+  const testAI = async () => {
+    if (!aiForm.provider || aiTesting) return
+    setAITesting(true)
+    try {
+      const result = await api.testAISettings(aiInput())
+      const label = result.model ? `${result.provider} / ${result.model}` : result.provider
+      toast.success(t("ai.testOk", { provider: label }))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("ai.testFailed"))
+    } finally {
+      setAITesting(false)
+    }
+  }
 
   const saveAI = async () => {
     if (!aiForm.provider || aiBusy) return
     setAIBusy(true)
     try {
-      const saved = await api.updateAISettings({
-        provider: aiForm.provider,
-        baseURL: aiForm.baseURL,
-        model: aiForm.model,
-        apiMode: aiForm.apiMode,
-        apiKey: aiKey.trim() || undefined,
-        clearAPIKey: clearAIKey,
-        adkEndpoint: aiForm.adkEndpoint,
-        adkAppName: aiForm.adkAppName,
-        adkUserID: aiForm.adkUserID,
-        adkToken: aiToken.trim() || undefined,
-        clearADKToken,
-      })
+      const saved = await api.updateAISettings(aiInput())
       setAI(saved)
       setAIForm({
         provider: saved.provider,
@@ -248,12 +266,14 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
       { id: "appearance", label: t("settings.section.appearance"), icon: <Palette /> },
       { id: "aliases", label: t("alias.settingsTitle"), icon: <Tag /> },
       { id: "agent", label: t("settings.section.agent"), icon: <BotIcon /> },
+      // AI settings are per account, so every signed-in user can manage their
+      // own BYOK profile.
+      { id: "ai", label: t("settings.section.ai"), icon: <Sparkles /> },
     )
     if (isAdmin) {
       items.push(
         { id: "mcp", label: t("settings.section.mcp"), icon: <Server /> },
         { id: "updates", label: t("settings.section.updates"), icon: <RefreshCw /> },
-        { id: "ai", label: t("settings.section.ai"), icon: <Sparkles /> },
       )
     }
     if (authEnabled && role === "admin") {
@@ -359,7 +379,7 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="flex max-h-[calc(100vh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl lg:max-w-4xl">
+        <DialogContent className="flex h-[min(44rem,calc(100dvh-2rem))] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl lg:max-w-4xl">
           <DialogHeader className="border-b px-5 py-4 pr-12">
             <DialogTitle>{t("settings.title")}</DialogTitle>
             <DialogDescription>{t("settings.desc")}</DialogDescription>
@@ -385,7 +405,7 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
             </div>
             <nav
               aria-label={t("settings.title")}
-              className="hidden gap-1 border-r p-3 sm:flex sm:w-52 sm:shrink-0 sm:flex-col"
+              className="scrollbar-thin hidden gap-1 overflow-y-auto border-r p-3 sm:flex sm:w-52 sm:shrink-0 sm:flex-col"
             >
               {sections.map((item) => (
                 <button
@@ -767,7 +787,7 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
                 </Panel>
               ) : null}
 
-              {section === "ai" && isAdmin ? (
+              {section === "ai" ? (
                 <Panel title={t("settings.section.ai")} description={t("ai.desc")}>
                   {ai === null ? (
                     <p className="text-muted-foreground flex items-center gap-2 text-xs">
@@ -954,13 +974,20 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
                       <p className="text-muted-foreground rounded-lg border p-3 text-xs leading-relaxed">
                         {t("ai.note")}
                       </p>
-                      <Button
-                        onClick={() => void saveAI()}
-                        disabled={aiBusy || !aiForm.provider}
-                      >
-                        {aiBusy ? <Loader2 className="animate-spin" /> : null}
-                        {t("ai.save")}
-                      </Button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button onClick={() => void saveAI()} disabled={aiBusy || !aiForm.provider}>
+                          {aiBusy ? <Loader2 className="animate-spin" /> : null}
+                          {t("ai.save")}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => void testAI()}
+                          disabled={aiTesting || aiBusy || !aiForm.provider}
+                        >
+                          {aiTesting ? <Loader2 className="animate-spin" /> : null}
+                          {aiTesting ? t("ai.testing") : t("ai.test")}
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </Panel>

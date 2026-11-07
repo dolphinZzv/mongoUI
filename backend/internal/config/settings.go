@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -49,8 +50,22 @@ func (u UpdateSettings) UpdateInterval() time.Duration {
 	return time.Duration(minutes) * time.Minute
 }
 
+// LocalAIUser is the AI settings key used when authentication is disabled, so a
+// single-install deployment still has one BYOK profile.
+const LocalAIUser = "local"
+
+// aiUserKey normalizes an account ID for the per-user AI settings map. An empty
+// ID means auth is disabled and maps to the shared local profile.
+func aiUserKey(userID string) string {
+	if key := strings.TrimSpace(userID); key != "" {
+		return key
+	}
+	return LocalAIUser
+}
+
 // AISettings configures the BYOK model used by natural-language filter
-// generation. APIKey and ADKToken are encrypted at rest by Settings.
+// generation. Settings are stored per account; APIKey and ADKToken are
+// encrypted at rest by Settings.
 type AISettings struct {
 	Provider    string `json:"provider"` // openai | gemini | adk
 	BaseURL     string `json:"baseURL"`
@@ -85,16 +100,22 @@ type Settings struct {
 	MCP     MCPSettings    `json:"mcp"`
 	Update  UpdateSettings `json:"update"`
 	Aliases AliasSettings  `json:"aliases"`
-	AI      AISettings     `json:"ai"`
+	// AIByUser holds one BYOK profile per account ID. Auth-disabled installs
+	// use the "local" key.
+	AIByUser map[string]AISettings `json:"aiByUser,omitempty"`
+	// LegacyAI is the pre-per-user server-wide profile. It is migrated into
+	// AIByUser["local"] on load and never written back.
+	LegacyAI *AISettings `json:"ai,omitempty"`
 }
 
 // NewSettings returns an in-memory settings holder. Updates are not persisted
 // when no path has been configured.
 func NewSettings(mcp MCPSettings) *Settings {
 	return &Settings{
-		MCP:     mcp,
-		Update:  DefaultUpdateSettings(),
-		Aliases: emptyAliases(),
+		MCP:      mcp,
+		Update:   DefaultUpdateSettings(),
+		Aliases:  emptyAliases(),
+		AIByUser: map[string]AISettings{},
 	}
 }
 
@@ -122,6 +143,18 @@ func LoadSettings(path string, def MCPSettings) (*Settings, error) {
 	}
 	if s.Aliases.Collections == nil {
 		s.Aliases.Collections = map[string]string{}
+	}
+	if s.AIByUser == nil {
+		s.AIByUser = map[string]AISettings{}
+	}
+	// Older builds stored a single server-wide AI profile. Move it to the
+	// local (auth-disabled) slot; authenticated installs start per user, so a
+	// previously shared key is never silently handed to another account.
+	if s.LegacyAI != nil {
+		if _, exists := s.AIByUser[LocalAIUser]; !exists {
+			s.AIByUser[LocalAIUser] = *s.LegacyAI
+		}
+		s.LegacyAI = nil
 	}
 	return s, nil
 }
@@ -152,10 +185,11 @@ func (s *Settings) SetCipher(cipher *Cipher) {
 	s.mu.Unlock()
 }
 
-// GetAI returns the AI settings with credentials decrypted.
-func (s *Settings) GetAI() (AISettings, error) {
+// GetAI returns the account's AI settings with credentials decrypted.
+func (s *Settings) GetAI(userID string) (AISettings, error) {
+	key := aiUserKey(userID)
 	s.mu.RLock()
-	ai := s.AI
+	ai := s.AIByUser[key]
 	cipher := s.cipher
 	s.mu.RUnlock()
 	if cipher == nil {
@@ -171,8 +205,10 @@ func (s *Settings) GetAI() (AISettings, error) {
 	return ai, nil
 }
 
-// SetAI replaces AI settings, encrypting credentials before they are persisted.
-func (s *Settings) SetAI(ai AISettings) error {
+// SetAI replaces one account's AI settings, encrypting credentials before they
+// are persisted. An empty provider removes the profile.
+func (s *Settings) SetAI(userID string, ai AISettings) error {
+	key := aiUserKey(userID)
 	s.mu.Lock()
 	cipher := s.cipher
 	if cipher != nil {
@@ -186,7 +222,14 @@ func (s *Settings) SetAI(ai AISettings) error {
 			return err
 		}
 	}
-	s.AI = ai
+	if s.AIByUser == nil {
+		s.AIByUser = map[string]AISettings{}
+	}
+	if strings.TrimSpace(ai.Provider) == "" {
+		delete(s.AIByUser, key)
+	} else {
+		s.AIByUser[key] = ai
+	}
 	s.mu.Unlock()
 	if s.path == "" {
 		return nil

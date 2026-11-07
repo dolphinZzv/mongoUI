@@ -173,6 +173,11 @@ export default function App() {
     else setSidebarOpen((prev) => !prev)
   }
 
+  const clampSidebarWidth = (value: number) =>
+    Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, value))
+  const clampScriptWidth = (value: number) =>
+    Math.min(SCRIPT_MAX, Math.max(SCRIPT_MIN, value))
+
   const startResize = (event: React.MouseEvent) => {
     event.preventDefault()
     const onMove = (e: MouseEvent) => {
@@ -600,10 +605,22 @@ export default function App() {
           <div
             role="separator"
             aria-orientation="vertical"
+            aria-label={t("sidebar.resize")}
+            aria-valuenow={sidebarWidth}
+            aria-valuemin={SIDEBAR_MIN}
+            aria-valuemax={SIDEBAR_MAX}
+            tabIndex={0}
             onMouseDown={startResize}
             onDoubleClick={() => setSidebarWidth(SIDEBAR_DEFAULT)}
+            onKeyDown={(event) => {
+              if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return
+              event.preventDefault()
+              setSidebarWidth((prev) =>
+                clampSidebarWidth(prev + (event.key === "ArrowRight" ? 16 : -16)),
+              )
+            }}
             title={t("sidebar.resize")}
-            className="hover:bg-primary/40 absolute inset-y-0 -right-1 z-50 hidden w-2 cursor-col-resize md:block"
+            className="hover:bg-primary/40 focus-visible:ring-ring absolute inset-y-0 -right-1 z-50 hidden w-2 cursor-col-resize focus-visible:ring-2 focus-visible:outline-hidden md:block"
           />
         </div>
 
@@ -712,10 +729,23 @@ export default function App() {
               <div
                 role="separator"
                 aria-orientation="vertical"
+                aria-label={t("sidebar.resize")}
+                aria-valuenow={scriptWidth}
+                aria-valuemin={SCRIPT_MIN}
+                aria-valuemax={SCRIPT_MAX}
+                tabIndex={0}
                 onMouseDown={startScriptResize}
                 onDoubleClick={() => setScriptWidth(SCRIPT_DEFAULT)}
+                onKeyDown={(event) => {
+                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return
+                  event.preventDefault()
+                  // This panel is anchored right, so ArrowLeft widens it.
+                  setScriptWidth((prev) =>
+                    clampScriptWidth(prev + (event.key === "ArrowLeft" ? 16 : -16)),
+                  )
+                }}
                 title={t("sidebar.resize")}
-                className="hover:bg-primary/40 absolute inset-y-0 -left-1 z-50 hidden w-2 cursor-col-resize md:block"
+                className="hover:bg-primary/40 focus-visible:ring-ring absolute inset-y-0 -left-1 z-50 hidden w-2 cursor-col-resize focus-visible:ring-2 focus-visible:outline-hidden md:block"
               />
               <React.Suspense fallback={<ContentFallback />}>
                 <ScriptPanel

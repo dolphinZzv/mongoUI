@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Database, Keyboard, Leaf, Loader2, Menu, PanelLeft, PanelLeftClose, Plus, ScanSearch, Search, Server, SquareTerminal, Table2, X } from "lucide-react"
+import { Loader2, Menu, PanelLeft, PanelLeftClose, ScanSearch, Search, SquareTerminal, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { AppSidebar } from "@/components/app-sidebar"
@@ -7,6 +7,7 @@ import { CollectionTabs } from "@/components/collection-tabs"
 import { ConnectionStatus } from "@/components/connection-status"
 import { FeedbackWidget } from "@/components/feedback-widget"
 import { HeaderSearch } from "@/components/header-search"
+import { WelcomeScreen } from "@/components/welcome-screen"
 import { useAuth } from "@/components/auth-gate"
 import { LazyMount } from "@/components/lazy-mount"
 import { SettingsDialog } from "@/components/settings-dialog"
@@ -92,6 +93,8 @@ export default function App() {
   const [profileOpen, setProfileOpen] = React.useState(false)
   const [feedbackOpen, setFeedbackOpen] = React.useState(false)
   const [tabs, setTabs] = React.useState<CollectionTab[]>(() => readTabs())
+  // Last closed tab, for Alt+Shift+T (reopen).
+  const lastClosedTabRef = React.useRef<CollectionTab | null>(null)
   const [editingConnection, setEditingConnection] = React.useState<Connection | null>(null)
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
   const isDesktop = useIsDesktop()
@@ -404,6 +407,7 @@ export default function App() {
   const closeTab = (target: CollectionTab) => {
     const index = tabs.findIndex((entry) => entry.key === target.key)
     const next = tabs.filter((entry) => entry.key !== target.key)
+    lastClosedTabRef.current = target
     setTabs(next)
     if (activeTabKey !== target.key) return
     const neighbour = next[Math.min(index, next.length - 1)]
@@ -417,6 +421,59 @@ export default function App() {
       navigate({ kind: "welcome" }, undefined, { replace: true })
     }
   }
+
+  // Keyboard tab navigation: Alt+[ / Alt+] cycle, Alt+1..9 jump, Alt+Shift+W
+  // closes and Alt+Shift+T reopens the last closed collection. Uses event.code
+  // so it works on layouts where Alt changes the produced character.
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.altKey || event.metaKey || event.ctrlKey) return
+      const target = event.target as HTMLElement | null
+      if (
+        target &&
+        (target.isContentEditable ||
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT")
+      ) {
+        return
+      }
+      if (event.code === "BracketRight" || event.code === "BracketLeft") {
+        if (tabs.length === 0) return
+        event.preventDefault()
+        const current = tabs.findIndex((entry) => entry.key === activeTabKey)
+        const delta = event.code === "BracketRight" ? 1 : -1
+        const next = tabs[(current + delta + tabs.length) % tabs.length]
+        if (next) activateTab(next)
+        return
+      }
+      const digit = /^Digit([1-9])$/.exec(event.code)
+      if (digit) {
+        const next = tabs[Number(digit[1]) - 1]
+        if (!next) return
+        event.preventDefault()
+        activateTab(next)
+        return
+      }
+      if (event.shiftKey && event.code === "KeyW") {
+        if (selection.kind !== "collection") return
+        const active = tabs.find((entry) => entry.key === activeTabKey)
+        if (!active) return
+        event.preventDefault()
+        closeTab(active)
+        return
+      }
+      if (event.shiftKey && event.code === "KeyT") {
+        const last = lastClosedTabRef.current
+        if (!last) return
+        event.preventDefault()
+        lastClosedTabRef.current = null
+        activateTab(last)
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [activeTabKey, tabs, selection, activateTab, closeTab])
 
   const renderContent = () => {
     if (selection.kind === "collection") {
@@ -473,102 +530,15 @@ export default function App() {
     }
 
     return (
-      <div className="scrollbar-thin h-full overflow-auto">
-        <div className="mx-auto flex max-w-3xl flex-col items-center justify-center px-6 py-20 text-center">
-          <div className="from-primary to-chart-2 mb-6 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br shadow-lg">
-            <Leaf className="size-7 text-white" />
-          </div>
-          <h1 className="text-3xl font-semibold tracking-tight">MongoUI</h1>
-          <p className="text-muted-foreground mt-3 max-w-xl text-sm">{t("app.tagline")}</p>
-
-          <div className="mt-8 grid w-full gap-3 sm:grid-cols-3">
-            <Feature
-              icon={<Database className="size-4" />}
-              title={t("app.feature.browse")}
-              text={t("app.feature.browseText")}
-            />
-            <Feature
-              icon={<Table2 className="size-4" />}
-              title={t("app.feature.query")}
-              text={t("app.feature.queryText")}
-            />
-            <Feature
-              icon={<Server className="size-4" />}
-              title={t("app.feature.admin")}
-              text={t("app.feature.adminText")}
-            />
-          </div>
-
-          {connections.length === 0 ? (
-            <div className="bg-card mt-8 w-full rounded-2xl border p-6 text-left shadow-sm">
-              <h2 className="text-base font-semibold">{t("onboarding.title")}</h2>
-              <p className="text-muted-foreground mt-1 text-sm">{t("onboarding.desc")}</p>
-              <ol className="mt-5 space-y-4">
-                {[
-                  ["onboarding.step1", "onboarding.step1Desc"],
-                  ["onboarding.step2", "onboarding.step2Desc"],
-                  ["onboarding.step3", "onboarding.step3Desc"],
-                ].map(([title, description], index) => (
-                  <li key={title} className="flex gap-3">
-                    <span className="bg-primary/10 text-primary flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold">
-                      {index + 1}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium">{t(title)}</p>
-                      <p className="text-muted-foreground text-xs">{t(description)}</p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-              <div className="mt-6 flex flex-wrap gap-2">
-                <Button onClick={openNewConnection}>
-                  <Plus /> {t("app.newConnection")}
-                </Button>
-                <Button variant="outline" onClick={() => setShortcutsOpen(true)}>
-                  <Keyboard /> {t("shortcuts.title")}
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-8 w-full">
-              <p className="text-muted-foreground mb-3 text-xs tracking-wide uppercase">
-                {t("app.recent")}
-              </p>
-              <div className="flex flex-wrap justify-center gap-2">
-                {connections.map((connection) => (
-                  <Button
-                    key={connection.id}
-                    variant="outline"
-                    onClick={() => handleSelect({ kind: "connection", connectionId: connection.id })}
-                  >
-                    <span
-                      className="size-2 rounded-full"
-                      style={{ backgroundColor: connection.color || "#10b981" }}
-                    />
-                    {connection.name}
-                  </Button>
-                ))}
-              </div>
-              <div className="mt-5 flex flex-wrap justify-center gap-2">
-                <Button variant="outline" size="sm" onClick={openNewConnection}>
-                  <Plus /> {t("app.newConnection")}
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setPaletteOpen(true)}>
-                  <Search /> {t("palette.open")}
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setShortcutsOpen(true)}>
-                  <Keyboard /> {t("shortcuts.title")}
-                </Button>
-              </div>
-            </div>
-          )}
-
-          <p className="text-muted-foreground mt-8 text-xs">{t("app.shortcutHint")}</p>
-          <p className="text-muted-foreground mt-2 text-xs">
-            MongoUI v{__APP_VERSION__}
-          </p>
-        </div>
-      </div>
+      <WelcomeScreen
+        connections={connections}
+        onOpenConnection={(connection) =>
+          handleSelect({ kind: "connection", connectionId: connection.id })
+        }
+        onNewConnection={openNewConnection}
+        onOpenPalette={() => setPaletteOpen(true)}
+        onOpenShortcuts={() => setShortcutsOpen(true)}
+      />
     )
   }
 
@@ -822,18 +792,6 @@ function ContentFallback() {
   return (
     <div className="flex h-full items-center justify-center">
       <Loader2 className="text-muted-foreground size-5 animate-spin" />
-    </div>
-  )
-}
-
-function Feature({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {
-  return (
-    <div className="bg-card rounded-xl border p-4 text-left">
-      <div className="text-primary flex items-center gap-2 text-sm font-medium">
-        {icon}
-        {title}
-      </div>
-      <p className="text-muted-foreground mt-1 text-xs">{text}</p>
     </div>
   )
 }

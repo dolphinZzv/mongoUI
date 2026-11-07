@@ -2,10 +2,7 @@ import * as React from "react"
 import {
   BotIcon,
   CheckIcon,
-  ChevronRight,
-  CopyIcon,
   DatabaseBackup,
-  DownloadIcon,
   KeyRound,
   Languages,
   Loader2,
@@ -26,7 +23,6 @@ import {
   UserRound,
   Users,
 } from "lucide-react"
-import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -44,25 +40,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
+import { AISettingsPanel } from "@/components/settings/ai-settings-panel"
+import { Panel } from "@/components/settings/panel"
+import { MCPSettingsPanel } from "@/components/settings/mcp-panel"
+import { UpdatesPanel } from "@/components/settings/updates-panel"
+import { ActionRow, SettingRow } from "@/components/settings/rows"
 import { useAuth } from "@/components/auth-gate"
 import { refreshTeamAliases, setAliasMode, useAliasStore } from "@/lib/aliases"
 import { LazyMount } from "@/components/lazy-mount"
 import { api } from "@/lib/api"
-import { copyToClipboard } from "@/lib/clipboard"
 import { LOCALES, useI18n } from "@/lib/i18n"
 import { useTheme, type Theme } from "@/lib/theme"
-import type {
-  AIProvider,
-  AISettings,
-  AISettingsInput,
-  OpenAIAPIMode,
-  MCPSettings,
-  UpdateSettings,
-  UpdateState,
-} from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { agentToolList, setAgentEnabled, useAgentEnabled, webMcpAvailable } from "@/lib/webmcp"
 
@@ -93,26 +82,6 @@ type SettingsSectionId =
   | "admin"
   | "feedback"
 
-interface AIFormState {
-  provider: AIProvider | ""
-  baseURL: string
-  model: string
-  apiMode: OpenAIAPIMode | ""
-  adkEndpoint: string
-  adkAppName: string
-  adkUserID: string
-}
-
-const EMPTY_AI_FORM: AIFormState = {
-  provider: "",
-  baseURL: "",
-  model: "",
-  apiMode: "",
-  adkEndpoint: "",
-  adkAppName: "",
-  adkUserID: "",
-}
-
 interface SettingsDialogProps {
   authEnabled: boolean
   onFeedback: () => void
@@ -140,123 +109,8 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
   const agentEnabled = useAgentEnabled()
   const agentTools = React.useMemo(() => agentToolList(), [])
   const webmcp = React.useMemo(() => webMcpAvailable(), [])
-  const [mcp, setMcp] = React.useState<MCPSettings | null>(null)
-  const [saving, setSaving] = React.useState(false)
-  const [copied, setCopied] = React.useState(false)
-  const [update, setUpdate] = React.useState<UpdateState | null>(null)
-  const [updateBusy, setUpdateBusy] = React.useState<"check" | "install" | null>(null)
-  const [ai, setAI] = React.useState<AISettings | null>(null)
-  const [aiForm, setAIForm] = React.useState<AIFormState>(EMPTY_AI_FORM)
-  const [aiKey, setAIKey] = React.useState("")
-  const [aiToken, setAIToken] = React.useState("")
-  const [clearAIKey, setClearAIKey] = React.useState(false)
-  const [clearADKToken, setClearADKToken] = React.useState(false)
-  const [aiBusy, setAIBusy] = React.useState(false)
-  const [aiTesting, setAITesting] = React.useState(false)
 
   const isAdmin = !authEnabled || role === "admin"
-  const mcpUrl = typeof window === "undefined" ? "/mcp" : `${window.location.origin}/mcp`
-
-  const refreshMCP = React.useCallback(async () => {
-    try {
-      setMcp(await api.mcpSettings())
-    } catch {
-      /* the API may be unavailable before the first render */
-    }
-  }, [])
-
-  const refreshUpdate = React.useCallback(async () => {
-    try {
-      setUpdate(await api.getUpdate())
-    } catch {
-      /* the API may be unavailable before the first render */
-    }
-  }, [])
-
-  const refreshAI = React.useCallback(async () => {
-    try {
-      const data = await api.getAISettings()
-      setAI(data)
-      setAIForm({
-        provider: data.provider,
-        baseURL: data.baseURL,
-        model: data.model,
-        apiMode: data.apiMode || (data.provider === "openai" ? "chat" : ""),
-        adkEndpoint: data.adkEndpoint,
-        adkAppName: data.adkAppName,
-        adkUserID: data.adkUserID,
-      })
-      setAIKey("")
-      setAIToken("")
-      setClearAIKey(false)
-      setClearADKToken(false)
-    } catch {
-      toast.error(t("ai.loadFailed"))
-    }
-  }, [t])
-
-  React.useEffect(() => {
-    if (!open) return
-    void refreshMCP()
-    void refreshUpdate()
-    void refreshAI()
-  }, [open, refreshMCP, refreshUpdate, refreshAI])
-
-  const aiInput = (): AISettingsInput => ({
-    provider: aiForm.provider,
-    baseURL: aiForm.baseURL,
-    model: aiForm.model,
-    apiMode: aiForm.apiMode,
-    apiKey: aiKey.trim() || undefined,
-    clearAPIKey: clearAIKey,
-    adkEndpoint: aiForm.adkEndpoint,
-    adkAppName: aiForm.adkAppName,
-    adkUserID: aiForm.adkUserID,
-    adkToken: aiToken.trim() || undefined,
-    clearADKToken,
-  })
-
-  const testAI = async () => {
-    if (!aiForm.provider || aiTesting) return
-    setAITesting(true)
-    try {
-      const result = await api.testAISettings(aiInput())
-      const label = result.model ? `${result.provider} / ${result.model}` : result.provider
-      toast.success(t("ai.testOk", { provider: label }))
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("ai.testFailed"))
-    } finally {
-      setAITesting(false)
-    }
-  }
-
-  const saveAI = async () => {
-    if (!aiForm.provider || aiBusy) return
-    setAIBusy(true)
-    try {
-      const saved = await api.updateAISettings(aiInput())
-      setAI(saved)
-      setAIForm({
-        provider: saved.provider,
-        baseURL: saved.baseURL,
-        model: saved.model,
-        apiMode: saved.apiMode || (saved.provider === "openai" ? "chat" : ""),
-        adkEndpoint: saved.adkEndpoint,
-        adkAppName: saved.adkAppName,
-        adkUserID: saved.adkUserID,
-      })
-      setAIKey("")
-      setAIToken("")
-      setClearAIKey(false)
-      setClearADKToken(false)
-      toast.success(t("ai.saved"))
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("ai.saveFailed"))
-    } finally {
-      setAIBusy(false)
-    }
-  }
-
   const sections = React.useMemo(() => {
     const items: { id: SettingsSectionId; label: string; icon: React.ReactNode }[] = []
     if (authEnabled && username) {
@@ -287,60 +141,6 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
     if (sections.some((item) => item.id === section)) return
     setSection(sections[0]?.id ?? "appearance")
   }, [sections, section])
-
-  const updateSettings = update?.settings ?? null
-
-  const saveUpdateSettings = async (patch: Partial<UpdateSettings>) => {
-    try {
-      const settings = await api.updateUpdateSettings(patch)
-      setUpdate((prev) => ({ settings, status: prev?.status ?? null }))
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("update.failed"))
-    }
-  }
-
-  const runUpdateAction = async (action: "check" | "install") => {
-    setUpdateBusy(action)
-    try {
-      const status = action === "install" ? await api.installUpdate() : await api.checkUpdate()
-      setUpdate((prev) => (prev ? { ...prev, status } : prev))
-      if (status.restartRequired) {
-        toast.success(t("update.installed", { version: status.installedVersion }))
-      } else if (status.updateAvailable) {
-        toast.info(t("update.available"))
-      } else {
-        toast.success(t("update.upToDate"))
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("update.failed"))
-    } finally {
-      setUpdateBusy(null)
-    }
-  }
-
-  const updateMCP = async (patch: Partial<MCPSettings>) => {
-    setSaving(true)
-    try {
-      setMcp(await api.updateMcpSettings(patch))
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("mcp.updateFailed"))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const copyMCP = async () => {
-    const success = await copyToClipboard(mcpUrl)
-    if (!success) return
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), 1500)
-  }
-
-  const mcpEnabled = Boolean(mcp?.enabled)
-  const readEnabled = Boolean(mcp?.read)
-  const writeEnabled = Boolean(mcp?.write)
-  const updateStatus = update?.status ?? null
-  const autoUpdate = updateSettings?.auto ?? true
 
   const launch = (setter: React.Dispatch<React.SetStateAction<boolean>>) => {
     setOpen(false)
@@ -630,368 +430,11 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
                 </Panel>
               ) : null}
 
-              {section === "mcp" && isAdmin ? (
-                <Panel title={t("mcp.title")} description={t("settings.mcpDesc")}>
-                  <div className="divide-y rounded-lg border">
-                    <SettingRow
-                      title={t("mcp.enable")}
-                      description={t("mcp.enableHint")}
-                      control={
-                        <Switch
-                          checked={mcpEnabled}
-                          disabled={saving || mcp === null}
-                          onCheckedChange={(checked) => void updateMCP({ enabled: checked })}
-                        />
-                      }
-                    />
-                    <SettingRow
-                      title={t("mcp.read")}
-                      description={t("mcp.readHint")}
-                      control={
-                        <Switch
-                          checked={readEnabled}
-                          disabled={saving || !mcpEnabled}
-                          onCheckedChange={(checked) => void updateMCP({ read: checked })}
-                        />
-                      }
-                    />
-                    <SettingRow
-                      title={t("mcp.write")}
-                      description={t("mcp.writeHint")}
-                      control={
-                        <Switch
-                          checked={writeEnabled}
-                          disabled={saving || !mcpEnabled}
-                          onCheckedChange={(checked) => void updateMCP({ write: checked })}
-                        />
-                      }
-                    />
-                  </div>
-                  {mcp !== null && !mcpEnabled ? (
-                    <p className="text-muted-foreground text-xs">{t("mcp.disabledHint")}</p>
-                  ) : null}
-                  <div className="space-y-2">
-                    <p className="text-muted-foreground text-xs">{t("settings.mcpEndpoint")}</p>
-                    <div className="flex items-center gap-2 rounded-lg border p-2">
-                      <code className="min-w-0 flex-1 truncate text-xs">{mcpUrl}</code>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={copyMCP}
-                        title={t("common.copy")}
-                        aria-label={t("common.copy")}
-                      >
-                        {copied ? <CheckIcon className="text-emerald-600" /> : <CopyIcon />}
-                      </Button>
-                    </div>
-                  </div>
-                </Panel>
-              ) : null}
+              {section === "mcp" && isAdmin ? <MCPSettingsPanel /> : null}
 
-              {section === "updates" && isAdmin ? (
-                <Panel title={t("update.title")} description={t("settings.updatesDesc")}>
-                  <div className="divide-y rounded-lg border">
-                    <SettingRow
-                      title={t("update.auto")}
-                      description={t("update.autoHint")}
-                      control={
-                        <Switch
-                          checked={autoUpdate}
-                          disabled={update === null}
-                          onCheckedChange={(checked) =>
-                            void saveUpdateSettings({ auto: checked })
-                          }
-                        />
-                      }
-                    />
-                    {autoUpdate ? (
-                      <SettingRow
-                        title={t("update.interval")}
-                        control={
-                          <Select
-                            value={String(updateSettings?.intervalMinutes ?? 10)}
-                            onValueChange={(value) =>
-                              void saveUpdateSettings({ intervalMinutes: Number(value) })
-                            }
-                          >
-                            <SelectTrigger size="sm" className="w-24">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {[5, 10, 15, 30, 60].map((minutes) => (
-                                <SelectItem key={minutes} value={String(minutes)}>
-                                  {minutes} min
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        }
-                      />
-                    ) : null}
-                  </div>
+              {section === "updates" && isAdmin ? <UpdatesPanel /> : null}
 
-                  <div className="space-y-2 rounded-lg border p-4 text-sm">
-                    <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                      <span className="text-muted-foreground">{t("update.current")}</span>
-                      <span className="font-mono">{updateStatus?.current || "—"}</span>
-                      <span className="text-muted-foreground">·</span>
-                      <span className="text-muted-foreground">{t("update.latest")}</span>
-                      <span className="font-mono">{updateStatus?.latest || "—"}</span>
-                    </div>
-                    {updateStatus?.restartRequired ? (
-                      <p className="text-amber-600 dark:text-amber-400">
-                        {t("update.installed", { version: updateStatus.installedVersion })}
-                      </p>
-                    ) : updateStatus?.updateAvailable ? (
-                      <p className="text-amber-600 dark:text-amber-400">
-                        {t("update.available")}
-                      </p>
-                    ) : updateStatus?.lastError ? (
-                      <p className="text-destructive">
-                        {t("update.error", { error: updateStatus.lastError })}
-                      </p>
-                    ) : updateStatus?.lastChecked ? (
-                      <p className="text-emerald-600 dark:text-emerald-400">
-                        {t("update.upToDate")}
-                      </p>
-                    ) : null}
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={updateBusy !== null || update === null}
-                        onClick={() => void runUpdateAction("check")}
-                      >
-                        {updateBusy === "check" ? (
-                          <Loader2 className="animate-spin" />
-                        ) : (
-                          <RefreshCw />
-                        )}
-                        {t("update.check")}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={updateBusy !== null || !updateStatus?.updateAvailable}
-                        onClick={() => void runUpdateAction("install")}
-                      >
-                        {updateBusy === "install" ? (
-                          <Loader2 className="animate-spin" />
-                        ) : (
-                          <DownloadIcon />
-                        )}
-                        {t("update.install")}
-                      </Button>
-                    </div>
-                  </div>
-                </Panel>
-              ) : null}
-
-              {section === "ai" ? (
-                <Panel title={t("settings.section.ai")} description={t("ai.desc")}>
-                  {ai === null ? (
-                    <p className="text-muted-foreground flex items-center gap-2 text-xs">
-                      <Loader2 className="size-3.5 animate-spin" /> {t("common.loading")}
-                    </p>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="grid gap-1.5">
-                        <Label>{t("ai.provider")}</Label>
-                        <Select
-                          value={aiForm.provider || undefined}
-                          onValueChange={(value) =>
-                            setAIForm((prev) => ({
-                              ...prev,
-                              provider: value as AIProvider,
-                              baseURL: "",
-                              model: "",
-                              apiMode: value === "openai" ? "chat" : "",
-                            }))
-                          }
-                        >
-                          <SelectTrigger className="w-full sm:w-72">
-                            <SelectValue placeholder={t("ai.provider")} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="openai">{t("ai.provider.openai")}</SelectItem>
-                            <SelectItem value="gemini">{t("ai.provider.gemini")}</SelectItem>
-                            <SelectItem value="adk">{t("ai.provider.adk")}</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {aiForm.provider === "adk" ? (
-                        <>
-                          <div className="grid gap-1.5">
-                            <Label htmlFor="ai-adk-endpoint">{t("ai.adkEndpoint")}</Label>
-                            <Input
-                              id="ai-adk-endpoint"
-                              value={aiForm.adkEndpoint}
-                              onChange={(event) =>
-                                setAIForm((prev) => ({ ...prev, adkEndpoint: event.target.value }))
-                              }
-                              placeholder="http://127.0.0.1:8000"
-                              className="font-mono text-xs"
-                            />
-                            <p className="text-muted-foreground text-xs">{t("ai.adkEndpointHint")}</p>
-                          </div>
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <div className="grid gap-1.5">
-                              <Label htmlFor="ai-adk-app">{t("ai.adkAppName")}</Label>
-                              <Input
-                                id="ai-adk-app"
-                                value={aiForm.adkAppName}
-                                onChange={(event) =>
-                                  setAIForm((prev) => ({ ...prev, adkAppName: event.target.value }))
-                                }
-                                placeholder="mongoui"
-                              />
-                            </div>
-                            <div className="grid gap-1.5">
-                              <Label htmlFor="ai-adk-user">{t("ai.adkUserID")}</Label>
-                              <Input
-                                id="ai-adk-user"
-                                value={aiForm.adkUserID}
-                                onChange={(event) =>
-                                  setAIForm((prev) => ({ ...prev, adkUserID: event.target.value }))
-                                }
-                                placeholder="mongoui"
-                              />
-                            </div>
-                          </div>
-                          <div className="grid gap-1.5">
-                            <div className="flex items-center gap-2">
-                              <Label htmlFor="ai-adk-token">{t("ai.adkToken")}</Label>
-                              {ai.hasADKToken ? (
-                                <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-                                  {t("ai.keyStored")}
-                                </Badge>
-                              ) : null}
-                            </div>
-                            <Input
-                              id="ai-adk-token"
-                              type="password"
-                              value={aiToken}
-                              onChange={(event) => setAIToken(event.target.value)}
-                              placeholder={ai.hasADKToken ? "••••••••" : t("ai.adkToken")}
-                              autoComplete="off"
-                            />
-                            <p className="text-muted-foreground text-xs">{t("ai.adkTokenHint")}</p>
-                            {ai.hasADKToken ? (
-                              <label className="flex items-center gap-2 text-xs">
-                                <Switch checked={clearADKToken} onCheckedChange={setClearADKToken} />
-                                {t("ai.clearToken")}
-                              </label>
-                            ) : null}
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div className="grid gap-1.5">
-                            <Label htmlFor="ai-base-url">{t("ai.baseURL")}</Label>
-                            <Input
-                              id="ai-base-url"
-                              value={aiForm.baseURL}
-                              onChange={(event) =>
-                                setAIForm((prev) => ({ ...prev, baseURL: event.target.value }))
-                              }
-                              placeholder={
-                                aiForm.provider === "gemini"
-                                  ? "https://generativelanguage.googleapis.com/v1beta"
-                                  : "https://api.openai.com/v1"
-                              }
-                              className="font-mono text-xs"
-                            />
-                            <p className="text-muted-foreground text-xs">{t("ai.baseURLHint")}</p>
-                          </div>
-                          <div className="grid gap-1.5">
-                            <Label htmlFor="ai-model">{t("ai.model")}</Label>
-                            <Input
-                              id="ai-model"
-                              value={aiForm.model}
-                              onChange={(event) =>
-                                setAIForm((prev) => ({ ...prev, model: event.target.value }))
-                              }
-                              placeholder={aiForm.provider === "gemini" ? "gemini-2.5-flash" : "gpt-4o-mini"}
-                              className="font-mono text-xs"
-                            />
-                            <p className="text-muted-foreground text-xs">{t("ai.modelHint")}</p>
-                          </div>
-                          {aiForm.provider === "openai" ? (
-                            <div className="grid gap-1.5">
-                              <Label>{t("ai.apiMode")}</Label>
-                              <Select
-                                value={aiForm.apiMode || "chat"}
-                                onValueChange={(value) =>
-                                  setAIForm((prev) => ({
-                                    ...prev,
-                                    apiMode: value as OpenAIAPIMode,
-                                  }))
-                                }
-                              >
-                                <SelectTrigger className="w-full sm:w-72">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="chat">{t("ai.apiMode.chat")}</SelectItem>
-                                  <SelectItem value="responses">
-                                    {t("ai.apiMode.responses")}
-                                  </SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <p className="text-muted-foreground text-xs">{t("ai.apiModeHint")}</p>
-                            </div>
-                          ) : null}
-
-                          <div className="grid gap-1.5">
-                            <div className="flex items-center gap-2">
-                              <Label htmlFor="ai-api-key">{t("ai.apiKey")}</Label>
-                              {ai.hasAPIKey ? (
-                                <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-                                  {t("ai.keyStored")}
-                                </Badge>
-                              ) : null}
-                            </div>
-                            <Input
-                              id="ai-api-key"
-                              type="password"
-                              value={aiKey}
-                              onChange={(event) => setAIKey(event.target.value)}
-                              placeholder={ai.hasAPIKey ? "••••••••" : "sk-..."}
-                              autoComplete="off"
-                            />
-                            <p className="text-muted-foreground text-xs">{t("ai.apiKeyHint")}</p>
-                            {ai.hasAPIKey ? (
-                              <label className="flex items-center gap-2 text-xs">
-                                <Switch checked={clearAIKey} onCheckedChange={setClearAIKey} />
-                                {t("ai.clearKey")}
-                              </label>
-                            ) : null}
-                          </div>
-                        </>
-                      )}
-
-                      <p className="text-muted-foreground rounded-lg border p-3 text-xs leading-relaxed">
-                        {t("ai.note")}
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Button onClick={() => void saveAI()} disabled={aiBusy || !aiForm.provider}>
-                          {aiBusy ? <Loader2 className="animate-spin" /> : null}
-                          {t("ai.save")}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={() => void testAI()}
-                          disabled={aiTesting || aiBusy || !aiForm.provider}
-                        >
-                          {aiTesting ? <Loader2 className="animate-spin" /> : null}
-                          {aiTesting ? t("ai.testing") : t("ai.test")}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </Panel>
-              ) : null}
+              {section === "ai" ? <AISettingsPanel /> : null}
 
               {section === "admin" && authEnabled && role === "admin" ? (
                 <Panel title={t("settings.section.admin")} description={t("settings.adminDesc")}>
@@ -1052,79 +495,5 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
         <PasswordDialog open={passwordOpen} onOpenChange={setPasswordOpen} />
       </LazyMount>
     </>
-  )
-}
-
-function Panel({
-  title,
-  description,
-  children,
-}: {
-  title: string
-  description?: string
-  children: React.ReactNode
-}) {
-  return (
-    <section className="space-y-4">
-      <div className="space-y-1">
-        <h2 className="text-base font-semibold">{title}</h2>
-        {description ? <p className="text-muted-foreground text-sm">{description}</p> : null}
-      </div>
-      {children}
-    </section>
-  )
-}
-
-function SettingRow({
-  title,
-  description,
-  control,
-}: {
-  title: string
-  description?: string
-  control: React.ReactNode
-}) {
-  return (
-    <div className="flex items-start justify-between gap-4 px-4 py-3">
-      <div className="min-w-0 space-y-0.5">
-        <p className="text-sm font-medium">{title}</p>
-        {description ? <p className="text-muted-foreground text-xs">{description}</p> : null}
-      </div>
-      <div className="shrink-0">{control}</div>
-    </div>
-  )
-}
-
-function ActionRow({
-  icon,
-  title,
-  description,
-  onClick,
-  destructive = false,
-}: {
-  icon: React.ReactNode
-  title: string
-  description?: string
-  onClick: () => void
-  destructive?: boolean
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "hover:bg-accent/50 flex w-full items-center gap-3 px-4 py-3 text-left transition-colors",
-        destructive && "text-destructive",
-      )}
-    >
-      <span className="text-muted-foreground shrink-0 [&_svg]:size-4">{icon}</span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium">{title}</span>
-        {description ? (
-          <span className="text-muted-foreground block text-xs">{description}</span>
-        ) : null}
-      </span>
-      <ChevronRight className="text-muted-foreground size-4 shrink-0" />
-    </button>
   )
 }

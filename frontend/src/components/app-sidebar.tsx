@@ -1,27 +1,16 @@
 import * as React from "react"
 import {
-  ChevronRight,
-  Database,
-  Ellipsis,
-  Filter,
-  Loader2,
-  Pencil,
-  Pin,
-  PinOff,
-  Plug,
   Plus,
   RefreshCw,
   Search,
   SlidersHorizontal,
-  Table2,
-  Tag,
-  Trash2,
-  Unplug,
   X,
 } from "lucide-react"
 import { toast } from "sonner"
 
 import { AliasDialog } from "@/components/alias-dialog"
+import { ConnectionTree } from "@/components/sidebar/connection-tree"
+import { PinnedSection, type PinnedNavItem } from "@/components/sidebar/pinned-section"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { Input } from "@/components/ui/input"
@@ -29,13 +18,6 @@ import {
   CreateCollectionDialog,
   CreateDatabaseDialog,
 } from "@/components/resource-dialogs"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import {
   Popover,
   PopoverContent,
@@ -46,8 +28,6 @@ import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { api } from "@/lib/api"
 import {
-  aliasCollectionKey,
-  aliasDbKey,
   collectionLabel,
   databaseLabel,
   useAliases,
@@ -57,10 +37,8 @@ import { compileTextFilter } from "@/lib/filter"
 import { useI18n } from "@/lib/i18n"
 import { removePinnedQuery, renamePinnedQuery, usePinnedQueries, type PinnedQuery } from "@/lib/pinnedQueries"
 import {
-  colPin,
   connPin,
   dbKey,
-  dbPin,
   isSystemCollection,
   isSystemDatabase,
   pinnedFirst,
@@ -73,7 +51,6 @@ import {
   writeShowSystemCollections,
   writeShowSystemDatabases,
 } from "@/lib/sidebarPrefs"
-import { cn } from "@/lib/utils"
 import type { CollectionInfo, Connection, DatabaseInfo, Selection } from "@/lib/types"
 
 interface AppSidebarProps {
@@ -443,13 +420,7 @@ export function AppSidebar({
   )
 
   const pinnedItems = React.useMemo(() => {
-    const items: {
-      key: string
-      label: string
-      title?: string
-      kind: "connection" | "database" | "collection"
-      onClick: () => void
-    }[] = []
+    const items: PinnedNavItem[] = []
     for (const key of pinned) {
       if (key.startsWith("c:")) {
         const id = key.slice(2)
@@ -626,578 +597,63 @@ export function AppSidebar({
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-0.5 p-2">
-          {pinnedItems.length > 0 && !filtering ? (
-            <div className="mb-2 space-y-0.5 border-b pb-2">
-              <p className="text-muted-foreground px-1 pb-1 text-[10px] tracking-wide uppercase">
-                {t("sidebar.pinned")}
-              </p>
-              {pinnedItems.map((item) => (
-                <div
-                  key={item.key}
-                  className="group hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-1 rounded-md px-1 py-1"
-                >
-                  {item.kind === "connection" ? (
-                    <Plug className="text-muted-foreground size-3.5 shrink-0" />
-                  ) : item.kind === "database" ? (
-                    <Database className="text-muted-foreground size-3.5 shrink-0" />
-                  ) : (
-                    <Table2 className="text-muted-foreground size-3.5 shrink-0" />
-                  )}
-                  <button
-                    type="button"
-                    onClick={item.onClick}
-                    data-testid={`pinned-${item.key}`}
-                    className="min-w-0 flex-1 truncate text-left text-sm"
-                    title={item.title ?? item.label}
-                  >
-                    {item.label}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => togglePin(item.key)}
-                    aria-label={t("sidebar.unpin")}
-                    className="text-muted-foreground hover:text-foreground shrink-0 p-0.5 opacity-0 group-hover:opacity-100 max-md:opacity-100"
-                  >
-                    <PinOff className="size-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
+          {!filtering && (pinnedItems.length > 0 || pinnedQueryItems.length > 0) ? (
+            <PinnedSection
+              items={pinnedItems}
+              queries={pinnedQueryItems}
+              queryKey={pinnedQueryKey}
+              renamingKey={renamingKey}
+              renameValue={renameValue}
+              onRenameValueChange={setRenameValue}
+              onStartRename={startRename}
+              onCommitRename={commitRename}
+              onCancelRename={() => {
+                skipRenameCommit.current = true
+                setRenamingKey(null)
+              }}
+              onRemoveQuery={removePinnedQuery}
+              onOpenQuery={onOpenQuery}
+              onTogglePin={togglePin}
+            />
           ) : null}
-          {pinnedQueryItems.length > 0 && !filtering ? (
-            <div className="mb-2 space-y-0.5 border-b pb-2">
-              <p className="text-muted-foreground px-1 pb-1 text-[10px] tracking-wide uppercase">
-                {t("sidebar.pinnedQueries")}
-              </p>
-              {pinnedQueryItems.map(({ query, connectionName }) => {
-                const key = pinnedQueryKey(query)
-                const actualLabel = `${connectionName} / ${query.database} / ${query.collection}`
-                const defaultLabel = `${connectionName} / ${databaseLabel(aliases, query.connectionId, query.database)} / ${collectionLabel(aliases, query.connectionId, query.database, query.collection)}`
-                const label = query.name?.trim() || defaultLabel
-                return (
-                  <div
-                    key={key}
-                    className="group hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-1 rounded-md px-1 py-1"
-                  >
-                    <Filter className="text-muted-foreground size-3.5 shrink-0" />
-                    {renamingKey === key ? (
-                      <Input
-                        autoFocus
-                        value={renameValue}
-                        onChange={(event) => setRenameValue(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault()
-                            commitRename(query)
-                          } else if (event.key === "Escape") {
-                            event.preventDefault()
-                            skipRenameCommit.current = true
-                            setRenamingKey(null)
-                          }
-                        }}
-                        onBlur={() => commitRename(query)}
-                        placeholder={t("sidebar.renameQuery")}
-                        className="h-6 flex-1 text-xs"
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onOpenQuery(
-                            {
-                              kind: "collection",
-                              connectionId: query.connectionId,
-                              database: query.database,
-                              collection: query.collection,
-                            },
-                            query.filter,
-                          )
-                        }
-                        className="min-w-0 flex-1 text-left"
-                        title={`${actualLabel}\n${query.filter}`}
-                      >
-                        <span className="block truncate text-sm">{label}</span>
-                        <span className="text-muted-foreground block truncate font-mono text-[10px]">
-                          {query.filter}
-                        </span>
-                      </button>
-                    )}
-                    {renamingKey !== key ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => startRename(query)}
-                          aria-label={t("sidebar.renameQuery")}
-                          title={t("sidebar.renameQuery")}
-                          className="text-muted-foreground hover:text-foreground shrink-0 p-0.5 opacity-0 group-hover:opacity-100 max-md:opacity-100"
-                        >
-                          <Pencil className="size-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removePinnedQuery(query)}
-                          aria-label={t("sidebar.removePinnedQuery")}
-                          className="text-muted-foreground hover:text-foreground shrink-0 p-0.5 opacity-0 group-hover:opacity-100 max-md:opacity-100"
-                        >
-                          <PinOff className="size-3.5" />
-                        </button>
-                      </>
-                    ) : null}
-                  </div>
-                )
-              })}
-            </div>
-          ) : null}
-          {loading && connections.length === 0 ? (
-            <div className="flex items-center gap-2 px-2 py-6 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" /> {t("sidebar.loadingConnections")}
-            </div>
-          ) : null}
-
-          {!loading && connections.length === 0 ? (
-            <div className="px-3 py-8 text-center">
-              <Database className="text-muted-foreground mx-auto mb-3 size-8" />
-              <p className="text-sm font-medium">{t("sidebar.noConnections")}</p>
-              <p className="text-muted-foreground mt-1 text-xs">
-                {t("sidebar.emptyHint")}
-              </p>
-              <Button size="sm" className="mt-4" onClick={onNewConnection}>
-                <Plus /> {t("app.newConnection")}
-              </Button>
-            </div>
-          ) : null}
-
-          {noMatches ? (
-            <div className="text-muted-foreground px-3 py-8 text-center text-xs">
-              {t("sidebar.nothingMatches", { query: filter.trim() })}
-            </div>
-          ) : null}
-
-          {orderedConnections.map((connection) => {
-            const connectionMatches = matches(connection.name)
-            const isExpanded = filtering || Boolean(expandedConns[connection.id])
-            const isSelected =
-              selection.kind === "connection" && selection.connectionId === connection.id
-            const dbs = (databases[connection.id] ?? []).filter(
-              (database) => showSystemDatabases || !isSystemDatabase(database.name),
-            )
-            const visibleDbs = filtering
-              ? dbs.filter((database) => {
-                  if (
-                    connectionMatches ||
-                    matches(database.name) ||
-                    matches(databaseLabel(aliases, connection.id, database.name))
-                  ) {
-                    return true
-                  }
-                  const key = dbKey(connection.id, database.name)
-                  return (collections[key] ?? []).some(
-                    (collection) =>
-                      (showSystemCollections || !isSystemCollection(collection.name)) &&
-                      (matches(collection.name) ||
-                        matches(
-                          collectionLabel(aliases, connection.id, database.name, collection.name),
-                        )),
-                  )
-                })
-              : dbs
-            if (filtering && !connectionMatches && visibleDbs.length === 0) return null
-            const orderedDbs = pinnedFirst(visibleDbs, pinned, (db) =>
-              dbPin(connection.id, db.name),
-            )
-            return (
-              <div key={connection.id}>
-                <div
-                  className={cn(
-                    "group hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-1 rounded-md px-1 py-1",
-                    isSelected && "bg-sidebar-accent text-sidebar-accent-foreground",
-                  )}
-                >
-                  <button
-                    type="button"
-                    onClick={() => toggleConnection(connection)}
-                    aria-label={t("sidebar.toggleConnection", { name: connection.name })}
-                    className="text-muted-foreground hover:text-foreground flex size-5 shrink-0 items-center justify-center"
-                  >
-                    {busyConn[connection.id] ? (
-                      <Loader2 className="size-3.5 animate-spin" />
-                    ) : (
-                      <ChevronRight
-                        className={cn("size-3.5 transition-transform", isExpanded && "rotate-90")}
-                      />
-                    )}
-                  </button>
-                  <span
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: connection.color || "#10b981" }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => onSelect({ kind: "connection", connectionId: connection.id })}
-                    data-testid={`conn-${connection.name}`}
-                    className="min-w-0 flex-1 truncate text-left text-sm"
-                    title={connection.name}
-                  >
-                    {connection.name}
-                  </button>
-                  {connection.readOnly ? (
-                    <span className="text-muted-foreground shrink-0 text-[10px] uppercase">
-                      ro
-                    </span>
-                  ) : null}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={t("common.actions")}
-                        className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 max-md:opacity-100"
-                      >
-                        <Ellipsis />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="w-52">
-                      {connection.connected ? (
-                        <DropdownMenuItem onSelect={() => void handleDisconnect(connection)}>
-                          <Unplug /> {t("sidebar.disconnect")}
-                        </DropdownMenuItem>
-                      ) : (
-                        <DropdownMenuItem onSelect={() => void handleConnect(connection)}>
-                          <Plug /> {t("sidebar.connect")}
-                        </DropdownMenuItem>
-                      )}
-                      <DropdownMenuItem
-                        onSelect={() => setDbDialogFor(connection.id)}
-                        disabled={!connection.connected || connection.readOnly}
-                      >
-                        <Plus /> {t("sidebar.createDatabase")}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => togglePin(connPin(connection.id))}>
-                        {pinned.has(connPin(connection.id)) ? <PinOff /> : <Pin />}
-                        {pinned.has(connPin(connection.id)) ? t("sidebar.unpin") : t("sidebar.pin")}
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onSelect={() => onEditConnection(connection)}>
-                        <Pencil /> {t("sidebar.editConnection")}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        variant="destructive"
-                        onSelect={() => setConfirm({ type: "delete-connection", connection })}
-                      >
-                        <Trash2 /> {t("sidebar.deleteConnection")}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-
-                {isExpanded ? (
-                  <div className="mt-0.5 ml-4 space-y-0.5 border-l pl-2">
-                    {failedDbs[connection.id] ? (
-                      <div className="text-destructive flex items-center gap-1 px-2 py-1 text-xs">
-                        <span className="min-w-0 flex-1 truncate">{t("sidebar.loadFailed")}</span>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-6 px-2 text-[11px]"
-                          onClick={() => {
-                            setFailedDbs((prev) => {
-                              const next = { ...prev }
-                              delete next[connection.id]
-                              return next
-                            })
-                            void loadDatabases(connection.id)
-                          }}
-                        >
-                          {t("sidebar.retry")}
-                        </Button>
-                      </div>
-                    ) : null}
-                    {loadingDbs[connection.id] && visibleDbs.length === 0 ? (
-                      <div className="text-muted-foreground flex items-center gap-2 px-2 py-1 text-xs">
-                        <Loader2 className="size-3 animate-spin" /> {t("sidebar.loadingDatabases")}
-                      </div>
-                    ) : null}
-                    {visibleDbs.length === 0 &&
-                    !loadingDbs[connection.id] &&
-                    !failedDbs[connection.id] ? (
-                      <div className="text-muted-foreground px-2 py-1 text-xs">{t("sidebar.noDatabases")}</div>
-                    ) : null}
-                    {orderedDbs.map((database) => {
-                      const key = dbKey(connection.id, database.name)
-                      const dbOpen = filtering || Boolean(expandedDbs[key])
-                      const allCols = (collections[key] ?? []).filter(
-                        (collection) =>
-                          showSystemCollections || !isSystemCollection(collection.name),
-                      )
-                      const dbName = databaseLabel(aliases, connection.id, database.name)
-                      const dbMatches = matches(database.name) || matches(dbName)
-                      const cols =
-                        !filtering || connectionMatches || dbMatches
-                          ? allCols
-                          : allCols.filter(
-                              (collection) =>
-                                matches(collection.name) ||
-                                matches(
-                                  collectionLabel(
-                                    aliases,
-                                    connection.id,
-                                    database.name,
-                                    collection.name,
-                                  ),
-                                ),
-                            )
-                      const orderedCols = pinnedFirst(cols, pinned, (col) =>
-                        colPin(connection.id, database.name, col.name),
-                      )
-                      return (
-                        <div key={key}>
-                          <div className="group hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-1 rounded-md px-1 py-1">
-                            <button
-                              type="button"
-                              onClick={() => toggleDatabase(connection.id, database.name)}
-                              aria-label={t("sidebar.toggleDatabase", { name: database.name })}
-                              className="text-muted-foreground hover:text-foreground flex size-5 shrink-0 items-center justify-center"
-                            >
-                              <ChevronRight
-                                className={cn(
-                                  "size-3 transition-transform",
-                                  dbOpen && "rotate-90",
-                                )}
-                              />
-                            </button>
-                            <Database className="text-muted-foreground size-3.5 shrink-0" />
-                            <button
-                              type="button"
-                              onClick={() => toggleDatabase(connection.id, database.name)}
-                              data-testid={`db-${database.name}`}
-                              className="min-w-0 flex-1 truncate text-left text-sm"
-                              title={database.name}
-                            >
-                              {dbName}
-                            </button>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  aria-label={t("common.actions")}
-                                  className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 max-md:opacity-100"
-                                >
-                                  <Ellipsis />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="start" className="w-52">
-                                <DropdownMenuItem
-                                  disabled={connection.readOnly}
-                                  onSelect={() =>
-                                    setColDialogFor({
-                                      connectionId: connection.id,
-                                      database: database.name,
-                                    })
-                                  }
-                                >
-                                  <Plus /> {t("sidebar.createCollection")}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onSelect={() =>
-                                    setAliasTarget({
-                                      kind: "database",
-                                      connectionId: connection.id,
-                                      database: database.name,
-                                    })
-                                  }
-                                >
-                                  <Tag /> {aliases.databases[aliasDbKey(connection.id, database.name)] ? t("alias.edit") : t("alias.set")}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onSelect={() => togglePin(dbPin(connection.id, database.name))}
-                                >
-                                  {pinned.has(dbPin(connection.id, database.name)) ? (
-                                    <PinOff />
-                                  ) : (
-                                    <Pin />
-                                  )}
-                                  {pinned.has(dbPin(connection.id, database.name))
-                                    ? t("sidebar.unpin")
-                                    : t("sidebar.pin")}
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  variant="destructive"
-                                  disabled={connection.readOnly}
-                                  onSelect={() =>
-                                    setConfirm({
-                                      type: "drop-database",
-                                      connectionId: connection.id,
-                                      database: database.name,
-                                    })
-                                  }
-                                >
-                                  <Trash2 /> {t("sidebar.dropDatabase")}
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-
-                          {dbOpen ? (
-                            <div className="mt-0.5 ml-5 space-y-0.5 border-l pl-2">
-                              {failedCols[key] ? (
-                                <div className="text-destructive flex items-center gap-1 px-2 py-1 text-xs">
-                                  <span className="min-w-0 flex-1 truncate">
-                                    {t("sidebar.loadFailed")}
-                                  </span>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-6 px-2 text-[11px]"
-                                    onClick={() => {
-                                      setFailedCols((prev) => {
-                                        const next = { ...prev }
-                                        delete next[key]
-                                        return next
-                                      })
-                                      void loadCollections(connection.id, database.name)
-                                    }}
-                                  >
-                                    {t("sidebar.retry")}
-                                  </Button>
-                                </div>
-                              ) : null}
-                              {loadingCols[key] && cols.length === 0 ? (
-                                <div className="text-muted-foreground flex items-center gap-2 px-2 py-1 text-xs">
-                                  <Loader2 className="size-3 animate-spin" /> {t("common.loading")}
-                                </div>
-                              ) : null}
-                              {cols.length === 0 && !loadingCols[key] && !failedCols[key] ? (
-                                <div className="text-muted-foreground px-2 py-1 text-xs">
-                                  {t("sidebar.noCollections")}
-                                </div>
-                              ) : null}
-                              {orderedCols.map((collection) => {
-                                const colSelected =
-                                  selection.kind === "collection" &&
-                                  selection.connectionId === connection.id &&
-                                  selection.database === database.name &&
-                                  selection.collection === collection.name
-                                const colName = collectionLabel(
-                                  aliases,
-                                  connection.id,
-                                  database.name,
-                                  collection.name,
-                                )
-                                return (
-                                  <div
-                                    key={collection.name}
-                                    className={cn(
-                                      "group hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-1 rounded-md px-1 py-1",
-                                      colSelected &&
-                                        "bg-sidebar-accent text-sidebar-accent-foreground",
-                                    )}
-                                  >
-                                    <Table2 className="text-muted-foreground size-3.5 shrink-0" />
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        onSelect({
-                                          kind: "collection",
-                                          connectionId: connection.id,
-                                          database: database.name,
-                                          collection: collection.name,
-                                        })
-                                      }
-                                      data-testid={`col-${database.name}-${collection.name}`}
-                                      className="min-w-0 flex-1 truncate text-left text-sm"
-                                      title={collection.name}
-                                    >
-                                      {colName}
-                                    </button>
-                                    <DropdownMenu>
-                                      <DropdownMenuTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon-sm"
-                                          aria-label={t("common.actions")}
-                                          className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 max-md:opacity-100"
-                                        >
-                                          <Ellipsis />
-                                        </Button>
-                                      </DropdownMenuTrigger>
-                                      <DropdownMenuContent align="start" className="w-48">
-                                        <DropdownMenuItem
-                                          onSelect={() =>
-                                            setAliasTarget({
-                                              kind: "collection",
-                                              connectionId: connection.id,
-                                              database: database.name,
-                                              collection: collection.name,
-                                            })
-                                          }
-                                        >
-                                          <Tag />{" "}
-                                          {aliases.collections[
-                                            aliasCollectionKey(
-                                              connection.id,
-                                              database.name,
-                                              collection.name,
-                                            )
-                                          ]
-                                            ? t("alias.edit")
-                                            : t("alias.set")}
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem
-                                          onSelect={() =>
-                                            togglePin(
-                                              colPin(
-                                                connection.id,
-                                                database.name,
-                                                collection.name,
-                                              ),
-                                            )
-                                          }
-                                        >
-                                          {pinned.has(
-                                            colPin(connection.id, database.name, collection.name),
-                                          ) ? (
-                                            <PinOff />
-                                          ) : (
-                                            <Pin />
-                                          )}
-                                          {pinned.has(
-                                            colPin(connection.id, database.name, collection.name),
-                                          )
-                                            ? t("sidebar.unpin")
-                                            : t("sidebar.pin")}
-                                        </DropdownMenuItem>
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuItem
-                                          variant="destructive"
-                                          disabled={connection.readOnly}
-                                          onSelect={() =>
-                                            setConfirm({
-                                              type: "drop-collection",
-                                              connectionId: connection.id,
-                                              database: database.name,
-                                              collection: collection.name,
-                                            })
-                                          }
-                                        >
-                                          <Trash2 /> {t("sidebar.dropCollection")}
-                                        </DropdownMenuItem>
-                                      </DropdownMenuContent>
-                                    </DropdownMenu>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          ) : null}
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : null}
-              </div>
-            )
-          })}
+          <ConnectionTree
+            loading={loading}
+            connections={connections}
+            selection={selection}
+            filter={filter}
+            filtering={filtering}
+            matches={matches}
+            noMatches={noMatches}
+            orderedConnections={orderedConnections}
+            showSystemDatabases={showSystemDatabases}
+            showSystemCollections={showSystemCollections}
+            databases={databases}
+            collections={collections}
+            loadingDbs={loadingDbs}
+            loadingCols={loadingCols}
+            failedDbs={failedDbs}
+            failedCols={failedCols}
+            busyConn={busyConn}
+            expandedConns={expandedConns}
+            expandedDbs={expandedDbs}
+            pinned={pinned}
+            onSelect={onSelect}
+            onNewConnection={onNewConnection}
+            onEditConnection={onEditConnection}
+            handleConnect={handleConnect}
+            handleDisconnect={handleDisconnect}
+            toggleConnection={toggleConnection}
+            toggleDatabase={toggleDatabase}
+            loadDatabases={loadDatabases}
+            loadCollections={loadCollections}
+            setFailedDbs={setFailedDbs}
+            setFailedCols={setFailedCols}
+            setDbDialogFor={setDbDialogFor}
+            setColDialogFor={setColDialogFor}
+            setAliasTarget={setAliasTarget}
+            togglePin={togglePin}
+            setConfirm={setConfirm}
+          />
         </div>
       </ScrollArea>
 

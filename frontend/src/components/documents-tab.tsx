@@ -1,84 +1,36 @@
 import * as React from "react"
 import {
   AlertCircle,
-  ArrowDown,
-  ArrowLeft,
-  ArrowRight,
-  ArrowUp,
-  ArrowUpDown,
+  Braces,
   Ban,
-  BookOpen,
-  CalendarDays,
-  Check,
-  CheckSquare,
   ChevronDown,
-  Copy,
   ListFilter,
-  Pencil,
   Pin,
   PinOff,
   Play,
   Plus,
   RefreshCw,
   Rows3,
-  SlidersHorizontal,
-  ToggleLeft,
-  Trash2,
   X,
 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
-import { LazyMount } from "@/components/lazy-mount"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
 import { MongoFilterEditor } from "@/components/mongo-filter-editor"
 import { RecentQueries } from "@/components/recent-queries"
 import { AsyncProgress } from "@/components/async-progress"
 import { ColumnsPicker } from "@/components/documents/columns-picker"
 import { DocumentsPagination } from "@/components/documents/documents-pagination"
-import { DocumentsTableStates } from "@/components/documents/documents-table-states"
-import { DocumentsCardList } from "@/components/documents/documents-card-list"
-import {
-  CellContextMenu,
-  CellValue,
-  InlineCellEditor,
-  cellValueOverflows,
-  isPreviewableValue,
-} from "@/components/documents/cell"
-import { CellValueDialog } from "@/components/documents/cell-value-dialog"
+import { CellContextMenu } from "@/components/documents/cell"
+import { DocumentsDialogs, type DeleteConfirm, type EditingState } from "@/components/documents/documents-dialogs"
+import { DocumentsResults } from "@/components/documents/documents-results"
 import { DocumentsMoreMenu } from "@/components/documents/documents-more-menu"
 import { ViewsMenu } from "@/components/documents/views-menu"
 import { Label } from "@/components/ui/label"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { JsonEditor } from "@/components/json-editor"
-import { api, isAbortError } from "@/lib/api"
+import { api } from "@/lib/api"
 import { useRecentQueries } from "@/hooks/useRecentQueries"
+import { useDocumentsQuery } from "@/hooks/useDocumentsQuery"
 import { useFrozenColumns } from "@/hooks/useFrozenColumns"
 import { togglePinnedQuery, usePinnedQueries } from "@/lib/pinnedQueries"
 import {
@@ -86,7 +38,6 @@ import {
   COLUMN_MIN_WIDTH,
   DEFAULT_PINNED_COLUMNS,
   columnPrefsKey,
-  columnRenderMode,
   readColumnPrefs,
   writeColumnPrefs,
   type ColumnPrefs,
@@ -96,43 +47,10 @@ import { newViewId, readViews, viewsKey, writeViews, type SavedView } from "@/li
 import { toFindJS, toSQL } from "@/lib/queryText"
 import { useI18n } from "@/lib/i18n"
 import { copyToClipboard } from "@/lib/clipboard"
-import { collectColumns, documentId, prettyJSON, valueType } from "@/lib/mongo"
-import { DOCS_QUERY_DEFAULTS, type DocsQueryState } from "@/lib/router"
+import { collectColumns, documentId, formatValue, prettyJSON, valueType } from "@/lib/mongo"
+import type { DocsQueryState } from "@/lib/router"
 import { cn } from "@/lib/utils"
-import type { ExplainRequest, FindResult, MongoDocument } from "@/lib/types"
-
-const ChartDialog = React.lazy(() =>
-  import("@/components/chart-dialog").then((m) => ({ default: m.ChartDialog })),
-)
-const ColumnDictionaryDialog = React.lazy(() =>
-  import("@/components/documents/column-dictionary-dialog").then((m) => ({
-    default: m.ColumnDictionaryDialog,
-  })),
-)
-const ConfirmDialog = React.lazy(() =>
-  import("@/components/confirm-dialog").then((m) => ({ default: m.ConfirmDialog })),
-)
-const CopyCollectionDialog = React.lazy(() =>
-  import("@/components/copy-collection-dialog").then((m) => ({ default: m.CopyCollectionDialog })),
-)
-const DocumentDialog = React.lazy(() =>
-  import("@/components/document-dialog").then((m) => ({ default: m.DocumentDialog })),
-)
-const ExportDialog = React.lazy(() =>
-  import("@/components/data-transfer-dialog").then((m) => ({ default: m.ExportDialog })),
-)
-const ImportDialog = React.lazy(() =>
-  import("@/components/data-transfer-dialog").then((m) => ({ default: m.ImportDialog })),
-)
-const ExplainDialog = React.lazy(() =>
-  import("@/components/explain-dialog").then((m) => ({ default: m.ExplainDialog })),
-)
-const MongoQueryBuilder = React.lazy(() =>
-  import("@/components/mongo-query-builder").then((m) => ({ default: m.MongoQueryBuilder })),
-)
-
-/** Inset shadow marking the right edge of the frozen region once scrolled. */
-const PINNED_EDGE_SHADOW = "cell-frozen-edge"
+import type { ExplainRequest, MongoDocument } from "@/lib/types"
 
 /** Fallback width of the leading row-select column (Tailwind `w-10`). */
 const CHECKBOX_COLUMN_WIDTH = 40
@@ -148,26 +66,7 @@ interface DocumentsTabProps {
   onDocsChange?: (docs: DocsQueryState) => void
 }
 
-interface EditingState {
-  mode: "insert" | "edit"
-  document?: MongoDocument
-}
 
-/** Signature of the parts that only change when the user runs a query. */
-function appliedQueryKey(filter: string, sort: string, projection: string): string {
-  return [filter, sort, projection].map((part) => part.trim()).join("\u0000")
-}
-
-/** Canonical JSON for comparing a sort/projection against the defaults. */
-function normalizedJSON(value: string): string {
-  const text = value.trim()
-  if (!text) return ""
-  try {
-    return JSON.stringify(JSON.parse(text))
-  } catch {
-    return text
-  }
-}
 
 /** A compact, dismissible summary of one active query part. */
 function QueryChip({
@@ -200,13 +99,6 @@ function QueryChip({
   )
 }
 
-/** Compact, allocation-light signature used to detect external URL changes. */
-function docsQuerySignature(docs?: DocsQueryState): string {
-  const value = docs ?? DOCS_QUERY_DEFAULTS
-  const pinned = value.pinned === undefined ? "local" : value.pinned.join("\u0001")
-  return `${value.filter}\u0000${value.sort}\u0000${value.projection}\u0000${value.limit}\u0000${value.skip}\u0000${pinned}`
-}
-
 export function DocumentsTab({
   connectionId,
   database,
@@ -216,31 +108,11 @@ export function DocumentsTab({
   onDocsChange,
 }: DocumentsTabProps) {
   const { t } = useI18n()
-  const [filter, setFilter] = React.useState(initialDocs?.filter ?? DOCS_QUERY_DEFAULTS.filter)
-  const [sort, setSort] = React.useState(initialDocs?.sort ?? DOCS_QUERY_DEFAULTS.sort)
-  const [projection, setProjection] = React.useState(
-    initialDocs?.projection ?? DOCS_QUERY_DEFAULTS.projection,
-  )
-  const [limit, setLimit] = React.useState(initialDocs?.limit ?? DOCS_QUERY_DEFAULTS.limit)
-  const [skip, setSkip] = React.useState(initialDocs?.skip ?? DOCS_QUERY_DEFAULTS.skip)
   const [showOptions, setShowOptions] = React.useState(false)
   const rootRef = React.useRef<HTMLDivElement>(null)
-  const [appliedQuery, setAppliedQuery] = React.useState(() =>
-    appliedQueryKey(filter, sort, projection),
-  )
-  const [result, setResult] = React.useState<FindResult | null>(null)
-  const [loading, setLoading] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
-  const abortRef = React.useRef<AbortController | null>(null)
-  const requestSeqRef = React.useRef(0)
   const [selected, setSelected] = React.useState<Set<string>>(new Set())
   const [editing, setEditing] = React.useState<EditingState | null>(null)
-  const [confirm, setConfirm] = React.useState<
-    | { type: "one"; document: MongoDocument }
-    | { type: "bulk" }
-    | { type: "filter" }
-    | null
-  >(null)
+  const [confirm, setConfirm] = React.useState<DeleteConfirm | null>(null)
   const [transfer, setTransfer] = React.useState<"import" | "export" | null>(null)
   const [copyOpen, setCopyOpen] = React.useState(false)
   const [explainOpen, setExplainOpen] = React.useState(false)
@@ -258,6 +130,7 @@ export function DocumentsTab({
     value: unknown
   } | null>(null)
   const [activeRow, setActiveRow] = React.useState<number | null>(null)
+  const [activeCell, setActiveCell] = React.useState<{ row: number; column: string } | null>(null)
   const [inlineEdit, setInlineEdit] = React.useState<{ row: number; column: string } | null>(null)
   const [inlineBusy, setInlineBusy] = React.useState(false)
   const [allMatching, setAllMatching] = React.useState(false)
@@ -285,6 +158,65 @@ export function DocumentsTab({
   } = useRecentQueries(`docs:${connectionId}:${database}:${collection}`)
 
   const pinnedQueries = usePinnedQueries()
+
+  const readPinned = React.useCallback(() => readColumnPrefs(prefsKey).pinned, [prefsKey])
+  const handlePinnedFromURL = React.useCallback((nextPinned: string[]) => {
+    setPrefs((prev) => {
+      const same =
+        prev.pinned.length === nextPinned.length &&
+        prev.pinned.every((column, index) => column === nextPinned[index])
+      return same ? prev : { ...prev, pinned: nextPinned }
+    })
+  }, [])
+  const handleBeforeLoad = React.useCallback(() => setInlineEdit(null), [])
+  const handleLoaded = React.useCallback(() => {
+    setSelected(new Set())
+    setAllMatching(false)
+  }, [])
+
+  const {
+    filter,
+    setFilter,
+    sort,
+    setSort,
+    projection,
+    setProjection,
+    limit,
+    setLimit,
+    skip,
+    result,
+    setResult,
+    documents,
+    total,
+    loading,
+    error,
+    page,
+    pages,
+    filterActive,
+    sortActive,
+    projectionActive,
+    queryError,
+    queryDirty,
+    load,
+    cancelLoad,
+    clearFilter,
+    clearSort,
+    clearProjection,
+    formatQuery,
+  } = useDocumentsQuery({
+    connectionId,
+    database,
+    collection,
+    initialDocs,
+    onDocsChange,
+    pinned: prefs.pinned,
+    readPinned,
+    onPinnedFromURL: handlePinnedFromURL,
+    pushRecent,
+    onBeforeLoad: handleBeforeLoad,
+    onLoaded: handleLoaded,
+  })
+
   const pinnedFilter = filter.trim() || "{}"
   const isFilterPinned = React.useMemo(
     () =>
@@ -298,175 +230,19 @@ export function DocumentsTab({
     [pinnedQueries, connectionId, database, collection, pinnedFilter],
   )
 
-  const load = React.useCallback(
-    async (opts?: {
-      skip?: number
-      limit?: number
-      filter?: string
-      sort?: string
-      projection?: string
-    }) => {
-      const filterText = opts?.filter ?? filter
-      const sortText = opts?.sort ?? sort
-      const projectionText = opts?.projection ?? projection
-      const nextSkip = opts?.skip ?? skip
-      const nextLimit = opts?.limit ?? limit
-
-      let filterObj: unknown
-      let sortObj: unknown
-      let projectionObj: unknown
-      try {
-        filterObj = JSON.parse(filterText.trim() || "{}")
-        sortObj = sortText.trim() ? JSON.parse(sortText) : undefined
-        projectionObj = projectionText.trim() ? JSON.parse(projectionText) : undefined
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : t("docs.invalidJson"))
-        return
-      }
-
-      setLoading(true)
-      setError(null)
-      setInlineEdit(null)
-      // Cancel any request still in flight so a slow earlier query cannot
-      // overwrite the results of a newer one.
-      abortRef.current?.abort()
-      const controller = new AbortController()
-      abortRef.current = controller
-      const seq = ++requestSeqRef.current
-      try {
-        const res = await api.find(
-          connectionId,
-          database,
-          collection,
-          {
-            filter: filterObj,
-            sort: sortObj,
-            projection: projectionObj,
-            skip: nextSkip,
-            limit: nextLimit,
-          },
-          controller.signal,
-        )
-        if (seq !== requestSeqRef.current) return
-        setResult(res)
-        setAppliedQuery(appliedQueryKey(filterText, sortText, projectionText))
-        setSkip(res.skip)
-        setSelected(new Set())
-        setAllMatching(false)
-        if (nextSkip === 0 && filterText.trim() && filterText.trim() !== "{}") {
-          pushRecent(filterText.trim())
-        }
-      } catch (err) {
-        if (isAbortError(err) || seq !== requestSeqRef.current) return
-        setError(err instanceof Error ? err.message : t("docs.queryFailed"))
-      } finally {
-        if (seq === requestSeqRef.current) setLoading(false)
-      }
-    },
-    [connectionId, database, collection, filter, sort, projection, skip, limit, pushRecent],
-  )
-
-  // The component is remounted per collection (see the `key` in CollectionView),
-  // so a plain load on mount is enough; the query comes from the URL.
-  React.useEffect(() => {
-    void load({})
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionId, database, collection])
-
-  // Abort any in-flight request when the tab unmounts.
-  React.useEffect(() => () => abortRef.current?.abort(), [])
-
-  const cancelLoad = React.useCallback(() => {
-    abortRef.current?.abort()
-    requestSeqRef.current += 1
-    setLoading(false)
-    toast.info(t("docs.cancelled"))
-  }, [t])
-
-  const filterActive = Boolean(filter.trim() && filter.trim() !== "{}")
-  const sortActive =
-    Boolean(sort.trim()) && normalizedJSON(sort) !== normalizedJSON(DOCS_QUERY_DEFAULTS.sort)
-  const projectionActive = Boolean(projection.trim()) && normalizedJSON(projection) !== "{}"
-  // The query on screen can differ from the inputs after the user edits a
-  // filter/sort/projection without pressing Run.
-  const queryDirty = appliedQueryKey(filter, sort, projection) !== appliedQuery
-
-  const clearFilter = React.useCallback(() => {
-    setFilter(DOCS_QUERY_DEFAULTS.filter)
-    void load({ skip: 0, filter: DOCS_QUERY_DEFAULTS.filter })
-  }, [load])
-
-  const clearSort = React.useCallback(() => {
-    setSort(DOCS_QUERY_DEFAULTS.sort)
-    void load({ skip: 0, sort: DOCS_QUERY_DEFAULTS.sort })
-  }, [load])
-
-  const clearProjection = React.useCallback(() => {
-    setProjection(DOCS_QUERY_DEFAULTS.projection)
-    void load({ skip: 0, projection: DOCS_QUERY_DEFAULTS.projection })
-  }, [load])
-
-  // Cmd/Ctrl+Enter runs the query from anywhere in the documents view.
+  // Cmd/Ctrl+S saves the current filter/sort/projection as a named view.
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.key !== "Enter") return
-      const root = rootRef.current
-      const target = event.target as Node | null
-      if (!root || !target || !root.contains(target)) return
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s") return
+      if (document.querySelector('[role="dialog"][data-state="open"]')) return
       event.preventDefault()
-      void load({ skip: 0 })
+      setViewName("")
+      setViewDialogOpen(true)
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [load])
+  }, [])
 
-  // Last query signature we rendered; used to tell our own URL writes apart
-  // from external ones (browser back/forward).
-  const appliedDocsRef = React.useRef(docsQuerySignature(initialDocs))
-
-  // Mirror local query/pagination edits into the URL, debounced so typing does
-  // not re-render the app on every keystroke. The timeout is always cleared on
-  // cleanup to avoid leaks.
-  React.useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const next: DocsQueryState = {
-        filter,
-        sort,
-        projection,
-        limit,
-        skip,
-        pinned: prefs.pinned,
-      }
-      appliedDocsRef.current = docsQuerySignature(next)
-      onDocsChange?.(next)
-    }, 300)
-    return () => window.clearTimeout(timer)
-  }, [filter, sort, projection, limit, skip, prefs.pinned, onDocsChange])
-
-  // Adopt query changes coming from the URL (back/forward) without clobbering
-  // the user's in-flight edits.
-  React.useEffect(() => {
-    const incoming = docsQuerySignature(initialDocs)
-    if (incoming === appliedDocsRef.current) return
-    appliedDocsRef.current = incoming
-    setFilter(initialDocs?.filter ?? DOCS_QUERY_DEFAULTS.filter)
-    setSort(initialDocs?.sort ?? DOCS_QUERY_DEFAULTS.sort)
-    setProjection(initialDocs?.projection ?? DOCS_QUERY_DEFAULTS.projection)
-    setLimit(initialDocs?.limit ?? DOCS_QUERY_DEFAULTS.limit)
-    setSkip(initialDocs?.skip ?? DOCS_QUERY_DEFAULTS.skip)
-    setPrefs((prev) => {
-      const nextPinned =
-        initialDocs?.pinned !== undefined
-          ? initialDocs.pinned
-          : readColumnPrefs(prefsKey).pinned
-      const same =
-        prev.pinned.length === nextPinned.length &&
-        prev.pinned.every((column, index) => column === nextPinned[index])
-      return same ? prev : { ...prev, pinned: nextPinned }
-    })
-  }, [initialDocs, prefsKey])
-
-  const documents = result?.documents ?? []
   const allColumns = React.useMemo(() => collectColumns(documents), [documents])
   const hiddenSet = React.useMemo(() => new Set(prefs.hidden), [prefs.hidden])
   const pinnedSet = React.useMemo(() => new Set(prefs.pinned), [prefs.pinned])
@@ -794,9 +570,6 @@ export function DocumentsTab({
     setSort(nextSort)
     void load({ skip: 0, sort: nextSort })
   }
-  const total = result?.total ?? 0
-  const page = Math.floor(skip / limit) + 1
-  const pages = Math.max(1, Math.ceil(total / limit))
 
   const toggleAll = (checked: boolean) => {
     setAllMatching(false)
@@ -822,27 +595,71 @@ export function DocumentsTab({
     })
   }
 
+  // The keyboard cursor is a cell, not just a row: j/k move rows, h/l move
+  // columns, and Enter edits the focused cell. Kept in sync with activeRow for
+  // row highlighting and range selection.
   const focusRow = React.useCallback(
     (index: number | null) => {
       if (index === null || documents.length === 0) {
         setActiveRow(null)
+        setActiveCell(null)
         return
       }
       const clamped = Math.max(0, Math.min(index, documents.length - 1))
       setActiveRow(clamped)
-      requestAnimationFrame(() => {
-        document
-          .querySelector<HTMLElement>(`[data-row-index="${clamped}"]`)
-          ?.scrollIntoView({ block: "nearest" })
+      setActiveCell((prev) => {
+        const column =
+          prev?.column && displayColumns.includes(prev.column)
+            ? prev.column
+            : displayColumns[0]
+        return column ? { row: clamped, column } : null
       })
     },
-    [documents.length],
+    [documents.length, displayColumns],
   )
+
+  const moveActiveCell = React.useCallback(
+    (rowDelta: number, columnDelta: number) => {
+      if (documents.length === 0 || displayColumns.length === 0) return
+      setActiveCell((prev) => {
+        const baseRow = prev?.row ?? activeRow ?? 0
+        const columnIndex = prev ? Math.max(0, displayColumns.indexOf(prev.column)) : 0
+        const row = Math.max(0, Math.min(baseRow + rowDelta, documents.length - 1))
+        const column = Math.max(
+          0,
+          Math.min(columnIndex + columnDelta, displayColumns.length - 1),
+        )
+        return { row, column: displayColumns[column] }
+      })
+    },
+    [activeRow, displayColumns, documents.length],
+  )
+
+  React.useEffect(() => {
+    if (activeCell) setActiveRow(activeCell.row)
+  }, [activeCell])
+
+  // Keep the focused cell visible without moving the whole page.
+  React.useEffect(() => {
+    if (!activeCell) return
+    requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(
+          `[data-row-index="${activeCell.row}"] [data-column="${CSS.escape(activeCell.column)}"]`,
+        )
+        ?.scrollIntoView({ block: "nearest", inline: "nearest" })
+    })
+  }, [activeCell])
 
   // Keyboard shortcuts: j/k move the row cursor, Space selects, e edits,
   // Delete removes the selection and "/" focuses the filter.
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.altKey && event.shiftKey && event.code === "KeyF") {
+        event.preventDefault()
+        formatQuery()
+        return
+      }
       if (event.metaKey || event.ctrlKey || event.altKey) return
       const target = event.target as HTMLElement
       if (
@@ -871,6 +688,77 @@ export function DocumentsTab({
           event.preventDefault()
           focusRow(activeRow === null ? 0 : activeRow - 1)
           break
+        case "h":
+        case "ArrowLeft":
+          if (!activeCell) return
+          event.preventDefault()
+          moveActiveCell(0, -1)
+          break
+        case "l":
+        case "ArrowRight":
+          if (!activeCell) return
+          event.preventDefault()
+          moveActiveCell(0, 1)
+          break
+        case "ArrowDown":
+          if (!activeCell) return
+          event.preventDefault()
+          moveActiveCell(1, 0)
+          break
+        case "ArrowUp":
+          if (!activeCell) return
+          event.preventDefault()
+          moveActiveCell(-1, 0)
+          break
+        case "Enter": {
+          if (!activeCell) return
+          const doc = documents[activeCell.row]
+          if (!doc) return
+          event.preventDefault()
+          if (readOnly) {
+            setValuePreview({ column: activeCell.column, value: doc[activeCell.column] })
+          } else if (activeCell.column !== "_id" && "_id" in doc) {
+            setInlineEdit({ row: activeCell.row, column: activeCell.column })
+          }
+          break
+        }
+        case "y": {
+          if (!activeCell) return
+          const doc = documents[activeCell.row]
+          if (!doc) return
+          event.preventDefault()
+          copyText(formatValue(doc[activeCell.column]))
+          break
+        }
+        case "f":
+          if (!activeCell) return
+          event.preventDefault()
+          copyText(activeCell.column)
+          break
+        case "i": {
+          if (!activeCell) return
+          const doc = documents[activeCell.row]
+          if (!doc || !("_id" in doc)) return
+          event.preventDefault()
+          copyText(prettyJSON(doc._id))
+          break
+        }
+        case "c": {
+          if (!activeCell) return
+          const doc = documents[activeCell.row]
+          if (!doc) return
+          event.preventDefault()
+          copyText(prettyJSON({ $set: { [activeCell.column]: doc[activeCell.column] } }))
+          break
+        }
+        case "o": {
+          if (!activeCell) return
+          const doc = documents[activeCell.row]
+          if (!doc) return
+          event.preventDefault()
+          setValuePreview({ column: activeCell.column, value: doc[activeCell.column] })
+          break
+        }
         case " ": {
           if (activeRow === null) return
           const doc = documents[activeRow]
@@ -896,6 +784,7 @@ export function DocumentsTab({
           break
         case "Escape":
           setActiveRow(null)
+          setActiveCell(null)
           break
         default:
           break
@@ -903,7 +792,18 @@ export function DocumentsTab({
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [activeRow, documents, selected, readOnly, focusRow, toggleOne])
+  }, [
+    activeCell,
+    activeRow,
+    copyText,
+    documents,
+    focusRow,
+    formatQuery,
+    moveActiveCell,
+    readOnly,
+    selected,
+    toggleOne,
+  ])
 
   // --- drag / box selection ---------------------------------------------------
   // Dragging across rows selects the range between the anchor row and the row
@@ -1023,6 +923,7 @@ export function DocumentsTab({
     if (!canEditCell(row, column)) return
     setCellMenu(null)
     setActiveRow(row)
+    setActiveCell({ row, column })
     setInlineEdit({ row, column })
   }
 
@@ -1164,6 +1065,25 @@ export function DocumentsTab({
     return id !== null && selected.has(id)
   })
 
+  // Seed the bulk-update editor from the focused cell (or the single selected
+  // row) so common edits do not start from an empty $set document.
+  const openUpdateDialog = () => {
+    const selectedDoc =
+      selected.size === 1
+        ? documents.find((doc) => documentId(doc) === Array.from(selected)[0])
+        : undefined
+    const seedDoc = activeCell ? documents[activeCell.row] : selectedDoc
+    const seedColumn =
+      activeCell?.column ??
+      (seedDoc ? displayColumns.find((column) => column !== "_id") : undefined)
+    setUpdateValue(
+      prettyJSON({
+        $set: seedDoc && seedColumn ? { [seedColumn]: seedDoc[seedColumn] } : {},
+      }),
+    )
+    setUpdateOpen(true)
+  }
+
   const cellDoc = cellMenu ? documents[cellMenu.row] : undefined
   const cellValue = cellDoc && cellMenu ? cellDoc[cellMenu.column] : undefined
 
@@ -1191,7 +1111,11 @@ export function DocumentsTab({
               <Ban /> {t("docs.cancelQuery")}
             </Button>
           ) : (
-            <Button onClick={() => void load({ skip: 0 })} title={t("docs.runShortcut")}>
+            <Button
+              onClick={() => void load({ skip: 0 })}
+              disabled={Boolean(queryError)}
+              title={queryError ? `${t("docs.invalidJson")}: ${queryError}` : t("docs.runShortcut")}
+            >
               <Play /> {t("common.run")}
             </Button>
           )}
@@ -1207,6 +1131,15 @@ export function DocumentsTab({
             <Plus /> {t("docs.insert")}
           </Button>
         </div>
+
+        {queryError ? (
+          <p className="text-destructive flex items-start gap-1.5 text-xs" role="alert">
+            <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+            <span className="min-w-0 break-words">
+              {t("docs.invalidJson")}: {queryError}
+            </span>
+          </p>
+        ) : null}
 
         {/* Secondary query tools, grouped and scrollable on narrow screens. */}
         <div className="scrollbar-thin flex items-center gap-1.5 overflow-x-auto pb-0.5">
@@ -1265,6 +1198,17 @@ export function DocumentsTab({
             onPin={pinView}
             onDelete={deleteView}
           />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9"
+            onClick={formatQuery}
+            title={t("docs.formatQuery")}
+            aria-label={t("docs.formatQuery")}
+          >
+            <Braces />
+            <span className="hidden lg:inline">{t("docs.format")}</span>
+          </Button>
           <div className="bg-border mx-1 h-5 w-px shrink-0" />
           <Button
             variant="outline"
@@ -1363,470 +1307,66 @@ export function DocumentsTab({
         {loading ? <AsyncProgress active label={t("docs.loading")} /> : null}
       </div>
 
-      {/* Table */}
-      <div className="relative min-h-0 flex-1">
-        <div className="sr-only" role="status" aria-live="polite">
-          {loading
-            ? t("docs.loading")
-            : error
-              ? t("docs.queryFailed")
-              : t("docs.resultsSummary", { count: total })}
-        </div>
-        {error && documents.length > 0 ? (
-          <div className="border-destructive/40 bg-destructive/5 text-destructive flex flex-wrap items-center gap-2 border-b px-3 py-2 text-xs">
-            <AlertCircle className="size-3.5 shrink-0" />
-            <span className="min-w-0 flex-1 truncate" title={error}>
-              {error}
-            </span>
-            <Button variant="outline" size="sm" onClick={() => copyText(error)}>
-              {t("common.copyDetails")}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => void load({})}>
-              {t("common.retry")}
-            </Button>
-          </div>
-        ) : null}
-        <div
-          ref={frozen.scrollRef}
-          onScroll={frozen.onScroll}
-          className={cn("scrollbar-thin h-full overflow-auto", dragging && "select-none")}
-        >
-        <div className="md:hidden">
-          <DocumentsCardList
-            loading={loading}
-            error={error}
-            documents={documents}
-            columns={columns}
-            dictionaries={prefs.dictionaries}
-            renderers={prefs.renderers}
-            selected={selected}
-            readOnly={readOnly}
-            filterActive={filterActive}
-            onRetry={() => void load({})}
-            onCopyError={copyText}
-            onClearFilter={clearFilter}
-            onInsert={() => setEditing({ mode: "insert" })}
-            onImport={() => setTransfer("import")}
-            onToggleOne={toggleOne}
-            onEdit={(doc) => {
-              setInlineEdit(null)
-              setEditing({ mode: "edit", document: doc })
-            }}
-            onPreview={
-              readOnly ? (column, value) => setValuePreview({ column, value }) : undefined
-            }
-          />
-        </div>
-        <div className="hidden md:block">
-        <Table className="min-w-[720px]">
-          <TableHeader className="bg-background sticky top-0 z-20">
-            <TableRow className="hover:bg-transparent">
-              <TableHead
-                data-sticky-checkbox
-                className="cell-frozen sticky left-0 z-30 w-10"
-              >
-                <Checkbox
-                  checked={allSelected || allMatching}
-                  onCheckedChange={(checked) => toggleAll(checked === true)}
-                  aria-label={t("docs.selectAll")}
-                />
-              </TableHead>
-              {displayColumns.map((column) => {
-                const direction = sortSpec?.column === column ? sortSpec.direction : undefined
-                const width = prefs.widths[column]
-                const isPinned = pinnedSet.has(column)
-                const left = frozen.offsets[column]
-                const isLastPinned = isPinned && pinnedColumns[pinnedColumns.length - 1] === column
-                const renderMode = columnRenderMode(
-                  prefs.renderers,
-                  prefs.dictionaries,
-                  column,
-                )
-                return (
-                  <TableHead
-                    key={column}
-                    data-column={column}
-                    scope="col"
-                    className={cn(
-                      "group font-mono text-xs",
-                      isPinned ? "cell-frozen sticky z-30" : "relative",
-                      isLastPinned && frozen.scrolled && PINNED_EDGE_SHADOW,
-                    )}
-                    style={{
-                      ...(width ? { width, minWidth: width, maxWidth: width } : {}),
-                      ...(isPinned && left !== undefined ? { left } : {}),
-                    }}
-                  >
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => toggleSort(column)}
-                        title={
-                          direction
-                            ? direction === 1
-                              ? t("docs.sortedAsc")
-                              : t("docs.sortedDesc")
-                            : t("docs.sortBy", { column })
-                        }
-                        className="hover:text-foreground flex min-w-0 flex-1 items-center gap-1 rounded"
-                      >
-                        <span className="truncate">{column}</span>
-                        {renderMode === "dictionary" ? (
-                          <BookOpen className="text-primary size-3 shrink-0" />
-                        ) : renderMode === "checkbox" ? (
-                          <CheckSquare className="text-primary size-3 shrink-0" />
-                        ) : renderMode === "switch" ? (
-                          <ToggleLeft className="text-primary size-3 shrink-0" />
-                        ) : renderMode === "date" ? (
-                          <CalendarDays className="text-primary size-3 shrink-0" />
-                        ) : null}
-                        {direction === 1 ? (
-                          <ArrowUp className="size-3 shrink-0" />
-                        ) : direction === -1 ? (
-                          <ArrowDown className="size-3 shrink-0" />
-                        ) : (
-                          <ArrowUpDown className="size-3 shrink-0 opacity-0 group-hover:opacity-60" />
-                        )}
-                      </button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            title={t("docs.columnActions")}
-                            aria-label={t("docs.columnActions")}
-                            className="text-muted-foreground hover:text-foreground shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
-                          >
-                            <ChevronDown className="size-3" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" className="w-52">
-                          <DropdownMenuItem onSelect={() => toggleSort(column)}>
-                            {direction === 1 ? t("docs.sortDesc") : t("docs.sortAsc")}
-                          </DropdownMenuItem>
-                          {direction ? (
-                            <DropdownMenuItem
-                              onSelect={() => {
-                                setSort("")
-                                void load({ skip: 0, sort: "" })
-                              }}
-                            >
-                              {t("docs.clearSort")}
-                            </DropdownMenuItem>
-                          ) : null}
-                          <DropdownMenuSub>
-                            <DropdownMenuSubTrigger>
-                              <SlidersHorizontal /> {t("docs.renderAs")}
-                            </DropdownMenuSubTrigger>
-                            <DropdownMenuSubContent className="w-48">
-                              <DropdownMenuItem onSelect={() => setColumnRenderer(column, "default")}>
-                                <Rows3 /> {t("docs.render.default")}
-                                {renderMode === "default" ? <Check className="ml-auto size-4" /> : null}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onSelect={() => setDictionaryColumn(column)}>
-                                <BookOpen /> {t("docs.render.dictionary")}
-                                {renderMode === "dictionary" ? <Check className="ml-auto size-4" /> : null}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onSelect={() => setColumnRenderer(column, "checkbox")}>
-                                <CheckSquare /> {t("docs.render.checkbox")}
-                                {renderMode === "checkbox" ? <Check className="ml-auto size-4" /> : null}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onSelect={() => setColumnRenderer(column, "switch")}>
-                                <ToggleLeft /> {t("docs.render.switch")}
-                                {renderMode === "switch" ? <Check className="ml-auto size-4" /> : null}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onSelect={() => setColumnRenderer(column, "date")}>
-                                <CalendarDays /> {t("docs.render.date")}
-                                {renderMode === "date" ? <Check className="ml-auto size-4" /> : null}
-                              </DropdownMenuItem>
-                            </DropdownMenuSubContent>
-                          </DropdownMenuSub>
-                          <DropdownMenuItem
-                            onSelect={() =>
-                              void copyToClipboard(column).then((ok) =>
-                                ok
-                                  ? toast.success(t("common.copied"))
-                                  : toast.error(t("common.copyFailed")),
-                              )
-                            }
-                          >
-                            <Copy /> {t("docs.copyField")}
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onSelect={() => moveColumn(column, -1)}>
-                            <ArrowLeft /> {t("docs.moveLeft")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onSelect={() => moveColumn(column, 1)}>
-                            <ArrowRight /> {t("docs.moveRight")}
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onSelect={() => toggleColumnPinned(column)}>
-                            {isPinned ? <PinOff /> : <Pin />}
-                            {isPinned ? t("docs.unpinColumn") : t("docs.pinColumn")}
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onSelect={() => setColumnHidden(column, true)}>
-                            {t("docs.hideColumn")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onSelect={() => showOnlyColumn(column)}>
-                            {t("docs.showOnly")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onSelect={resetColumns}>
-                            {t("docs.resetColumns")}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                    <div
-                      role="separator"
-                      aria-orientation="vertical"
-                      onMouseDown={(event) => startResize(column, event)}
-                      className="hover:bg-primary/40 absolute inset-y-0 right-0 w-1 cursor-col-resize"
-                    />
-                  </TableHead>
-                )
-              })}
-              <TableHead className="w-12" />
-            </TableRow>
-          </TableHeader>
-          <TableBody
-            onContextMenu={(event) => {
-              const td = (event.target as HTMLElement).closest("td[data-column]")
-              const tr = (event.target as HTMLElement).closest("tr[data-row-index]")
-              const column = td?.getAttribute("data-column")
-              const raw = tr?.getAttribute("data-row-index")
-              if (!column || raw === null || raw === undefined) return
-              event.preventDefault()
-              setCellMenu({ x: event.clientX, y: event.clientY, row: Number(raw), column })
-            }}
-            onMouseMove={(event) => {
-              const tr = (event.target as HTMLElement).closest("tr")
-              const raw = tr?.getAttribute("data-row-index")
-              if (raw !== null && raw !== undefined) onRowMouseEnter(Number(raw))
-            }}
-            onMouseUp={(event) => {
-              // Finalize on the row under the pointer: the last mousemove before
-              // mouseup can be coalesced, which would drop the end row.
-              if (!draggingRef.current || dragAnchorRef.current === null) return
-              const tr = (event.target as HTMLElement).closest("tr")
-              const raw = tr?.getAttribute("data-row-index")
-              if (raw === null || raw === undefined) return
-              const idx = Number(raw)
-              dragHoverRef.current = idx
-              setSelected(
-                new Set([...dragBaseRef.current, ...idsInRange(dragAnchorRef.current, idx)]),
-              )
-            }}
-          >
-            <DocumentsTableStates
-              loading={loading}
-              error={error}
-              hasDocuments={documents.length > 0}
-              columnCount={columns.length}
-              filterActive={filterActive}
-              readOnly={readOnly}
-              onRetry={() => void load({})}
-              onCopyError={copyText}
-              onClearFilter={clearFilter}
-              onInsert={() => setEditing({ mode: "insert" })}
-              onImport={() => setTransfer("import")}
-            />
-            {documents.map((doc, index) => {
-              const id = documentId(doc)
-              const isSelected = id !== null && selected.has(id)
-              return (
-                <TableRow
-                  key={id ?? index}
-                  data-row-index={index}
-                  data-state={isSelected ? "selected" : undefined}
-                  data-active={activeRow === index ? "true" : undefined}
-                  className={cn("group", activeRow === index && "bg-accent/40 hover:bg-accent/40")}
-                  style={{ contentVisibility: "auto", containIntrinsicSize: "auto 2rem" }}
-                  onMouseDown={(event) => onRowMouseDown(index, event)}
-                  onDoubleClick={() => {
-                    if (dragMovedRef.current) {
-                      dragMovedRef.current = false
-                      return
-                    }
-                    setInlineEdit(null)
-                    if (!readOnly) setEditing({ mode: "edit", document: doc })
-                  }}
-                >
-                  <TableCell
-                    data-sticky-checkbox
-                    className="cell-frozen sticky left-0 z-10 w-10"
-                  >
-                    <Checkbox
-                      checked={isSelected}
-                      disabled={id === null}
-                      onCheckedChange={(checked) => id && toggleOne(id, checked === true)}
-                      aria-label={t("docs.selectRow")}
-                    />
-                  </TableCell>
-                  {displayColumns.map((column) => {
-                    const isPinned = pinnedSet.has(column)
-                    const left = frozen.offsets[column]
-                    const isLastPinned =
-                      isPinned && pinnedColumns[pinnedColumns.length - 1] === column
-                    const isEditing =
-                      inlineEdit?.row === index && inlineEdit.column === column
-                    const previewable = readOnly && isPreviewableValue(doc[column])
-                    return (
-                      <TableCell
-                        key={column}
-                        data-column={column}
-                        className={cn(
-                          "max-w-[320px]",
-                          !isEditing && "truncate",
-                          previewable && "cursor-pointer",
-                          isPinned && "cell-frozen sticky z-10",
-                          isLastPinned && frozen.scrolled && PINNED_EDGE_SHADOW,
-                        )}
-                        style={{
-                          ...(prefs.widths[column]
-                            ? {
-                                width: prefs.widths[column],
-                                minWidth: prefs.widths[column],
-                                maxWidth: prefs.widths[column],
-                              }
-                            : {}),
-                          ...(isPinned && left !== undefined ? { left } : {}),
-                        }}
-                        onClick={
-                          readOnly
-                            ? (event) => {
-                                if (!cellValueOverflows(event.currentTarget)) return
-                                setValuePreview({ column, value: doc[column] })
-                              }
-                            : undefined
-                        }
-                        onDoubleClick={(event) => {
-                          if (!canEditCell(index, column)) return
-                          event.stopPropagation()
-                          beginInlineEdit(index, column)
-                        }}
-                      >
-                        {isEditing ? (
-                          <InlineCellEditor
-                            value={doc[column]}
-                            busy={inlineBusy}
-                            onSave={(value) => saveInlineEdit(index, column, value)}
-                            onCancel={() => setInlineEdit(null)}
-                          />
-                        ) : (
-                          <CellValue
-                            value={doc[column]}
-                            dictionary={prefs.dictionaries[column]}
-                            renderer={columnRenderMode(
-                              prefs.renderers,
-                              prefs.dictionaries,
-                              column,
-                            )}
-                            toggleDisabled={inlineBusy}
-                            onToggle={
-                              canEditCell(index, column) &&
-                              (prefs.renderers[column] === "checkbox" ||
-                                prefs.renderers[column] === "switch")
-                                ? (next) => void saveInlineEdit(index, column, next)
-                                : undefined
-                            }
-                            onExpand={
-                              readOnly
-                                ? () => setValuePreview({ column, value: doc[column] })
-                                : undefined
-                            }
-                          />
-                        )}
-                      </TableCell>
-                    )
-                  })}
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon-sm" aria-label={t("docs.rowActions")}>
-                          <Rows3 />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48">
-                        <DropdownMenuItem
-                          disabled={readOnly}
-                          onSelect={() => {
-                            setInlineEdit(null)
-                            setEditing({ mode: "edit", document: doc })
-                          }}
-                        >
-                          <Pencil /> {t("docs.editDocument")}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() => {
-                            void copyToClipboard(prettyJSON(doc)).then((ok) =>
-                              ok
-                                ? toast.success(t("docs.copyOk"))
-                                : toast.error(t("common.copyFailed")),
-                            )
-                          }}
-                        >
-                          <Copy /> {t("docs.copyJson")}
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          variant="destructive"
-                          disabled={readOnly || !id}
-                          onSelect={() => setConfirm({ type: "one", document: doc })}
-                        >
-                          <Trash2 /> {t("common.delete")}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
-        </div>
-        </div>
-
-        {selected.size > 0 || allMatching ? (
-          <div className="bg-background/95 absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border px-3 py-1.5 text-sm whitespace-nowrap shadow-lg backdrop-blur">
-            <span className="text-muted-foreground">
-              {allMatching
-                ? t("docs.selectedAllMatching", { count: total })
-                : t("docs.selected", { count: selected.size })}
-            </span>
-            {!allMatching && total > documents.length && selected.size === documents.length ? (
-              <Button variant="outline" size="sm" onClick={() => setAllMatching(true)}>
-                {t("docs.selectAllMatching", { count: total })}
-              </Button>
-            ) : null}
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={readOnly}
-              onClick={() => setUpdateOpen(true)}
-            >
-              <Pencil /> {t("docs.updateSelected")}
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={readOnly}
-              onClick={() => setConfirm({ type: "bulk" })}
-            >
-              <Trash2 /> {t("docs.deleteSelected")}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setSelected(new Set())
-                setAllMatching(false)
-              }}
-            >
-              {t("docs.clear")}
-            </Button>
-          </div>
-        ) : null}
-      </div>
+      <DocumentsResults
+        loading={loading}
+        error={error}
+        total={total}
+        documents={documents}
+        columns={columns}
+        displayColumns={displayColumns}
+        prefs={prefs}
+        sortSpec={sortSpec}
+        pinnedSet={pinnedSet}
+        pinnedColumns={pinnedColumns}
+        frozen={frozen}
+        dragging={dragging}
+        selected={selected}
+        allMatching={allMatching}
+        allSelected={allSelected}
+        filterActive={filterActive}
+        readOnly={readOnly}
+        activeRow={activeRow}
+        activeCell={activeCell}
+        inlineEdit={inlineEdit}
+        inlineBusy={inlineBusy}
+        copyText={copyText}
+        load={load}
+        clearFilter={clearFilter}
+        setEditing={setEditing}
+        setTransfer={setTransfer}
+        setInlineEdit={setInlineEdit}
+        setValuePreview={setValuePreview}
+        setSelected={setSelected}
+        setAllMatching={setAllMatching}
+        setCellMenu={setCellMenu}
+        setConfirm={setConfirm}
+        setSort={setSort}
+        setDictionaryColumn={setDictionaryColumn}
+        setColumnRenderer={setColumnRenderer}
+        setActiveCell={setActiveCell}
+        toggleOne={toggleOne}
+        toggleAll={toggleAll}
+        toggleSort={toggleSort}
+        startResize={startResize}
+        moveColumn={moveColumn}
+        toggleColumnPinned={toggleColumnPinned}
+        setColumnHidden={setColumnHidden}
+        showOnlyColumn={showOnlyColumn}
+        resetColumns={resetColumns}
+        copyToClipboard={copyToClipboard}
+        beginInlineEdit={beginInlineEdit}
+        saveInlineEdit={saveInlineEdit}
+        canEditCell={canEditCell}
+        onRowMouseDown={onRowMouseDown}
+        onRowMouseEnter={onRowMouseEnter}
+        idsInRange={idsInRange}
+        dragMovedRef={dragMovedRef}
+        dragAnchorRef={dragAnchorRef}
+        dragHoverRef={dragHoverRef}
+        draggingRef={draggingRef}
+        dragBaseRef={dragBaseRef}
+        openUpdateDialog={openUpdateDialog}
+      />
 
       {/* Pagination */}
       <DocumentsPagination
@@ -1864,196 +1404,76 @@ export function DocumentsTab({
         />
       ) : null}
 
-      <CellValueDialog
-        open={valuePreview !== null}
-        onOpenChange={(open) => {
-          if (!open) setValuePreview(null)
+      <DocumentsDialogs
+        connectionId={connectionId}
+        database={database}
+        collection={collection}
+        filter={filter}
+        sort={sort}
+        projection={projection}
+        onReload={() => void load({ skip: 0 })}
+        valuePreview={valuePreview}
+        onValuePreviewChange={setValuePreview}
+        dictionaryColumn={dictionaryColumn}
+        dictionaryEntries={dictionaryColumn ? prefs.dictionaries[dictionaryColumn] ?? [] : []}
+        onDictionaryOpenChange={(open) => !open && setDictionaryColumn(null)}
+        onDictionarySave={(entries) => {
+          if (!dictionaryColumn) return
+          setPrefs((prev) => {
+            const dictionaries = { ...prev.dictionaries }
+            const renderers = { ...prev.renderers }
+            if (entries.length > 0) {
+              dictionaries[dictionaryColumn] = entries
+              renderers[dictionaryColumn] = "dictionary"
+            } else {
+              delete dictionaries[dictionaryColumn]
+              if (renderers[dictionaryColumn] === "dictionary") {
+                delete renderers[dictionaryColumn]
+              }
+            }
+            return { ...prev, dictionaries, renderers }
+          })
         }}
-        column={valuePreview?.column ?? ""}
-        value={valuePreview?.value}
+        viewOpen={viewDialogOpen}
+        onViewOpenChange={setViewDialogOpen}
+        viewName={viewName}
+        onViewNameChange={setViewName}
+        onSaveView={saveView}
+        updateOpen={updateOpen}
+        onUpdateOpenChange={setUpdateOpen}
+        updateValue={updateValue}
+        onUpdateValueChange={setUpdateValue}
+        onRunBulkUpdate={() => void runBulkUpdate()}
+        allMatching={allMatching}
+        total={total}
+        selectedCount={selected.size}
+        editing={editing}
+        onEditingChange={setEditing}
+        onInsert={handleInsert}
+        onUpdate={handleUpdate}
+        confirm={confirm}
+        onConfirmOpenChange={(open) => !open && setConfirm(null)}
+        onConfirm={() => void runConfirm()}
+        transfer={transfer}
+        onTransferChange={setTransfer}
+        explainOpen={explainOpen}
+        onExplainOpenChange={setExplainOpen}
+        explainRequest={explainRequest}
+        copyOpen={copyOpen}
+        onCopyOpenChange={setCopyOpen}
+        chartOpen={chartOpen}
+        onChartOpenChange={setChartOpen}
+        documents={documents}
+        columns={allColumns}
+        builderOpen={builderOpen}
+        onBuilderOpenChange={setBuilderOpen}
+        fieldTypes={fieldTypes}
+        onApplyBuilder={(nextFilter, nextProjection) => {
+          setFilter(nextFilter)
+          setProjection(nextProjection)
+          void load({ skip: 0, filter: nextFilter, projection: nextProjection })
+        }}
       />
-
-      <LazyMount active={dictionaryColumn !== null}>
-        <ColumnDictionaryDialog
-          open={dictionaryColumn !== null}
-          onOpenChange={(open) => !open && setDictionaryColumn(null)}
-          column={dictionaryColumn ?? ""}
-          entries={dictionaryColumn ? prefs.dictionaries[dictionaryColumn] ?? [] : []}
-          onSave={(entries) => {
-            if (!dictionaryColumn) return
-            setPrefs((prev) => {
-              const dictionaries = { ...prev.dictionaries }
-              const renderers = { ...prev.renderers }
-              if (entries.length > 0) {
-                dictionaries[dictionaryColumn] = entries
-                renderers[dictionaryColumn] = "dictionary"
-              } else {
-                delete dictionaries[dictionaryColumn]
-                if (renderers[dictionaryColumn] === "dictionary") {
-                  delete renderers[dictionaryColumn]
-                }
-              }
-              return { ...prev, dictionaries, renderers }
-            })
-          }}
-        />
-      </LazyMount>
-
-      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t("views.saveCurrent")}</DialogTitle>
-            <DialogDescription>{t("views.saveDesc")}</DialogDescription>
-          </DialogHeader>
-          <Input
-            autoFocus
-            value={viewName}
-            onChange={(event) => setViewName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault()
-                saveView()
-              }
-            }}
-            placeholder={t("views.namePlaceholder")}
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setViewDialogOpen(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button onClick={saveView} disabled={!viewName.trim()}>
-              {t("common.save")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={updateOpen} onOpenChange={setUpdateOpen}>
-        <DialogContent className="sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>{t("docs.bulkUpdateTitle")}</DialogTitle>
-            <DialogDescription>
-              {allMatching
-                ? t("docs.bulkUpdateAllDesc", { count: total })
-                : t("docs.bulkUpdateDesc", { count: selected.size })}
-            </DialogDescription>
-          </DialogHeader>
-          <JsonEditor
-            value={updateValue}
-            onChange={setUpdateValue}
-            placeholder='{ "$set": { "status": "done" } }'
-            className="min-h-[8rem]"
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setUpdateOpen(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button onClick={() => void runBulkUpdate()}>{t("docs.updateAction")}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <LazyMount active={editing !== null}>
-        <DocumentDialog
-          open={editing !== null}
-          onOpenChange={(open) => !open && setEditing(null)}
-          title={editing?.mode === "edit" ? t("docs.editTitle") : t("docs.insertTitle")}
-          description={editing?.mode === "edit" ? t("docs.editDesc") : t("docs.insertDesc")}
-          initialValue={
-            editing?.mode === "edit" && editing.document ? prettyJSON(editing.document) : "{\n  \n}"
-          }
-          submitLabel={editing?.mode === "edit" ? t("docs.saveChanges") : t("docs.insertAction")}
-          onSubmit={editing?.mode === "edit" ? handleUpdate : handleInsert}
-        />
-      </LazyMount>
-
-      <LazyMount active={confirm !== null}>
-        <ConfirmDialog
-          open={confirm !== null}
-          onOpenChange={(open) => !open && setConfirm(null)}
-          title={
-            confirm?.type === "filter"
-              ? t("docs.deleteFilter")
-              : confirm?.type === "bulk"
-                ? t("docs.deleteSelectedMany", { count: selected.size })
-                : t("docs.deleteOne")
-          }
-          description={t("docs.deleteDesc")}
-          confirmLabel={t("common.delete")}
-          onConfirm={runConfirm}
-        />
-      </LazyMount>
-
-      <LazyMount active={transfer === "export"}>
-        <ExportDialog
-          open={transfer === "export"}
-          onOpenChange={(open) => !open && setTransfer(null)}
-          connectionId={connectionId}
-          database={database}
-          collection={collection}
-          filter={filter}
-          sort={sort}
-          projection={projection}
-        />
-      </LazyMount>
-      <LazyMount active={transfer === "import"}>
-        <ImportDialog
-          open={transfer === "import"}
-          onOpenChange={(open) => !open && setTransfer(null)}
-          connectionId={connectionId}
-          database={database}
-          collection={collection}
-          onImported={() => void load({ skip: 0 })}
-        />
-      </LazyMount>
-      <LazyMount active={explainOpen}>
-        <ExplainDialog
-          open={explainOpen}
-          onOpenChange={setExplainOpen}
-          connectionId={connectionId}
-          database={database}
-          collection={collection}
-          request={explainRequest}
-        />
-      </LazyMount>
-      <LazyMount active={copyOpen}>
-        <CopyCollectionDialog
-          open={copyOpen}
-          onOpenChange={setCopyOpen}
-          connectionId={connectionId}
-          database={database}
-          collection={collection}
-          filter={filter}
-          onCopied={() => undefined}
-        />
-      </LazyMount>
-      <LazyMount active={chartOpen}>
-        <ChartDialog
-          open={chartOpen}
-          onOpenChange={setChartOpen}
-          documents={documents}
-          columns={allColumns}
-          storageKey={`docs:${connectionId}:${database}:${collection}`}
-        />
-      </LazyMount>
-      <LazyMount active={builderOpen}>
-        <MongoQueryBuilder
-          open={builderOpen}
-          onOpenChange={setBuilderOpen}
-          connectionId={connectionId}
-          database={database}
-          collection={collection}
-          fields={allColumns}
-          fieldTypes={fieldTypes}
-          value={filter}
-          projection={projection}
-          onApply={(nextFilter, nextProjection) => {
-            setFilter(nextFilter)
-            setProjection(nextProjection)
-            void load({ skip: 0, filter: nextFilter, projection: nextProjection })
-          }}
-        />
-      </LazyMount>
     </div>
   )
 }

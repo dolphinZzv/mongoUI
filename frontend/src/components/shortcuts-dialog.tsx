@@ -23,12 +23,26 @@ const GENERAL: Shortcut[] = [
   { keys: ["mod", "K"], labelKey: "shortcuts.commandPalette" },
   { keys: ["?"], labelKey: "shortcuts.help" },
   { keys: ["Esc"], labelKey: "shortcuts.close" },
+  { keys: ["alt", "["], labelKey: "shortcuts.prevTab" },
+  { keys: ["alt", "]"], labelKey: "shortcuts.nextTab" },
+  { keys: ["alt", "1..9"], labelKey: "shortcuts.tabByNumber" },
+  { keys: ["alt", "shift", "W"], labelKey: "shortcuts.closeTab" },
+  { keys: ["alt", "shift", "T"], labelKey: "shortcuts.reopenTab" },
+  { keys: ["mod", "S"], labelKey: "shortcuts.saveView" },
+  { keys: ["shift", "alt", "F"], labelKey: "shortcuts.formatQuery" },
 ]
 
 const TABLE: Shortcut[] = [
   { keys: ["/"], labelKey: "shortcuts.focusFilter" },
-  { keys: ["j"], labelKey: "shortcuts.moveDown" },
-  { keys: ["k"], labelKey: "shortcuts.moveUp" },
+  { keys: ["mod", "Enter"], labelKey: "shortcuts.runQuery" },
+  { keys: ["j", "k"], labelKey: "shortcuts.moveRows" },
+  { keys: ["h", "l"], labelKey: "shortcuts.moveCell" },
+  { keys: ["Enter"], labelKey: "shortcuts.editCell" },
+  { keys: ["y"], labelKey: "shortcuts.copyValue" },
+  { keys: ["f"], labelKey: "shortcuts.copyField" },
+  { keys: ["i"], labelKey: "shortcuts.copyId" },
+  { keys: ["c"], labelKey: "shortcuts.copySet" },
+  { keys: ["o"], labelKey: "shortcuts.previewCell" },
   { keys: ["Space"], labelKey: "shortcuts.toggle" },
   { keys: ["e"], labelKey: "shortcuts.edit" },
   { keys: ["Delete"], labelKey: "shortcuts.delete" },
@@ -41,6 +55,8 @@ function isMac() {
 
 function renderKey(key: string, mac: boolean): string {
   if (key === "mod") return mac ? "⌘" : "Ctrl"
+  if (key === "alt") return mac ? "⌥" : "Alt"
+  if (key === "shift") return mac ? "⇧" : "Shift"
   if (key === "Space") return "Space"
   return key
 }

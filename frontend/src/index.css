@@ -176,6 +176,14 @@
   tbody tr[data-active="true"]:hover > .cell-frozen {
     background-color: color-mix(in oklab, var(--accent) 40%, var(--background));
   }
+
+  /* The keyboard cell cursor must stay visible on frozen columns too. */
+  td[data-active-cell="true"],
+  tbody tr:hover > td[data-active-cell="true"],
+  tbody tr[data-state="selected"] > td[data-active-cell="true"],
+  tbody tr[data-active="true"] > td[data-active-cell="true"] {
+    background-color: color-mix(in oklab, var(--primary) 14%, var(--background));
+  }
   /*
    * Inset rather than a pseudo-element: cells use `truncate` (overflow: hidden),
    * which would clip an absolutely positioned shadow.

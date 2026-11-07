@@ -7,6 +7,10 @@ import {
   ArrowUp,
   ArrowUpDown,
   Ban,
+  BookOpen,
+  CalendarDays,
+  Check,
+  CheckSquare,
   ChevronDown,
   Copy,
   ListFilter,
@@ -17,6 +21,8 @@ import {
   Plus,
   RefreshCw,
   Rows3,
+  SlidersHorizontal,
+  ToggleLeft,
   Trash2,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -56,6 +62,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -76,9 +85,11 @@ import {
   COLUMN_MIN_WIDTH,
   DEFAULT_PINNED_COLUMNS,
   columnPrefsKey,
+  columnRenderMode,
   readColumnPrefs,
   writeColumnPrefs,
   type ColumnPrefs,
+  type ColumnRender,
 } from "@/lib/columnPrefs"
 import { newViewId, readViews, viewsKey, writeViews, type SavedView } from "@/lib/savedViews"
 import { toFindJS, toSQL } from "@/lib/queryText"
@@ -91,6 +102,11 @@ import type { ExplainRequest, FindResult, MongoDocument } from "@/lib/types"
 
 const ChartDialog = React.lazy(() =>
   import("@/components/chart-dialog").then((m) => ({ default: m.ChartDialog })),
+)
+const ColumnDictionaryDialog = React.lazy(() =>
+  import("@/components/documents/column-dictionary-dialog").then((m) => ({
+    default: m.ColumnDictionaryDialog,
+  })),
 )
 const ConfirmDialog = React.lazy(() =>
   import("@/components/confirm-dialog").then((m) => ({ default: m.ConfirmDialog })),
@@ -175,6 +191,7 @@ export function DocumentsTab({
   const [transfer, setTransfer] = React.useState<"import" | "export" | null>(null)
   const [copyOpen, setCopyOpen] = React.useState(false)
   const [explainOpen, setExplainOpen] = React.useState(false)
+  const [dictionaryColumn, setDictionaryColumn] = React.useState<string | null>(null)
   const [chartOpen, setChartOpen] = React.useState(false)
   const [builderOpen, setBuilderOpen] = React.useState(false)
   const [cellMenu, setCellMenu] = React.useState<{
@@ -428,7 +445,23 @@ export function DocumentsTab({
   )
 
   const resetColumns = React.useCallback(() => {
-    setPrefs({ order: [], hidden: [], widths: {}, pinned: [...DEFAULT_PINNED_COLUMNS] })
+    setPrefs((prev) => ({
+      order: [],
+      hidden: [],
+      widths: {},
+      pinned: [...DEFAULT_PINNED_COLUMNS],
+      dictionaries: prev.dictionaries,
+      renderers: prev.renderers,
+    }))
+  }, [])
+
+  const setColumnRenderer = React.useCallback((column: string, renderer: ColumnRender) => {
+    setPrefs((prev) => {
+      const renderers = { ...prev.renderers }
+      if (renderer === "default") delete renderers[column]
+      else renderers[column] = renderer
+      return { ...prev, renderers }
+    })
   }, [])
 
   const toggleColumnPinned = React.useCallback((column: string) => {
@@ -649,11 +682,9 @@ export function DocumentsTab({
   }, [sort])
 
   const toggleSort = (column: string) => {
-    let direction: 1 | -1 | null = 1
-    if (sortSpec?.column === column) {
-      direction = sortSpec.direction === 1 ? -1 : null
-    }
-    const nextSort = direction ? JSON.stringify({ [column]: direction }) : ""
+    const direction: 1 | -1 =
+      sortSpec?.column === column && sortSpec.direction === 1 ? -1 : 1
+    const nextSort = JSON.stringify({ [column]: direction })
     setSort(nextSort)
     void load({ skip: 0, sort: nextSort })
   }
@@ -809,7 +840,7 @@ export function DocumentsTab({
     const target = event.target as HTMLElement
     if (
       target.closest(
-        'button, a, input, [role="checkbox"], [data-slot="checkbox"], [role="menuitem"]',
+        'button, a, input, [role="checkbox"], [data-slot="checkbox"], [role="switch"], [data-slot="switch"], [role="menuitem"]',
       )
     ) {
       return
@@ -1223,6 +1254,8 @@ export function DocumentsTab({
             error={error}
             documents={documents}
             columns={columns}
+            dictionaries={prefs.dictionaries}
+            renderers={prefs.renderers}
             selected={selected}
             readOnly={readOnly}
             filterActive={filterActive}
@@ -1261,6 +1294,11 @@ export function DocumentsTab({
                 const isPinned = pinnedSet.has(column)
                 const left = frozen.offsets[column]
                 const isLastPinned = isPinned && pinnedColumns[pinnedColumns.length - 1] === column
+                const renderMode = columnRenderMode(
+                  prefs.renderers,
+                  prefs.dictionaries,
+                  column,
+                )
                 return (
                   <TableHead
                     key={column}
@@ -1290,6 +1328,15 @@ export function DocumentsTab({
                         className="hover:text-foreground flex min-w-0 flex-1 items-center gap-1 rounded"
                       >
                         <span className="truncate">{column}</span>
+                        {renderMode === "dictionary" ? (
+                          <BookOpen className="text-primary size-3 shrink-0" />
+                        ) : renderMode === "checkbox" ? (
+                          <CheckSquare className="text-primary size-3 shrink-0" />
+                        ) : renderMode === "switch" ? (
+                          <ToggleLeft className="text-primary size-3 shrink-0" />
+                        ) : renderMode === "date" ? (
+                          <CalendarDays className="text-primary size-3 shrink-0" />
+                        ) : null}
                         {direction === 1 ? (
                           <ArrowUp className="size-3 shrink-0" />
                         ) : direction === -1 ? (
@@ -1311,8 +1358,45 @@ export function DocumentsTab({
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start" className="w-52">
                           <DropdownMenuItem onSelect={() => toggleSort(column)}>
-                            {direction ? t("docs.clearSort") : t("docs.sortAsc")}
+                            {direction === 1 ? t("docs.sortDesc") : t("docs.sortAsc")}
                           </DropdownMenuItem>
+                          {direction ? (
+                            <DropdownMenuItem
+                              onSelect={() => {
+                                setSort("")
+                                void load({ skip: 0, sort: "" })
+                              }}
+                            >
+                              {t("docs.clearSort")}
+                            </DropdownMenuItem>
+                          ) : null}
+                          <DropdownMenuSub>
+                            <DropdownMenuSubTrigger>
+                              <SlidersHorizontal /> {t("docs.renderAs")}
+                            </DropdownMenuSubTrigger>
+                            <DropdownMenuSubContent className="w-48">
+                              <DropdownMenuItem onSelect={() => setColumnRenderer(column, "default")}>
+                                <Rows3 /> {t("docs.render.default")}
+                                {renderMode === "default" ? <Check className="ml-auto size-4" /> : null}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => setDictionaryColumn(column)}>
+                                <BookOpen /> {t("docs.render.dictionary")}
+                                {renderMode === "dictionary" ? <Check className="ml-auto size-4" /> : null}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => setColumnRenderer(column, "checkbox")}>
+                                <CheckSquare /> {t("docs.render.checkbox")}
+                                {renderMode === "checkbox" ? <Check className="ml-auto size-4" /> : null}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => setColumnRenderer(column, "switch")}>
+                                <ToggleLeft /> {t("docs.render.switch")}
+                                {renderMode === "switch" ? <Check className="ml-auto size-4" /> : null}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => setColumnRenderer(column, "date")}>
+                                <CalendarDays /> {t("docs.render.date")}
+                                {renderMode === "date" ? <Check className="ml-auto size-4" /> : null}
+                              </DropdownMenuItem>
+                            </DropdownMenuSubContent>
+                          </DropdownMenuSub>
                           <DropdownMenuItem
                             onSelect={() =>
                               void copyToClipboard(column).then((ok) =>
@@ -1488,6 +1572,20 @@ export function DocumentsTab({
                         ) : (
                           <CellValue
                             value={doc[column]}
+                            dictionary={prefs.dictionaries[column]}
+                            renderer={columnRenderMode(
+                              prefs.renderers,
+                              prefs.dictionaries,
+                              column,
+                            )}
+                            toggleDisabled={inlineBusy}
+                            onToggle={
+                              canEditCell(index, column) &&
+                              (prefs.renderers[column] === "checkbox" ||
+                                prefs.renderers[column] === "switch")
+                                ? (next) => void saveInlineEdit(index, column, next)
+                                : undefined
+                            }
                             onExpand={
                               readOnly
                                 ? () => setValuePreview({ column, value: doc[column] })
@@ -1592,6 +1690,7 @@ export function DocumentsTab({
         total={total}
         skip={skip}
         limit={limit}
+        durationMs={result?.durationMs}
         page={page}
         pages={pages}
         loading={loading}
@@ -1629,6 +1728,32 @@ export function DocumentsTab({
         column={valuePreview?.column ?? ""}
         value={valuePreview?.value}
       />
+
+      <LazyMount active={dictionaryColumn !== null}>
+        <ColumnDictionaryDialog
+          open={dictionaryColumn !== null}
+          onOpenChange={(open) => !open && setDictionaryColumn(null)}
+          column={dictionaryColumn ?? ""}
+          entries={dictionaryColumn ? prefs.dictionaries[dictionaryColumn] ?? [] : []}
+          onSave={(entries) => {
+            if (!dictionaryColumn) return
+            setPrefs((prev) => {
+              const dictionaries = { ...prev.dictionaries }
+              const renderers = { ...prev.renderers }
+              if (entries.length > 0) {
+                dictionaries[dictionaryColumn] = entries
+                renderers[dictionaryColumn] = "dictionary"
+              } else {
+                delete dictionaries[dictionaryColumn]
+                if (renderers[dictionaryColumn] === "dictionary") {
+                  delete renderers[dictionaryColumn]
+                }
+              }
+              return { ...prev, dictionaries, renderers }
+            })
+          }}
+        />
+      </LazyMount>
 
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
         <DialogContent className="sm:max-w-md">

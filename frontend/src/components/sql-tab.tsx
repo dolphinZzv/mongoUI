@@ -8,11 +8,13 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ResultTable } from "@/components/documents/result-table"
 import { JsonView } from "@/components/json-view"
+import { QueryDuration } from "@/components/query-duration"
 import { RecentQueries } from "@/components/recent-queries"
 import { SqlEditor } from "@/components/sql-editor"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { useRecentQueries } from "@/hooks/useRecentQueries"
+import { columnPrefsKey, readColumnPrefs } from "@/lib/columnPrefs"
 import { collectColumns } from "@/lib/mongo"
 import type { SQLResult } from "@/lib/types"
 
@@ -49,6 +51,10 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
   const [query, setQuery] = React.useState(`SELECT * FROM ${quoteIdent(collection)} LIMIT 50`)
   const [limit, setLimit] = React.useState("")
   const [result, setResult] = React.useState<SQLResult | null>(null)
+  const columnPrefs = React.useMemo(
+    () => readColumnPrefs(columnPrefsKey(connectionId, database, collection)),
+    [connectionId, database, collection],
+  )
   const [loading, setLoading] = React.useState(false)
   const [ran, setRan] = React.useState(false)
   const [view, setView] = React.useState<"table" | "json" | "chart">("table")
@@ -211,11 +217,14 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
         >
           <BarChart3 /> {t("result.chart")}
         </Button>
-        <span className="text-muted-foreground ml-auto text-xs">
-          {ran && result
-            ? t(result.count === 1 ? "sql.rows" : "sql.rows_plural", { count: result.count }) +
-              (result.total > result.count ? t("sql.ofMatching", { total: result.total }) : "")
-            : t("sql.notRun")}
+        <span className="text-muted-foreground ml-auto flex items-center gap-2 text-xs">
+          <span>
+            {ran && result
+              ? t(result.count === 1 ? "sql.rows" : "sql.rows_plural", { count: result.count }) +
+                (result.total > result.count ? t("sql.ofMatching", { total: result.total }) : "")
+              : t("sql.notRun")}
+          </span>
+          {ran && result ? <QueryDuration ms={result.durationMs} /> : null}
         </span>
       </div>
 
@@ -232,6 +241,8 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
           documents={documents}
           columns={columns}
           storageKey={`sql:${connectionId}:${database}:${collection}`}
+          dictionaries={columnPrefs.dictionaries}
+          renderers={columnPrefs.renderers}
         />
       ) : (
         <div className="scrollbar-thin min-h-0 flex-1 overflow-auto p-3">

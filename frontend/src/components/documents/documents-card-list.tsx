@@ -6,6 +6,11 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { CellValue } from "./cell"
 import { useI18n } from "@/lib/i18n"
 import { documentId } from "@/lib/mongo"
+import {
+  columnRenderMode,
+  type ColumnDictionaries,
+  type ColumnRenderers,
+} from "@/lib/columnPrefs"
 import type { MongoDocument } from "@/lib/types"
 
 interface DocumentsCardListProps {
@@ -13,6 +18,8 @@ interface DocumentsCardListProps {
   error: string | null
   documents: MongoDocument[]
   columns: string[]
+  dictionaries?: ColumnDictionaries
+  renderers?: ColumnRenderers
   selected: Set<string>
   readOnly: boolean
   filterActive: boolean
@@ -38,6 +45,8 @@ export function DocumentsCardList({
   error,
   documents,
   columns,
+  dictionaries,
+  renderers,
   selected,
   readOnly,
   filterActive,
@@ -147,6 +156,8 @@ export function DocumentsCardList({
                   <span className="min-w-0 flex-1 truncate">
                     <CellValue
                       value={"_id" in doc ? doc._id : undefined}
+                      dictionary={dictionaries?._id}
+                      renderer={columnRenderMode(renderers, dictionaries, "_id")}
                       onExpand={onPreview ? () => onPreview("_id", doc._id) : undefined}
                     />
                   </span>
@@ -163,6 +174,8 @@ export function DocumentsCardList({
                       <dd className="min-w-0 flex-1">
                         <CellValue
                           value={doc[column]}
+                          dictionary={dictionaries?.[column]}
+                          renderer={columnRenderMode(renderers, dictionaries, column)}
                           onExpand={onPreview ? () => onPreview(column, doc[column]) : undefined}
                         />
                       </dd>

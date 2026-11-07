@@ -56,11 +56,13 @@ export interface FindResult {
   total: number
   skip: number
   limit: number
+  durationMs?: number
 }
 
 export interface AggregateResult {
   documents: MongoDocument[]
   count: number
+  durationMs?: number
 }
 
 export interface FindRequest {
@@ -102,6 +104,7 @@ export interface SQLResult {
   limit: number
   columns: string[] | null
   mql: Record<string, unknown>
+  durationMs?: number
 }
 
 export interface ScriptStatementResult {

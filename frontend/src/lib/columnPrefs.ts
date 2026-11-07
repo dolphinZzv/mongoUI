@@ -2,6 +2,17 @@
  * Per-collection table column preferences (order, visibility, widths, pinned),
  * persisted in localStorage so a collection looks the same on the next visit.
  */
+export interface ColumnDictionaryEntry {
+  value: string
+  label: string
+}
+
+export type ColumnDictionaries = Record<string, ColumnDictionaryEntry[]>
+
+export type ColumnRender = "default" | "dictionary" | "checkbox" | "switch" | "date"
+
+export type ColumnRenderers = Record<string, ColumnRender>
+
 export interface ColumnPrefs {
   /** Explicit column order; unknown/new columns are appended after it. */
   order: string[]
@@ -9,6 +20,10 @@ export interface ColumnPrefs {
   widths: Record<string, number>
   /** Fields frozen to the left edge so they stay visible while scrolling. */
   pinned: string[]
+  /** Optional raw-value → display-label mappings per column. */
+  dictionaries: ColumnDictionaries
+  /** Optional renderer choice per column. */
+  renderers: ColumnRenderers
 }
 
 export const COLUMN_MIN_WIDTH = 80
@@ -24,11 +39,61 @@ export function columnPrefsKey(connectionId: string, database: string, collectio
 }
 
 function emptyPrefs(): ColumnPrefs {
-  return { order: [], hidden: [], widths: {}, pinned: [...DEFAULT_PINNED_COLUMNS] }
+  return {
+    order: [],
+    hidden: [],
+    widths: {},
+    pinned: [...DEFAULT_PINNED_COLUMNS],
+    dictionaries: {},
+    renderers: {},
+  }
 }
 
 function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []
+}
+
+function dictionaryMap(value: unknown): ColumnDictionaries {
+  if (typeof value !== "object" || value === null) return {}
+  const result: ColumnDictionaries = {}
+  for (const [column, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!Array.isArray(raw)) continue
+    const entries: ColumnDictionaryEntry[] = []
+    for (const item of raw) {
+      if (!item || typeof item !== "object") continue
+      const entry = item as Partial<ColumnDictionaryEntry>
+      if (typeof entry.value !== "string" || typeof entry.label !== "string") continue
+      const value = entry.value.trim()
+      const label = entry.label.trim()
+      if (value && label) entries.push({ value, label })
+    }
+    if (entries.length > 0) result[column] = entries
+  }
+  return result
+}
+
+function rendererMap(value: unknown): ColumnRenderers {
+  if (typeof value !== "object" || value === null) return {}
+  const result: ColumnRenderers = {}
+  const allowed = new Set<ColumnRender>(["default", "dictionary", "checkbox", "switch", "date"])
+  for (const [column, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof raw === "string" && allowed.has(raw as ColumnRender)) {
+      result[column] = raw as ColumnRender
+    }
+  }
+  return result
+}
+
+/** Effective renderer, falling back to dictionary when mappings exist. */
+export function columnRenderMode(
+  renderers: ColumnRenderers | undefined,
+  dictionaries: ColumnDictionaries | undefined,
+  column: string,
+): ColumnRender {
+  return (
+    renderers?.[column] ??
+    ((dictionaries?.[column]?.length ?? 0) > 0 ? "dictionary" : "default")
+  )
 }
 
 function widthMap(value: unknown): Record<string, number> {
@@ -53,6 +118,8 @@ export function readColumnPrefs(key: string): ColumnPrefs {
       // Older stored prefs have no `pinned` key; fall back to the default.
       // An explicit empty array means the user un-pinned everything.
       pinned: Array.isArray(parsed.pinned) ? stringList(parsed.pinned) : [...DEFAULT_PINNED_COLUMNS],
+      dictionaries: dictionaryMap(parsed.dictionaries),
+      renderers: rendererMap(parsed.renderers),
     }
   } catch {
     return emptyPrefs()

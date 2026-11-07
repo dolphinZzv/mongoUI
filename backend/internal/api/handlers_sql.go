@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"go.mongodb.org/mongo-driver/bson"
@@ -71,6 +72,7 @@ func (a *API) runSQL(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := withTimeout(r)
 	defer cancel()
 
+	start := time.Now()
 	docs := []bson.D{}
 	var total int64
 	if query.Aggregate {
@@ -117,6 +119,7 @@ func (a *API) runSQL(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	durationMs := float64(time.Since(start).Microseconds()) / 1000
 	raw, err := toExtJSON(docs)
 	if err != nil {
 		serverError(w, err)
@@ -124,13 +127,14 @@ func (a *API) runSQL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ok(w, map[string]any{
-		"documents": raw,
-		"count":     len(docs),
-		"total":     total,
-		"skip":      skip,
-		"limit":     limit,
-		"columns":   query.Columns,
-		"mql":       generatedMQL(query),
+		"documents":  raw,
+		"count":      len(docs),
+		"total":      total,
+		"skip":       skip,
+		"limit":      limit,
+		"columns":    query.Columns,
+		"mql":        generatedMQL(query),
+		"durationMs": durationMs,
 	})
 }
 

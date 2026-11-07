@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -69,6 +70,7 @@ func (a *API) findDocuments(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := withTimeout(r)
 	defer cancel()
 
+	start := time.Now()
 	total, err := coll.CountDocuments(ctx, filter)
 	if err != nil {
 		a.dbErr(w, err)
@@ -95,6 +97,7 @@ func (a *API) findDocuments(w http.ResponseWriter, r *http.Request) {
 		a.dbErr(w, err)
 		return
 	}
+	durationMs := float64(time.Since(start).Microseconds()) / 1000
 	raw, err := toExtJSON(docs)
 	if err != nil {
 		serverError(w, err)
@@ -103,10 +106,11 @@ func (a *API) findDocuments(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
-			"documents": raw,
-			"total":     total,
-			"skip":      skip,
-			"limit":     limit,
+			"documents":  raw,
+			"total":      total,
+			"skip":       skip,
+			"limit":      limit,
+			"durationMs": durationMs,
 		},
 	})
 }
@@ -360,6 +364,7 @@ func (a *API) aggregate(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := withTimeout(r)
 	defer cancel()
 
+	start := time.Now()
 	cursor, err := coll.Aggregate(ctx, pipeline)
 	if err != nil {
 		a.dbErr(w, err)
@@ -372,13 +377,18 @@ func (a *API) aggregate(w http.ResponseWriter, r *http.Request) {
 		a.dbErr(w, err)
 		return
 	}
+	durationMs := float64(time.Since(start).Microseconds()) / 1000
 	raw, err := toExtJSON(docs)
 	if err != nil {
 		serverError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"data": map[string]any{"documents": raw, "count": len(docs)},
+		"data": map[string]any{
+			"documents":  raw,
+			"count":      len(docs),
+			"durationMs": durationMs,
+		},
 	})
 }
 

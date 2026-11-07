@@ -27,7 +27,7 @@ export interface DocsQueryState {
 
 export const DOCS_QUERY_DEFAULTS: DocsQueryState = {
   filter: "{}",
-  sort: "",
+  sort: '{"_id": -1}',
   projection: "",
   limit: 50,
   skip: 0,

@@ -13,6 +13,11 @@ import { useFrozenColumns } from "@/hooks/useFrozenColumns"
 import { useI18n } from "@/lib/i18n"
 import { readResultPinned, resultPinnedKey, writeResultPinned } from "@/lib/resultTablePrefs"
 import { cn } from "@/lib/utils"
+import {
+  columnRenderMode,
+  type ColumnDictionaries,
+  type ColumnRenderers,
+} from "@/lib/columnPrefs"
 import type { MongoDocument } from "@/lib/types"
 import {
   CellValue,
@@ -29,6 +34,9 @@ interface ResultTableProps {
   columns: string[]
   /** localStorage scope for the pinned-column choice, e.g. `sql:conn:db:col`. */
   storageKey: string
+  /** Optional raw-value → display-label mappings from the collection prefs. */
+  dictionaries?: ColumnDictionaries
+  renderers?: ColumnRenderers
 }
 
 /**
@@ -36,7 +44,13 @@ interface ResultTableProps {
  * Columns can be pinned to the left edge so they stay visible while scrolling
  * horizontally; the choice is remembered per `storageKey`.
  */
-export function ResultTable({ documents, columns, storageKey }: ResultTableProps) {
+export function ResultTable({
+  documents,
+  columns,
+  storageKey,
+  dictionaries,
+  renderers,
+}: ResultTableProps) {
   const { t } = useI18n()
   const prefsKey = resultPinnedKey(storageKey)
   const [pinned, setPinned] = React.useState<string[]>(() => readResultPinned(prefsKey))
@@ -151,6 +165,8 @@ export function ResultTable({ documents, columns, storageKey }: ResultTableProps
                     >
                       <CellValue
                         value={value}
+                        dictionary={dictionaries?.[column]}
+                        renderer={columnRenderMode(renderers, dictionaries, column)}
                         onExpand={() => setValuePreview({ column, value })}
                       />
                     </TableCell>

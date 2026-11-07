@@ -10,9 +10,11 @@ import { Label } from "@/components/ui/label"
 import { ResultTable } from "@/components/documents/result-table"
 import { JsonEditor } from "@/components/json-editor"
 import { JsonView } from "@/components/json-view"
+import { QueryDuration } from "@/components/query-duration"
 import { api } from "@/lib/api"
 import { copyToClipboard } from "@/lib/clipboard"
 import { useI18n } from "@/lib/i18n"
+import { columnPrefsKey, readColumnPrefs } from "@/lib/columnPrefs"
 import { collectColumns } from "@/lib/mongo"
 import { toAggregateJS } from "@/lib/queryText"
 import type { MongoDocument } from "@/lib/types"
@@ -47,6 +49,11 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
   const [pipeline, setPipeline] = React.useState("[\n  { \"$limit\": 20 }\n]")
   const [limit, setLimit] = React.useState("")
   const [documents, setDocuments] = React.useState<MongoDocument[]>([])
+  const columnPrefs = React.useMemo(
+    () => readColumnPrefs(columnPrefsKey(connectionId, database, collection)),
+    [connectionId, database, collection],
+  )
+  const [durationMs, setDurationMs] = React.useState<number | undefined>()
   const [loading, setLoading] = React.useState(false)
   const [ran, setRan] = React.useState(false)
   const [view, setView] = React.useState<"table" | "json" | "chart">("table")
@@ -71,6 +78,7 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
       return
     }
     setLoading(true)
+    setDurationMs(undefined)
     try {
       const res = await api.aggregate(
         connectionId,
@@ -80,6 +88,7 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
         limit.trim() ? Number(limit) : undefined,
       )
       setDocuments(res.documents)
+      setDurationMs(res.durationMs)
       setRan(true)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("agg.failed"))
@@ -187,12 +196,15 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
         >
           <BarChart3 /> {t("result.chart")}
         </Button>
-        <span className="text-muted-foreground ml-auto text-xs">
-          {ran
-            ? t(documents.length === 1 ? "sql.rows" : "sql.rows_plural", {
-                count: documents.length,
-              })
-            : t("agg.notRun")}
+        <span className="text-muted-foreground ml-auto flex items-center gap-2 text-xs">
+          <span>
+            {ran
+              ? t(documents.length === 1 ? "sql.rows" : "sql.rows_plural", {
+                  count: documents.length,
+                })
+              : t("agg.notRun")}
+          </span>
+          {ran ? <QueryDuration ms={durationMs} /> : null}
         </span>
       </div>
 
@@ -209,6 +221,8 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
           documents={documents}
           columns={columns}
           storageKey={`agg:${connectionId}:${database}:${collection}`}
+          dictionaries={columnPrefs.dictionaries}
+          renderers={columnPrefs.renderers}
         />
       ) : (
         <div className="scrollbar-thin min-h-0 flex-1 overflow-auto p-3">

@@ -14,12 +14,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { QueryDuration } from "@/components/query-duration"
 import { useI18n } from "@/lib/i18n"
 
 interface DocumentsPaginationProps {
   total: number
   skip: number
   limit: number
+  durationMs?: number
   page: number
   pages: number
   loading: boolean
@@ -36,6 +38,7 @@ export function DocumentsPagination({
   total,
   skip,
   limit,
+  durationMs,
   page,
   pages,
   loading,
@@ -52,6 +55,7 @@ export function DocumentsPagination({
       <span className="text-muted-foreground">
         {total === 0 ? "0" : `${skip + 1}–${Math.min(skip + limit, total)}`} of {total}
       </span>
+      <QueryDuration ms={durationMs} />
       <div className="flex items-center gap-2">
         <span className="text-muted-foreground text-xs">{t("docs.pageSize")}</span>
         <Select value={String(limit)} onValueChange={(value) => onLimitChange(Number(value))}>

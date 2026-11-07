@@ -1,6 +1,11 @@
 import * as React from "react"
 
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
+import { findDictionaryEntry } from "@/lib/columnDictionary"
+import { formatDateValue } from "@/lib/columnRender"
+import type { ColumnDictionaryEntry, ColumnRender } from "@/lib/columnPrefs"
 import { classForType, formatValue, prettyJSON, valueType } from "@/lib/mongo"
 import { useI18n } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
@@ -25,17 +30,108 @@ interface CellValueProps {
   value: unknown
   /** Enables a click-through preview for values that do not fit in the cell. */
   onExpand?: () => void
+  /** Optional raw-value → display-label mapping for this column. */
+  dictionary?: ColumnDictionaryEntry[]
+  /** Optional column renderer (checkbox / switch / dictionary / default). */
+  renderer?: ColumnRender
+  /** When provided, boolean checkbox/switch cells become editable. */
+  onToggle?: (next: boolean) => void
+  toggleDisabled?: boolean
 }
 
 /** A single BSON value rendered as a type-colored, truncated monospace cell. */
-export function CellValue({ value, onExpand }: CellValueProps) {
-  const { t } = useI18n()
+export function CellValue({
+  value,
+  onExpand,
+  dictionary,
+  renderer = "default",
+  onToggle,
+  toggleDisabled = false,
+}: CellValueProps) {
+  const { t, locale } = useI18n()
   const type = valueType(value)
   const text = formatValue(value)
+  const expandable = Boolean(onExpand) && isPreviewableValue(value)
+  const handleExpand = onExpand
+    ? (event: React.MouseEvent<HTMLSpanElement>) => {
+        // A shorter value can still be clipped by a narrow column.
+        if (!isPreviewableValue(value) && !cellValueOverflows(event.currentTarget)) {
+          return
+        }
+        event.stopPropagation()
+        onExpand()
+      }
+    : undefined
+  if (renderer === "date") {
+    const formatted = formatDateValue(value, locale)
+    if (formatted) {
+      return (
+        <span
+          data-cell-value
+          className={cn(
+            "block max-w-full truncate text-xs tabular-nums",
+            expandable &&
+              "cursor-pointer hover:underline hover:decoration-dotted hover:underline-offset-2",
+          )}
+          title={text}
+          onClick={handleExpand}
+        >
+          {formatted}
+        </span>
+      )
+    }
+  }
+  if ((renderer === "checkbox" || renderer === "switch") && typeof value === "boolean") {
+    const interactive = Boolean(onToggle) && !toggleDisabled
+    const control =
+      renderer === "switch" ? (
+        <Switch
+          checked={value}
+          disabled={!interactive}
+          onCheckedChange={(checked) => onToggle?.(checked)}
+          aria-label={t("docs.toggleValue")}
+        />
+      ) : (
+        <Checkbox
+          checked={value}
+          disabled={!interactive}
+          onCheckedChange={(checked) => onToggle?.(checked === true)}
+          aria-label={t("docs.toggleValue")}
+        />
+      )
+    return (
+      <span
+        data-cell-value
+        className="inline-flex items-center"
+        title={text}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+        onDoubleClick={(event) => event.stopPropagation()}
+      >
+        {control}
+      </span>
+    )
+  }
+  const mapped = findDictionaryEntry(dictionary, value)
+  if (mapped) {
+    return (
+      <span
+        data-cell-value
+        className={cn(
+          "bg-muted/70 inline-flex max-w-full items-center truncate rounded px-1.5 py-0.5 text-xs font-medium",
+          expandable &&
+            "cursor-pointer hover:underline hover:decoration-dotted hover:underline-offset-2",
+        )}
+        title={`${mapped.label} · ${text}`}
+        onClick={handleExpand}
+      >
+        {mapped.label}
+      </span>
+    )
+  }
   if (value === null || value === undefined) {
     return <span className="text-muted-foreground font-mono text-xs italic">null</span>
   }
-  const expandable = Boolean(onExpand) && isPreviewableValue(value)
   const display =
     text.length > CELL_PREVIEW_LENGTH ? `${text.slice(0, CELL_PREVIEW_LENGTH)}…` : text
   return (
@@ -48,18 +144,7 @@ export function CellValue({ value, onExpand }: CellValueProps) {
           "cursor-pointer hover:underline hover:decoration-dotted hover:underline-offset-2",
       )}
       title={expandable ? t("docs.viewFullValueHint") : text}
-      onClick={
-        onExpand
-          ? (event) => {
-              // A shorter value can still be clipped by a narrow column.
-              if (!isPreviewableValue(value) && !cellValueOverflows(event.currentTarget)) {
-                return
-              }
-              event.stopPropagation()
-              onExpand()
-            }
-          : undefined
-      }
+      onClick={handleExpand}
     >
       {display}
     </span>

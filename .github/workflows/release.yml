@@ -17,23 +17,23 @@ permissions:
 jobs:
   goreleaser:
     name: GoReleaser
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0 # full history for the changelog
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.27.x"
           cache-dependency-path: backend/go.sum
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: "12.15.0"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "26.12.1"
           cache: pnpm
@@ -41,7 +41,7 @@ jobs:
 
       - name: Run GoReleaser (release)
         if: ${{ github.event_name == 'push' || inputs.snapshot == false }}
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: "~> v2"
@@ -52,7 +52,7 @@ jobs:
 
       - name: Run GoReleaser (snapshot)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.snapshot == true }}
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: "~> v2"
@@ -63,7 +63,7 @@ jobs:
 
       - name: Upload release artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: goreleaser-dist
           path: dist

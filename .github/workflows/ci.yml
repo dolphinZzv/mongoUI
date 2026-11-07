@@ -17,7 +17,7 @@ concurrency:
 jobs:
   backend:
     name: Backend (vet + test)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       mongo:
         # MongoDB 8.0 crashes on the kernel currently used by GitHub runners
@@ -40,9 +40,9 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.27.x"
           cache-dependency-path: backend/go.sum
@@ -79,7 +79,7 @@ jobs:
         run: go test ./... -race -covermode=atomic -coverprofile=coverage.out
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-coverage
           path: backend/coverage.out
@@ -87,20 +87,20 @@ jobs:
 
   frontend:
     name: Frontend (typecheck + build)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # tags are needed to check the package version
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: "12.15.0"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "26.12.1"
           cache: pnpm
@@ -127,7 +127,7 @@ jobs:
         run: pnpm run build
 
       - name: Upload dist artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-dist
           path: frontend/dist
@@ -135,21 +135,21 @@ jobs:
 
   embedded-binary:
     name: Build self-contained binary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [backend, frontend]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.27.x"
           cache-dependency-path: backend/go.sum
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: "12.15.0"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "26.12.1"
           cache: pnpm
@@ -217,7 +217,7 @@ jobs:
           fi
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mongoui-linux-amd64
           path: bin/mongoui
@@ -225,9 +225,9 @@ jobs:
 
   docker:
     name: Docker image (build + smoke)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build image
         run: docker build --build-arg APP_VERSION=ci -t mongoui:ci .

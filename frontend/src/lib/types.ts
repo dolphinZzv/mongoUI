@@ -313,6 +313,51 @@ export interface AliasUpdate {
   alias: string
 }
 
+export type AIProvider = "openai" | "gemini" | "adk"
+
+export type OpenAIAPIMode = "chat" | "responses"
+
+export interface AISettings {
+  provider: AIProvider | ""
+  baseURL: string
+  model: string
+  apiMode: OpenAIAPIMode | ""
+  adkEndpoint: string
+  adkAppName: string
+  adkUserID: string
+  hasAPIKey: boolean
+  hasADKToken: boolean
+}
+
+export interface AISettingsInput {
+  provider: AIProvider | ""
+  baseURL: string
+  model: string
+  apiMode: OpenAIAPIMode | ""
+  apiKey?: string
+  clearAPIKey?: boolean
+  adkEndpoint: string
+  adkAppName: string
+  adkUserID: string
+  adkToken?: string
+  clearADKToken?: boolean
+}
+
+export interface AIFilterInput {
+  description: string
+  connectionId: string
+  database: string
+  collection: string
+  fields: string[]
+  fieldTypes: Record<string, string>
+}
+
+export interface AIFilterResult {
+  filter: Record<string, unknown>
+  provider: string
+  model: string
+}
+
 export interface IndexInfo {
   v?: number
   key: Record<string, unknown>

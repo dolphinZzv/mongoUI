@@ -1919,6 +1919,9 @@ export function DocumentsTab({
         <MongoQueryBuilder
           open={builderOpen}
           onOpenChange={setBuilderOpen}
+          connectionId={connectionId}
+          database={database}
+          collection={collection}
           fields={allColumns}
           fieldTypes={fieldTypes}
           value={filter}

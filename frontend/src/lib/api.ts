@@ -1,5 +1,9 @@
 import type {
   AggregateResult,
+  AIFilterInput,
+  AIFilterResult,
+  AISettings,
+  AISettingsInput,
   AliasState,
   AliasUpdate,
   AuditEntry,
@@ -401,6 +405,13 @@ export const api = {
   getAliases: () => request<AliasState>("/aliases"),
   updateAlias: (input: AliasUpdate) =>
     request<AliasState>("/aliases", { method: "PATCH", body: JSON.stringify(input) }),
+
+  // AI / BYOK ------------------------------------------------------------------
+  getAISettings: () => request<AISettings>("/ai"),
+  updateAISettings: (input: AISettingsInput) =>
+    request<AISettings>("/ai", { method: "PUT", body: JSON.stringify(input) }),
+  generateAIFilter: (input: AIFilterInput) =>
+    request<AIFilterResult>("/ai/filter", { method: "POST", body: JSON.stringify(input) }),
 
   // indexes ---------------------------------------------------------------------
   listIndexes: (id: string, db: string, col: string) =>

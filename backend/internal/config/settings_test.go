@@ -1,7 +1,9 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -118,5 +120,46 @@ func TestAliasSettingsPersist(t *testing.T) {
 	}
 	if _, found := again.GetAliases().Databases["c1::orders"]; found {
 		t.Fatalf("database alias should be removed")
+	}
+}
+
+func TestAISettingsEncryptedPersist(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	key := make([]byte, 32)
+	cipher, err := NewCipher(key)
+	if err != nil {
+		t.Fatalf("cipher: %v", err)
+	}
+	s, err := LoadSettings(path, DefaultMCPSettings())
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	s.SetCipher(cipher)
+	if err := s.SetAI(AISettings{
+		Provider: "openai",
+		BaseURL:  "https://api.openai.com/v1",
+		Model:    "gpt-4o-mini",
+		APIKey:   "secret-key",
+	}); err != nil {
+		t.Fatalf("set AI: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+	if strings.Contains(string(raw), "secret-key") {
+		t.Fatalf("API key was written in plaintext: %s", raw)
+	}
+	reloaded, err := LoadSettings(path, DefaultMCPSettings())
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	reloaded.SetCipher(cipher)
+	cfg, err := reloaded.GetAI()
+	if err != nil {
+		t.Fatalf("GetAI: %v", err)
+	}
+	if cfg.APIKey != "secret-key" {
+		t.Fatalf("API key did not round-trip: %#v", cfg)
 	}
 }

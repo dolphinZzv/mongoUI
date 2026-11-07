@@ -49,6 +49,20 @@ func (u UpdateSettings) UpdateInterval() time.Duration {
 	return time.Duration(minutes) * time.Minute
 }
 
+// AISettings configures the BYOK model used by natural-language filter
+// generation. APIKey and ADKToken are encrypted at rest by Settings.
+type AISettings struct {
+	Provider    string `json:"provider"` // openai | gemini | adk
+	BaseURL     string `json:"baseURL"`
+	Model       string `json:"model"`
+	APIMode     string `json:"apiMode"` // chat | responses (OpenAI only)
+	APIKey      string `json:"apiKey"`
+	ADKEndpoint string `json:"adkEndpoint"`
+	ADKAppName  string `json:"adkAppName"`
+	ADKUserID   string `json:"adkUserID"`
+	ADKToken    string `json:"adkToken"`
+}
+
 // AliasSettings holds shared display aliases for databases and collections.
 // Keys use the form connectionId::database and connectionId::database::collection.
 type AliasSettings struct {
@@ -67,9 +81,11 @@ func emptyAliases() AliasSettings {
 type Settings struct {
 	mu      sync.RWMutex
 	path    string
+	cipher  *Cipher
 	MCP     MCPSettings    `json:"mcp"`
 	Update  UpdateSettings `json:"update"`
 	Aliases AliasSettings  `json:"aliases"`
+	AI      AISettings     `json:"ai"`
 }
 
 // NewSettings returns an in-memory settings holder. Updates are not persisted
@@ -123,6 +139,55 @@ func (s *Settings) SetMCP(mcp MCPSettings) error {
 	s.MCP = mcp
 	s.mu.Unlock()
 
+	if s.path == "" {
+		return nil
+	}
+	return s.persist()
+}
+
+// SetCipher attaches the master-key cipher used to encrypt AI credentials.
+func (s *Settings) SetCipher(cipher *Cipher) {
+	s.mu.Lock()
+	s.cipher = cipher
+	s.mu.Unlock()
+}
+
+// GetAI returns the AI settings with credentials decrypted.
+func (s *Settings) GetAI() (AISettings, error) {
+	s.mu.RLock()
+	ai := s.AI
+	cipher := s.cipher
+	s.mu.RUnlock()
+	if cipher == nil {
+		return ai, nil
+	}
+	var err error
+	if ai.APIKey, err = cipher.Decrypt(ai.APIKey); err != nil {
+		return AISettings{}, err
+	}
+	if ai.ADKToken, err = cipher.Decrypt(ai.ADKToken); err != nil {
+		return AISettings{}, err
+	}
+	return ai, nil
+}
+
+// SetAI replaces AI settings, encrypting credentials before they are persisted.
+func (s *Settings) SetAI(ai AISettings) error {
+	s.mu.Lock()
+	cipher := s.cipher
+	if cipher != nil {
+		var err error
+		if ai.APIKey, err = cipher.Encrypt(ai.APIKey); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+		if ai.ADKToken, err = cipher.Encrypt(ai.ADKToken); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+	}
+	s.AI = ai
+	s.mu.Unlock()
 	if s.path == "" {
 		return nil
 	}

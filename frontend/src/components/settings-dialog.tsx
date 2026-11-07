@@ -19,6 +19,7 @@ import {
   Server,
   Settings2Icon,
   ShieldCheck,
+  Sparkles,
   SunIcon,
   Tag,
   Ticket,
@@ -43,6 +44,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { useAuth } from "@/components/auth-gate"
 import { refreshTeamAliases, setAliasMode, useAliasStore } from "@/lib/aliases"
@@ -51,7 +54,14 @@ import { api } from "@/lib/api"
 import { copyToClipboard } from "@/lib/clipboard"
 import { LOCALES, useI18n } from "@/lib/i18n"
 import { useTheme, type Theme } from "@/lib/theme"
-import type { MCPSettings, UpdateSettings, UpdateState } from "@/lib/types"
+import type {
+  AIProvider,
+  AISettings,
+  OpenAIAPIMode,
+  MCPSettings,
+  UpdateSettings,
+  UpdateState,
+} from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { agentToolList, setAgentEnabled, useAgentEnabled, webMcpAvailable } from "@/lib/webmcp"
 
@@ -78,8 +88,29 @@ type SettingsSectionId =
   | "agent"
   | "mcp"
   | "updates"
+  | "ai"
   | "admin"
   | "feedback"
+
+interface AIFormState {
+  provider: AIProvider | ""
+  baseURL: string
+  model: string
+  apiMode: OpenAIAPIMode | ""
+  adkEndpoint: string
+  adkAppName: string
+  adkUserID: string
+}
+
+const EMPTY_AI_FORM: AIFormState = {
+  provider: "",
+  baseURL: "",
+  model: "",
+  apiMode: "",
+  adkEndpoint: "",
+  adkAppName: "",
+  adkUserID: "",
+}
 
 interface SettingsDialogProps {
   authEnabled: boolean
@@ -113,6 +144,13 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
   const [copied, setCopied] = React.useState(false)
   const [update, setUpdate] = React.useState<UpdateState | null>(null)
   const [updateBusy, setUpdateBusy] = React.useState<"check" | "install" | null>(null)
+  const [ai, setAI] = React.useState<AISettings | null>(null)
+  const [aiForm, setAIForm] = React.useState<AIFormState>(EMPTY_AI_FORM)
+  const [aiKey, setAIKey] = React.useState("")
+  const [aiToken, setAIToken] = React.useState("")
+  const [clearAIKey, setClearAIKey] = React.useState(false)
+  const [clearADKToken, setClearADKToken] = React.useState(false)
+  const [aiBusy, setAIBusy] = React.useState(false)
 
   const isAdmin = !authEnabled || role === "admin"
   const mcpUrl = typeof window === "undefined" ? "/mcp" : `${window.location.origin}/mcp`
@@ -133,11 +171,73 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
     }
   }, [])
 
+  const refreshAI = React.useCallback(async () => {
+    try {
+      const data = await api.getAISettings()
+      setAI(data)
+      setAIForm({
+        provider: data.provider,
+        baseURL: data.baseURL,
+        model: data.model,
+        apiMode: data.apiMode || (data.provider === "openai" ? "chat" : ""),
+        adkEndpoint: data.adkEndpoint,
+        adkAppName: data.adkAppName,
+        adkUserID: data.adkUserID,
+      })
+      setAIKey("")
+      setAIToken("")
+      setClearAIKey(false)
+      setClearADKToken(false)
+    } catch {
+      toast.error(t("ai.loadFailed"))
+    }
+  }, [t])
+
   React.useEffect(() => {
     if (!open) return
     void refreshMCP()
     void refreshUpdate()
-  }, [open, refreshMCP, refreshUpdate])
+    if (isAdmin) void refreshAI()
+  }, [open, isAdmin, refreshMCP, refreshUpdate, refreshAI])
+
+  const saveAI = async () => {
+    if (!aiForm.provider || aiBusy) return
+    setAIBusy(true)
+    try {
+      const saved = await api.updateAISettings({
+        provider: aiForm.provider,
+        baseURL: aiForm.baseURL,
+        model: aiForm.model,
+        apiMode: aiForm.apiMode,
+        apiKey: aiKey.trim() || undefined,
+        clearAPIKey: clearAIKey,
+        adkEndpoint: aiForm.adkEndpoint,
+        adkAppName: aiForm.adkAppName,
+        adkUserID: aiForm.adkUserID,
+        adkToken: aiToken.trim() || undefined,
+        clearADKToken,
+      })
+      setAI(saved)
+      setAIForm({
+        provider: saved.provider,
+        baseURL: saved.baseURL,
+        model: saved.model,
+        apiMode: saved.apiMode || (saved.provider === "openai" ? "chat" : ""),
+        adkEndpoint: saved.adkEndpoint,
+        adkAppName: saved.adkAppName,
+        adkUserID: saved.adkUserID,
+      })
+      setAIKey("")
+      setAIToken("")
+      setClearAIKey(false)
+      setClearADKToken(false)
+      toast.success(t("ai.saved"))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("ai.saveFailed"))
+    } finally {
+      setAIBusy(false)
+    }
+  }
 
   const sections = React.useMemo(() => {
     const items: { id: SettingsSectionId; label: string; icon: React.ReactNode }[] = []
@@ -153,6 +253,7 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
       items.push(
         { id: "mcp", label: t("settings.section.mcp"), icon: <Server /> },
         { id: "updates", label: t("settings.section.updates"), icon: <RefreshCw /> },
+        { id: "ai", label: t("settings.section.ai"), icon: <Sparkles /> },
       )
     }
     if (authEnabled && role === "admin") {
@@ -663,6 +764,205 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
                       </Button>
                     </div>
                   </div>
+                </Panel>
+              ) : null}
+
+              {section === "ai" && isAdmin ? (
+                <Panel title={t("settings.section.ai")} description={t("ai.desc")}>
+                  {ai === null ? (
+                    <p className="text-muted-foreground flex items-center gap-2 text-xs">
+                      <Loader2 className="size-3.5 animate-spin" /> {t("common.loading")}
+                    </p>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="grid gap-1.5">
+                        <Label>{t("ai.provider")}</Label>
+                        <Select
+                          value={aiForm.provider || undefined}
+                          onValueChange={(value) =>
+                            setAIForm((prev) => ({
+                              ...prev,
+                              provider: value as AIProvider,
+                              baseURL: "",
+                              model: "",
+                              apiMode: value === "openai" ? "chat" : "",
+                            }))
+                          }
+                        >
+                          <SelectTrigger className="w-full sm:w-72">
+                            <SelectValue placeholder={t("ai.provider")} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="openai">{t("ai.provider.openai")}</SelectItem>
+                            <SelectItem value="gemini">{t("ai.provider.gemini")}</SelectItem>
+                            <SelectItem value="adk">{t("ai.provider.adk")}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {aiForm.provider === "adk" ? (
+                        <>
+                          <div className="grid gap-1.5">
+                            <Label htmlFor="ai-adk-endpoint">{t("ai.adkEndpoint")}</Label>
+                            <Input
+                              id="ai-adk-endpoint"
+                              value={aiForm.adkEndpoint}
+                              onChange={(event) =>
+                                setAIForm((prev) => ({ ...prev, adkEndpoint: event.target.value }))
+                              }
+                              placeholder="http://127.0.0.1:8000"
+                              className="font-mono text-xs"
+                            />
+                            <p className="text-muted-foreground text-xs">{t("ai.adkEndpointHint")}</p>
+                          </div>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="grid gap-1.5">
+                              <Label htmlFor="ai-adk-app">{t("ai.adkAppName")}</Label>
+                              <Input
+                                id="ai-adk-app"
+                                value={aiForm.adkAppName}
+                                onChange={(event) =>
+                                  setAIForm((prev) => ({ ...prev, adkAppName: event.target.value }))
+                                }
+                                placeholder="mongoui"
+                              />
+                            </div>
+                            <div className="grid gap-1.5">
+                              <Label htmlFor="ai-adk-user">{t("ai.adkUserID")}</Label>
+                              <Input
+                                id="ai-adk-user"
+                                value={aiForm.adkUserID}
+                                onChange={(event) =>
+                                  setAIForm((prev) => ({ ...prev, adkUserID: event.target.value }))
+                                }
+                                placeholder="mongoui"
+                              />
+                            </div>
+                          </div>
+                          <div className="grid gap-1.5">
+                            <div className="flex items-center gap-2">
+                              <Label htmlFor="ai-adk-token">{t("ai.adkToken")}</Label>
+                              {ai.hasADKToken ? (
+                                <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                                  {t("ai.keyStored")}
+                                </Badge>
+                              ) : null}
+                            </div>
+                            <Input
+                              id="ai-adk-token"
+                              type="password"
+                              value={aiToken}
+                              onChange={(event) => setAIToken(event.target.value)}
+                              placeholder={ai.hasADKToken ? "••••••••" : t("ai.adkToken")}
+                              autoComplete="off"
+                            />
+                            <p className="text-muted-foreground text-xs">{t("ai.adkTokenHint")}</p>
+                            {ai.hasADKToken ? (
+                              <label className="flex items-center gap-2 text-xs">
+                                <Switch checked={clearADKToken} onCheckedChange={setClearADKToken} />
+                                {t("ai.clearToken")}
+                              </label>
+                            ) : null}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="grid gap-1.5">
+                            <Label htmlFor="ai-base-url">{t("ai.baseURL")}</Label>
+                            <Input
+                              id="ai-base-url"
+                              value={aiForm.baseURL}
+                              onChange={(event) =>
+                                setAIForm((prev) => ({ ...prev, baseURL: event.target.value }))
+                              }
+                              placeholder={
+                                aiForm.provider === "gemini"
+                                  ? "https://generativelanguage.googleapis.com/v1beta"
+                                  : "https://api.openai.com/v1"
+                              }
+                              className="font-mono text-xs"
+                            />
+                            <p className="text-muted-foreground text-xs">{t("ai.baseURLHint")}</p>
+                          </div>
+                          <div className="grid gap-1.5">
+                            <Label htmlFor="ai-model">{t("ai.model")}</Label>
+                            <Input
+                              id="ai-model"
+                              value={aiForm.model}
+                              onChange={(event) =>
+                                setAIForm((prev) => ({ ...prev, model: event.target.value }))
+                              }
+                              placeholder={aiForm.provider === "gemini" ? "gemini-2.5-flash" : "gpt-4o-mini"}
+                              className="font-mono text-xs"
+                            />
+                            <p className="text-muted-foreground text-xs">{t("ai.modelHint")}</p>
+                          </div>
+                          {aiForm.provider === "openai" ? (
+                            <div className="grid gap-1.5">
+                              <Label>{t("ai.apiMode")}</Label>
+                              <Select
+                                value={aiForm.apiMode || "chat"}
+                                onValueChange={(value) =>
+                                  setAIForm((prev) => ({
+                                    ...prev,
+                                    apiMode: value as OpenAIAPIMode,
+                                  }))
+                                }
+                              >
+                                <SelectTrigger className="w-full sm:w-72">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="chat">{t("ai.apiMode.chat")}</SelectItem>
+                                  <SelectItem value="responses">
+                                    {t("ai.apiMode.responses")}
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <p className="text-muted-foreground text-xs">{t("ai.apiModeHint")}</p>
+                            </div>
+                          ) : null}
+
+                          <div className="grid gap-1.5">
+                            <div className="flex items-center gap-2">
+                              <Label htmlFor="ai-api-key">{t("ai.apiKey")}</Label>
+                              {ai.hasAPIKey ? (
+                                <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                                  {t("ai.keyStored")}
+                                </Badge>
+                              ) : null}
+                            </div>
+                            <Input
+                              id="ai-api-key"
+                              type="password"
+                              value={aiKey}
+                              onChange={(event) => setAIKey(event.target.value)}
+                              placeholder={ai.hasAPIKey ? "••••••••" : "sk-..."}
+                              autoComplete="off"
+                            />
+                            <p className="text-muted-foreground text-xs">{t("ai.apiKeyHint")}</p>
+                            {ai.hasAPIKey ? (
+                              <label className="flex items-center gap-2 text-xs">
+                                <Switch checked={clearAIKey} onCheckedChange={setClearAIKey} />
+                                {t("ai.clearKey")}
+                              </label>
+                            ) : null}
+                          </div>
+                        </>
+                      )}
+
+                      <p className="text-muted-foreground rounded-lg border p-3 text-xs leading-relaxed">
+                        {t("ai.note")}
+                      </p>
+                      <Button
+                        onClick={() => void saveAI()}
+                        disabled={aiBusy || !aiForm.provider}
+                      >
+                        {aiBusy ? <Loader2 className="animate-spin" /> : null}
+                        {t("ai.save")}
+                      </Button>
+                    </div>
+                  )}
                 </Panel>
               ) : null}
 

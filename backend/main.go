@@ -132,6 +132,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to load settings: %v", err)
 	}
+	settings.SetCipher(cipher)
 	// Legacy -mcp-readonly flag: keep it working by forcing the read group on
 	// and the write group off. The UI remains the primary way to configure MCP.
 	if *mcpReadOnly {
@@ -275,6 +276,7 @@ func runMCP(args []string) int {
 		fmt.Fprintf(os.Stderr, "failed to load settings: %v\n", err)
 		return 1
 	}
+	settings.SetCipher(cipher)
 	if *readOnly {
 		cfg := settings.GetMCP()
 		cfg.Enabled = true

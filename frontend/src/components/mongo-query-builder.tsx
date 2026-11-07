@@ -1,4 +1,5 @@
 import * as React from "react"
+import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -13,7 +14,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { useI18n } from "@/lib/i18n"
-import { parseNaturalQuery } from "@/lib/nlQuery"
+import { api } from "@/lib/api"
 import { GroupEditor } from "./query-builder/group-editor"
 import { ProjectionEditor } from "./query-builder/projection-editor"
 import {
@@ -29,6 +30,9 @@ import {
 export interface MongoQueryBuilderProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  connectionId: string
+  database: string
+  collection: string
   /** Field names offered for autocomplete, e.g. the visible columns. */
   fields?: string[]
   /** Current filter JSON used to seed the builder when it opens. */
@@ -44,6 +48,9 @@ export interface MongoQueryBuilderProps {
 export function MongoQueryBuilder({
   open,
   onOpenChange,
+  connectionId,
+  database,
+  collection,
   fields = [],
   value,
   projection = "",
@@ -53,6 +60,7 @@ export function MongoQueryBuilder({
   const { t } = useI18n()
   const [root, setRoot] = React.useState<GroupNode>(() => parseFilter(value))
   const [describe, setDescribe] = React.useState("")
+  const [generating, setGenerating] = React.useState(false)
   const [projectionState, setProjectionState] = React.useState<ProjectionState>(() =>
     parseProjection(projection),
   )
@@ -107,13 +115,26 @@ export function MongoQueryBuilder({
     onOpenChange(false)
   }
 
-  const generate = () => {
-    const { filter: parsed, matched } = parseNaturalQuery(describe)
-    if (matched === 0) {
-      toast.error(t("filter.describeEmpty"))
-      return
+  const generate = async () => {
+    const description = describe.trim()
+    if (!description || generating) return
+    setGenerating(true)
+    try {
+      const result = await api.generateAIFilter({
+        description,
+        connectionId,
+        database,
+        collection,
+        fields,
+        fieldTypes,
+      })
+      setRoot(parseFilter(JSON.stringify(result.filter)))
+      toast.success(t("filter.aiGenerated", { provider: result.provider }))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("filter.aiFailed"))
+    } finally {
+      setGenerating(false)
     }
-    setRoot(parseFilter(JSON.stringify(parsed)))
   }
 
   return (
@@ -133,16 +154,18 @@ export function MongoQueryBuilder({
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault()
-                  generate()
+                  void generate()
                 }
               }}
               placeholder={t("filter.describePlaceholder")}
               className="h-8 flex-1 text-xs"
             />
-            <Button variant="outline" size="sm" onClick={generate}>
-              {t("filter.generate")}
+            <Button variant="outline" size="sm" onClick={() => void generate()} disabled={generating}>
+              {generating ? <Loader2 className="animate-spin" /> : null}
+              {generating ? t("filter.generating") : t("filter.generate")}
             </Button>
           </div>
+          <p className="text-muted-foreground text-[11px]">{t("filter.aiHint")}</p>
           <section className="space-y-2">
             <h4 className="text-xs font-medium">{t("filter.conditions")}</h4>
             <GroupEditor

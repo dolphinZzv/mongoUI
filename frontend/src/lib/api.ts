@@ -419,15 +419,17 @@ export const api = {
 
   // shared chart views ------------------------------------------------------------
   getChartViews: (scope: string) =>
-    request<SavedChartView[]>(`/chart-views?scope=${encodeURIComponent(scope)}`),
+    request<{ version: number; views: SavedChartView[] }>(
+      `/chart-views?scope=${encodeURIComponent(scope)}`,
+    ),
   getConnectionChartViews: (connectionId: string) =>
     request<{ scopes: Record<string, SavedChartView[]> }>(
       `/chart-views?connectionId=${encodeURIComponent(connectionId)}`,
     ),
-  saveChartViews: (scope: string, views: SavedChartView[]) =>
-    request<SavedChartView[]>("/chart-views", {
+  saveChartViews: (scope: string, views: SavedChartView[], version: number) =>
+    request<{ version: number; views: SavedChartView[] }>("/chart-views", {
       method: "PUT",
-      body: JSON.stringify({ scope, views }),
+      body: JSON.stringify({ scope, version, views }),
     }),
 
   // indexes ---------------------------------------------------------------------

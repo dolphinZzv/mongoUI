@@ -9,7 +9,7 @@ import { LazyMount, TabFallback } from "@/components/lazy-mount"
 import { collectionLabel, databaseLabel, useAliases } from "@/lib/aliases"
 import { copyToClipboard } from "@/lib/clipboard"
 import { useI18n } from "@/lib/i18n"
-import type { DocsQueryState } from "@/lib/router"
+import { DOCS_QUERY_DEFAULTS, type DocsQueryState } from "@/lib/router"
 
 // The collection tabs other than Documents are loaded on first open, so the
 // initial bundle only carries the documents view.
@@ -55,6 +55,12 @@ export function CollectionView({
   onTabChange,
 }: CollectionViewProps) {
   const [copied, setCopied] = React.useState(false)
+  const handleChartChange = React.useCallback(
+    (chart: NonNullable<DocsQueryState["chart"]>) => {
+      onDocsChange?.({ ...DOCS_QUERY_DEFAULTS, chart })
+    },
+    [onDocsChange],
+  )
   const [copyOpen, setCopyOpen] = React.useState(false)
   const { t } = useI18n()
   const aliases = useAliases()
@@ -154,6 +160,8 @@ export function CollectionView({
               database={database}
               collection={collection}
               initialFilter={docs?.filter}
+              initialChart={docs?.chart}
+              onChartChange={handleChartChange}
             />
           </React.Suspense>
         </TabsContent>

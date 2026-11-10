@@ -20,8 +20,9 @@ const (
 )
 
 type chartViewsInput struct {
-	Scope string             `json:"scope"`
-	Views []config.ChartView `json:"views"`
+	Scope   string             `json:"scope"`
+	Version *int64             `json:"version"`
+	Views   []config.ChartView `json:"views"`
 }
 
 // getChartViews lists shared chart views. With ?connectionId= it returns every
@@ -36,7 +37,10 @@ func (a *API) getChartViews(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, errors.New("scope or connectionId is required"))
 		return
 	}
-	ok(w, a.settings.GetChartViews(scope))
+	ok(w, map[string]any{
+		"version": a.settings.ChartViewsRevision(scope),
+		"views":   a.settings.GetChartViews(scope),
+	})
 }
 
 // updateChartViews replaces the shared views for one scope. Read-only accounts
@@ -94,9 +98,14 @@ func (a *API) updateChartViews(w http.ResponseWriter, r *http.Request) {
 		views = append(views, view)
 	}
 
-	if err := a.settings.SetChartViews(scope, views); err != nil {
+	version, err := a.settings.SetChartViews(scope, views, in.Version)
+	if errors.Is(err, config.ErrChartViewsConflict) {
+		fail(w, http.StatusConflict, err)
+		return
+	}
+	if err != nil {
 		serverError(w, err)
 		return
 	}
-	ok(w, views)
+	ok(w, map[string]any{"version": version, "views": views})
 }

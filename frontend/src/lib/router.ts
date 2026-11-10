@@ -168,6 +168,9 @@ export function buildPath(selection: Selection, tab?: string, docs?: DocsQuerySt
           params.set("chart", encodeChartParam(docs.chart))
         }
       }
+      if (activeTab === "chart" && docs?.chart) {
+        params.set("chart", encodeChartParam(docs.chart))
+      }
       const query = params.toString()
       return query ? `${base}?${query}` : base
     }
@@ -199,7 +202,12 @@ export function parseLocation(pathname: string, search: string): RouteState {
           collection: parts[5],
         },
         tab: activeTab,
-        docs: !activeTab || activeTab === "documents" ? parseDocs(search) : undefined,
+        docs:
+          activeTab === "chart"
+            ? { ...DOCS_QUERY_DEFAULTS, chart: decodeChartParam(params.get("chart")) }
+            : !activeTab || activeTab === "documents"
+              ? parseDocs(search)
+              : undefined,
       }
     }
     return { selection: { kind: "connection", connectionId: parts[1] } }

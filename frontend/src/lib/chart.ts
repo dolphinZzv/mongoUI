@@ -564,11 +564,13 @@ export function buildChartData(
         values: labels.map((_, index) => measure(byCategory.get(index) ?? [])),
       }))
   } else {
-    const groups: MongoDocument[][] = labels.map(() => [])
+    const groups = new Map<number, MongoDocument[]>()
 
     for (const doc of documents) {
       const index = addCategory(categoryFor(doc))
-      groups[index].push(doc)
+      const bucketDocs = groups.get(index)
+      if (bucketDocs) bucketDocs.push(doc)
+      else groups.set(index, [doc])
     }
 
     if (aggregate === "none") {
@@ -594,14 +596,14 @@ export function buildChartData(
       series = [
         {
           name: "count",
-          values: groups.map((docs) => docs.length),
+          values: labels.map((_, index) => groups.get(index)?.length ?? 0),
         },
       ]
     } else {
       series = y.map((field) => ({
         name: field,
-        values: groups.map((docs) => {
-          const numbers = docs
+        values: labels.map((_, index) => {
+          const numbers = (groups.get(index) ?? [])
             .map((doc) => toNumeric(doc[field]))
             .filter((value): value is number => value !== null)
           return numbers.length === 0 ? 0 : aggregateValues(numbers, aggregate)
@@ -754,6 +756,71 @@ export function chartDataFromRows(
   )
 }
 
+/**
+ * Largest-Triangle-Three-Buckets downsampling for dense line/area charts. The
+ * category order and both endpoints are preserved so trends keep their shape.
+ */
+export function downsampleChartData(data: ChartData, maxPoints: number): ChartData {
+  const n = data.categories.length
+  if (n <= maxPoints || maxPoints < 3 || data.series.length === 0) return data
+
+  const totals = data.categories.map((_, index) =>
+    data.series.reduce((sum, series) => sum + Math.abs(series.values[index] ?? 0), 0),
+  )
+  const sampled: number[] = [0]
+  const bucketSize = (n - 2) / (maxPoints - 2)
+  let anchor = 0
+
+  for (let i = 0; i < maxPoints - 2; i++) {
+    const start = Math.floor(i * bucketSize) + 1
+    const end = Math.min(n, Math.floor((i + 1) * bucketSize) + 1)
+    const nextStart = Math.floor((i + 1) * bucketSize) + 1
+    const nextEnd = Math.min(n, Math.floor((i + 2) * bucketSize) + 1)
+
+    let avgX = 0
+    let avgY = 0
+    let count = 0
+    for (let j = nextStart; j < nextEnd; j++) {
+      avgX += j
+      avgY += totals[j]
+      count++
+    }
+    if (count === 0) {
+      avgX = n - 1
+      avgY = totals[n - 1]
+      count = 1
+    }
+    avgX /= count
+    avgY /= count
+
+    let bestArea = -1
+    let best = start
+    for (let j = start; j < end; j++) {
+      const area = Math.abs(
+        (anchor - avgX) * (totals[j] - totals[anchor]) -
+          (anchor - j) * (avgY - totals[anchor]),
+      )
+      if (area > bestArea) {
+        bestArea = area
+        best = j
+      }
+    }
+    sampled.push(best)
+    anchor = best
+  }
+  sampled.push(n - 1)
+
+  return {
+    categories: sampled.map((index) => data.categories[index]),
+    series: data.series.map((series) => ({
+      name: series.name,
+      values: sampled.map((index) => series.values[index] ?? 0),
+    })),
+    rawCategories: sampled.map((index) => data.rawCategories[index]),
+    ranges: data.ranges ? sampled.map((index) => data.ranges![index]) : undefined,
+  }
+}
+
 /** Scatter points from raw documents (x and the first y field must be numeric). */
 export function buildScatterData(
   documents: MongoDocument[],
@@ -772,7 +839,7 @@ export function buildScatterData(
       label: formatCategory(doc._id ?? `${x}, ${y}`),
       group: config.group ? formatCategory(doc[config.group]) : "",
     })
-    if (points.length >= 2000) break
+    if (points.length >= 1200) break
   }
   return { points, xField, yField }
 }

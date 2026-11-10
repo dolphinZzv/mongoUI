@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { ChartView } from "@/components/chart-view"
 import { databaseLabel, useAliases } from "@/lib/aliases"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
@@ -139,30 +140,54 @@ export function ConnectionOverview({ connection, onOpenChart }: ConnectionOvervi
               <h2 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
                 {t("overview.pinnedCharts")}
               </h2>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-3 lg:grid-cols-2">
                 {pinnedCharts.map(({ scope, view }) => {
                   const [connectionId, database, collection] = scope.split("::")
                   if (!database || !collection) return null
+                  let filter: unknown = {}
+                  try {
+                    filter = JSON.parse(view.filter || "{}")
+                  } catch {
+                    filter = {}
+                  }
                   return (
-                    <button
-                      key={`${scope}-${view.id}`}
-                      type="button"
-                      onClick={() =>
-                        onOpenChart?.(
-                          { kind: "collection", connectionId, database, collection },
-                          view,
-                        )
-                      }
-                      className="hover:bg-accent/50 flex items-center gap-3 rounded-lg border p-3 text-left transition-colors"
-                    >
-                      <BarChart3 className="text-muted-foreground size-4 shrink-0" />
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium">{view.name}</span>
-                        <span className="text-muted-foreground block truncate text-xs">
+                    <div key={`${scope}-${view.id}`} className="rounded-lg border p-2">
+                      <div className="mb-1 flex items-center gap-2 px-1">
+                        <BarChart3 className="text-muted-foreground size-4 shrink-0" />
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                          {view.name}
+                        </span>
+                        <span className="text-muted-foreground hidden truncate text-xs sm:block">
                           {database}.{collection}
                         </span>
-                      </span>
-                    </button>
+                        {onOpenChart ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-[11px]"
+                            onClick={() =>
+                              onOpenChart(
+                                { kind: "collection", connectionId, database, collection },
+                                view,
+                              )
+                            }
+                          >
+                            {t("chart.openShort")}
+                          </Button>
+                        ) : null}
+                      </div>
+                      <ChartView
+                        compact
+                        documents={[]}
+                        columns={[]}
+                        connectionId={connectionId}
+                        database={database}
+                        collection={collection}
+                        filter={filter}
+                        initialConfig={view.config}
+                        height={180}
+                      />
+                    </div>
                   )
                 })}
               </div>

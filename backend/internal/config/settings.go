@@ -120,17 +120,25 @@ type Settings struct {
 	LegacyAI *AISettings `json:"ai,omitempty"`
 	// ChartViews holds shared chart views keyed by connection::database::collection.
 	ChartViews map[string][]ChartView `json:"chartViews,omitempty"`
+	// ChartViewsVersion increments on every write so clients can detect a
+	// concurrent edit instead of silently overwriting each other.
+	ChartViewsVersion map[string]int64 `json:"chartViewsVersion,omitempty"`
 }
+
+// ErrChartViewsConflict is returned when a chart-view write is based on a stale
+// version.
+var ErrChartViewsConflict = errors.New("chart views were changed by someone else")
 
 // NewSettings returns an in-memory settings holder. Updates are not persisted
 // when no path has been configured.
 func NewSettings(mcp MCPSettings) *Settings {
 	return &Settings{
-		MCP:        mcp,
-		Update:     DefaultUpdateSettings(),
-		Aliases:    emptyAliases(),
-		AIByUser:   map[string]AISettings{},
-		ChartViews: map[string][]ChartView{},
+		MCP:               mcp,
+		Update:            DefaultUpdateSettings(),
+		Aliases:           emptyAliases(),
+		AIByUser:          map[string]AISettings{},
+		ChartViews:        map[string][]ChartView{},
+		ChartViewsVersion: map[string]int64{},
 	}
 }
 
@@ -164,6 +172,9 @@ func LoadSettings(path string, def MCPSettings) (*Settings, error) {
 	}
 	if s.ChartViews == nil {
 		s.ChartViews = map[string][]ChartView{}
+	}
+	if s.ChartViewsVersion == nil {
+		s.ChartViewsVersion = map[string]int64{}
 	}
 	// Older builds stored a single server-wide AI profile. Move it to the
 	// local (auth-disabled) slot; authenticated installs start per user, so a
@@ -246,6 +257,9 @@ func (s *Settings) SetAI(userID string, ai AISettings) error {
 	if s.ChartViews == nil {
 		s.ChartViews = map[string][]ChartView{}
 	}
+	if s.ChartViewsVersion == nil {
+		s.ChartViewsVersion = map[string]int64{}
+	}
 	if strings.TrimSpace(ai.Provider) == "" {
 		delete(s.AIByUser, key)
 	} else {
@@ -285,22 +299,44 @@ func (s *Settings) ChartViewsForConnection(connectionID string) map[string][]Cha
 	return out
 }
 
-// SetChartViews replaces the shared views for one scope and persists them.
-func (s *Settings) SetChartViews(scope string, views []ChartView) error {
+// ChartViewsRevision returns the current write version for a scope.
+func (s *Settings) ChartViewsRevision(scope string) int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ChartViewsVersion[scope]
+}
+
+// SetChartViews replaces the shared views for one scope. When expected is not
+// nil the write fails with ErrChartViewsConflict if another client has written
+// since that version.
+func (s *Settings) SetChartViews(scope string, views []ChartView, expected *int64) (int64, error) {
 	s.mu.Lock()
 	if s.ChartViews == nil {
 		s.ChartViews = map[string][]ChartView{}
+	}
+	if s.ChartViewsVersion == nil {
+		s.ChartViewsVersion = map[string]int64{}
+	}
+	current := s.ChartViewsVersion[scope]
+	if expected != nil && *expected != current {
+		s.mu.Unlock()
+		return current, ErrChartViewsConflict
 	}
 	if len(views) == 0 {
 		delete(s.ChartViews, scope)
 	} else {
 		s.ChartViews[scope] = append([]ChartView(nil), views...)
 	}
+	next := current + 1
+	s.ChartViewsVersion[scope] = next
 	s.mu.Unlock()
 	if s.path == "" {
-		return nil
+		return next, nil
 	}
-	return s.persist()
+	if err := s.persist(); err != nil {
+		return next, err
+	}
+	return next, nil
 }
 
 // GetAliases returns a copy of the shared database and collection aliases.

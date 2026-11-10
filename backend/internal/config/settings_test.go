@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -238,14 +239,18 @@ func TestChartViewsPersist(t *testing.T) {
 		t.Fatalf("load: %v", err)
 	}
 	scope := "conn::db::users"
-	if err := s.SetChartViews(scope, []ChartView{{
+	version, err := s.SetChartViews(scope, []ChartView{{
 		ID:     "v1",
 		Name:   "Daily users",
 		Config: json.RawMessage(`{"type":"line"}`),
 		Filter: "{}",
 		Pinned: true,
-	}}); err != nil {
+	}}, nil)
+	if err != nil {
 		t.Fatalf("set views: %v", err)
+	}
+	if version != 1 {
+		t.Fatalf("version = %d, want 1", version)
 	}
 
 	reloaded, err := LoadSettings(path, DefaultMCPSettings())
@@ -264,10 +269,14 @@ func TestChartViewsPersist(t *testing.T) {
 		t.Fatalf("connection lookup missing scope: %#v", byConnection)
 	}
 
-	if err := reloaded.SetChartViews(scope, nil); err != nil {
+	if _, err := reloaded.SetChartViews(scope, nil, nil); err != nil {
 		t.Fatalf("clear views: %v", err)
 	}
 	if views := reloaded.GetChartViews(scope); len(views) != 0 {
 		t.Fatalf("views should be removed: %#v", views)
+	}
+	stale := int64(0)
+	if _, err := reloaded.SetChartViews(scope, nil, &stale); !errors.Is(err, ErrChartViewsConflict) {
+		t.Fatalf("stale write error = %v, want conflict", err)
 	}
 }

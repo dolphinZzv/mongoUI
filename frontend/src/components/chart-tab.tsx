@@ -4,6 +4,8 @@ import { AlertCircle } from "lucide-react"
 import { ChartView } from "@/components/chart-view"
 import { MongoFilterEditor } from "@/components/mongo-filter-editor"
 import { useI18n } from "@/lib/i18n"
+import type { ChartConfig } from "@/lib/chart"
+import type { ChartShareState } from "@/lib/router"
 
 interface ChartTabProps {
   connectionId: string
@@ -11,6 +13,10 @@ interface ChartTabProps {
   collection: string
   /** The documents filter is offered as a starting point. */
   initialFilter?: string
+  /** Chart state restored from the URL. */
+  initialChart?: ChartShareState
+  /** Mirror the current chart state into the URL. */
+  onChartChange?: (chart: ChartShareState) => void
 }
 
 /**
@@ -22,15 +28,39 @@ export function ChartTab({
   database,
   collection,
   initialFilter,
+  initialChart,
+  onChartChange,
 }: ChartTabProps) {
   const { t } = useI18n()
-  const [filterText, setFilterText] = React.useState(initialFilter ?? "{}")
-  const [debounced, setDebounced] = React.useState(initialFilter ?? "{}")
+  const [filterText, setFilterText] = React.useState(
+    initialChart?.filter ?? initialFilter ?? "{}",
+  )
+  const [debounced, setDebounced] = React.useState(
+    initialChart?.filter ?? initialFilter ?? "{}",
+  )
+  const [chartConfig, setChartConfig] = React.useState<ChartConfig | undefined>(
+    initialChart?.config,
+  )
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => setDebounced(filterText), 500)
     return () => window.clearTimeout(timer)
   }, [filterText])
+
+  React.useEffect(() => {
+    if (!initialChart) return
+    setChartConfig(initialChart.config)
+    setFilterText(initialChart.filter)
+    setDebounced(initialChart.filter)
+  }, [initialChart])
+
+  React.useEffect(() => {
+    if (!chartConfig) return
+    const timer = window.setTimeout(() => {
+      onChartChange?.({ config: chartConfig, filter: filterText })
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [chartConfig, filterText, onChartChange])
 
   const parsed = React.useMemo(() => {
     try {
@@ -64,6 +94,8 @@ export function ChartTab({
         collection={collection}
         filter={parsed ?? {}}
         filterValid={parsed !== null}
+        initialConfig={chartConfig}
+        onConfigChange={setChartConfig}
         scope={scope}
         storageKey={`docs:${connectionId}:${database}:${collection}`}
         currentFilter={filterText}

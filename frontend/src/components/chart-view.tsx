@@ -49,7 +49,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { api, isAbortError } from "@/lib/api"
+import { ApiError, api, isAbortError } from "@/lib/api"
 import { copyToClipboard } from "@/lib/clipboard"
 import { useI18n } from "@/lib/i18n"
 import {
@@ -60,6 +60,7 @@ import {
   CHART_COLORS,
   formatAxisValue,
   formatChartValue,
+  downsampleChartData,
   normalizeChartConfig,
   resolveTimeBucket,
   isTemporalColumn,
@@ -99,6 +100,8 @@ interface ChartViewProps {
   onConfigChange?: (config: ChartConfig) => void
   /** Copy a URL that restores this chart. */
   onShare?: (config: ChartConfig) => void
+  /** Render only the plot (used by dashboard cards). */
+  compact?: boolean
   /** Server scope (connection::database::collection) for shared chart views. */
   scope?: string
   /** Current filter text, saved with a view and restored when it is applied. */
@@ -233,6 +236,7 @@ export function ChartView({
   initialConfig,
   onConfigChange,
   onShare,
+  compact = false,
   scope,
   currentFilter,
   onApplyFilterText,
@@ -265,6 +269,7 @@ export function ChartView({
   const [zoom, setZoom] = React.useState<{ start: number; end: number } | null>(null)
   const [brushMode, setBrushMode] = React.useState(false)
   const [brush, setBrush] = React.useState<{ start: number; end: number } | null>(null)
+  const [focusIndex, setFocusIndex] = React.useState<number | null>(null)
   const pointersRef = React.useRef(new Map<number, { x: number; y: number }>())
   const pinchRef = React.useRef<{
     distance: number
@@ -278,6 +283,7 @@ export function ChartView({
   const viewsKey = storageKey ? `mongoui-chart-views:${storageKey}` : ""
   const [views, setViews] = React.useState<SavedChartView[]>(() => readSavedViews(viewsKey))
   const [teamViews, setTeamViews] = React.useState<SavedChartView[]>([])
+  const [teamVersion, setTeamVersion] = React.useState(0)
   const [viewsOpen, setViewsOpen] = React.useState(false)
   const [viewName, setViewName] = React.useState("")
   const [shareView, setShareView] = React.useState(false)
@@ -314,8 +320,10 @@ export function ChartView({
     let cancelled = false
     void api
       .getChartViews(scope)
-      .then((list) => {
-        if (!cancelled) setTeamViews(Array.isArray(list) ? list : [])
+      .then((result) => {
+        if (cancelled) return
+        setTeamViews(Array.isArray(result.views) ? result.views : [])
+        setTeamVersion(result.version ?? 0)
       })
       .catch(() => undefined)
     return () => {
@@ -463,7 +471,7 @@ export function ChartView({
     return buildChartData(source, effectiveConfig, t("chart.others"))
   }, [serverMode, rows, source, effectiveConfig, config.type, config.aggregate, t])
 
-  const data = React.useMemo<ChartData>(() => {
+  const windowedData = React.useMemo<ChartData>(() => {
     if (!zoom) return baseData
     const n = baseData.categories.length
     const start = Math.max(0, Math.floor(zoom.start))
@@ -479,6 +487,13 @@ export function ChartView({
       ranges: baseData.ranges?.slice(start, end),
     }
   }, [baseData, zoom])
+
+  const data = React.useMemo<ChartData>(() => {
+    if (config.type !== "line" && config.type !== "area") return windowedData
+    return downsampleChartData(windowedData, 600)
+  }, [windowedData, config.type])
+
+  const downsampled = data.categories.length < windowedData.categories.length
 
   // Reset zoom when the query changes and keep an existing window in bounds.
   React.useEffect(() => {
@@ -678,10 +693,21 @@ export function ChartView({
     if (shareView && scope) {
       const next = [...teamViews, view]
       try {
-        setTeamViews(await api.saveChartViews(scope, next))
+        const saved = await api.saveChartViews(scope, next, teamVersion)
+        setTeamViews(saved.views)
+        setTeamVersion(saved.version)
         toast.success(t("chart.viewSaved"))
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : t("chart.viewSaveFailed"))
+        if (err instanceof ApiError && err.status === 409) {
+          toast.error(t("chart.viewConflict"))
+          const latest = await api.getChartViews(scope).catch(() => null)
+          if (latest) {
+            setTeamViews(latest.views ?? [])
+            setTeamVersion(latest.version ?? 0)
+          }
+        } else {
+          toast.error(err instanceof Error ? err.message : t("chart.viewSaveFailed"))
+        }
         return
       }
     } else {
@@ -703,9 +729,24 @@ export function ChartView({
   const deleteView = async (view: SavedChartView) => {
     if (view.shared && scope) {
       try {
-        setTeamViews(await api.saveChartViews(scope, teamViews.filter((item) => item.id !== view.id)))
+        const saved = await api.saveChartViews(
+          scope,
+          teamViews.filter((item) => item.id !== view.id),
+          teamVersion,
+        )
+        setTeamViews(saved.views)
+        setTeamVersion(saved.version)
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : t("chart.viewSaveFailed"))
+        if (err instanceof ApiError && err.status === 409) {
+          toast.error(t("chart.viewConflict"))
+          const latest = await api.getChartViews(scope).catch(() => null)
+          if (latest) {
+            setTeamViews(latest.views ?? [])
+            setTeamVersion(latest.version ?? 0)
+          }
+        } else {
+          toast.error(err instanceof Error ? err.message : t("chart.viewSaveFailed"))
+        }
       }
       return
     }
@@ -721,17 +762,15 @@ export function ChartView({
     })
   }
 
-  const showTooltip = (
-    event: React.MouseEvent | React.PointerEvent,
+  const setTooltipAt = (
+    x: number,
+    y: number,
     title: string,
     rows: { name: string; value: number; display?: string; color?: string }[],
   ) => {
-    const container = ref.current
-    if (!container) return
-    const rect = container.getBoundingClientRect()
     setTooltip({
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
+      x,
+      y,
       title,
       rows: rows.map((row, index) => ({
         name: row.name,
@@ -741,7 +780,32 @@ export function ChartView({
     })
   }
 
+  const showTooltip = (
+    event: React.MouseEvent | React.PointerEvent,
+    title: string,
+    rows: { name: string; value: number; display?: string; color?: string }[],
+  ) => {
+    const container = ref.current
+    if (!container) return
+    const rect = container.getBoundingClientRect()
+    setTooltipAt(event.clientX - rect.left, event.clientY - rect.top, title, rows)
+  }
+
   const hideTooltip = () => setTooltip(null)
+
+  const focusCategory = (index: number) => {
+    const n = data.categories.length
+    if (n === 0) return
+    const next = Math.max(0, Math.min(n - 1, index))
+    setFocusIndex(next)
+    const band = plotWidth / Math.max(1, n)
+    setTooltipAt(
+      margin.left + (next + 0.5) * band,
+      margin.top + 16,
+      data.categories[next],
+      series.map((item) => ({ name: item.name, value: item.values[next] ?? 0 })),
+    )
+  }
 
   const categoryTooltip = (
     event: React.MouseEvent | React.PointerEvent,
@@ -1488,11 +1552,12 @@ export function ChartView({
   }
 
   const csv = () => {
-    const header = ["category", ...series.map((item) => item.name)]
+    const exportSeries = baseData.series.filter((item) => !hidden.has(item.name))
+    const header = ["category", ...exportSeries.map((item) => item.name)]
     const lines = [header.map(escapeCSV).join(",")]
-    data.categories.forEach((category, index) => {
+    baseData.categories.forEach((category, index) => {
       lines.push(
-        [category, ...series.map((item) => String(item.values[index] ?? 0))]
+        [category, ...exportSeries.map((item) => String(item.values[index] ?? 0))]
           .map(escapeCSV)
           .join(","),
       )
@@ -1510,7 +1575,11 @@ export function ChartView({
   }
 
   const copyJSON = async () => {
-    const payload = { categories: data.categories, series: series.map(({ name, values }) => ({ name, values })) }
+    const exportSeries = baseData.series.filter((item) => !hidden.has(item.name))
+    const payload = {
+      categories: baseData.categories,
+      series: exportSeries.map(({ name, values }) => ({ name, values })),
+    }
     const ok = await copyToClipboard(JSON.stringify(payload, null, 2))
     ok ? toast.success(t("common.copied")) : toast.error(t("common.copyFailed"))
   }
@@ -1602,6 +1671,23 @@ export function ChartView({
     ))
   }
 
+  const errorHint = (() => {
+    if (!error) return null
+    if (/dateTrunc|dateFromString|\$convert|Unrecognized expression|invalid.*date/i.test(error)) {
+      return t("chart.error.date")
+    }
+    if (/not authorized|unauthorized|requires authentication/i.test(error)) {
+      return t("chart.error.auth")
+    }
+    if (/exceeded time limit|operation exceeded|maxTimeMS/i.test(error)) {
+      return t("chart.error.timeout")
+    }
+    if (/BSONObj|too large|document too large/i.test(error)) {
+      return t("chart.error.large")
+    }
+    return null
+  })()
+
   const summary = scatter
     ? `${t(`chart.type.scatter`)}: ${scatter.xField} / ${scatter.yField}, ${scatter.points.length}`
     : t("chart.summary", {
@@ -1621,7 +1707,12 @@ export function ChartView({
 
   return (
     <div className={cn("flex h-full min-h-0 flex-col", className)}>
-      <div className={cn("flex shrink-0 flex-wrap items-end gap-3 border-b p-3", !configOpen && "hidden")}>
+      <div
+        className={cn(
+          "flex shrink-0 flex-wrap items-end gap-3 border-b p-3",
+          (!configOpen || compact) && "hidden",
+        )}
+      >
         <div className="grid gap-1.5">
           <Label className="text-xs">{t("chart.type")}</Label>
           <Select
@@ -2054,7 +2145,7 @@ export function ChartView({
       </div>
 
       <div ref={ref} className="scrollbar-thin relative min-h-0 flex-1 overflow-auto p-3">
-        <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px]">
+        <div className={cn("mb-2 flex flex-wrap items-center gap-2 text-[11px]", compact && "hidden")}>
           <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5">
             {serverMode ? t("chart.serverData") : t("chart.pageData")}
           </span>
@@ -2155,16 +2246,24 @@ export function ChartView({
               </Button>
             </span>
           ) : null}
+          {downsampled ? (
+            <span className="text-muted-foreground">
+              {t("chart.downsampled", { shown: data.categories.length })}
+            </span>
+          ) : null}
           {loading ? (
             <span className="text-muted-foreground flex items-center gap-1">
               <Loader2 className="size-3 animate-spin" /> {t("common.loading")}
             </span>
           ) : null}
           {error ? (
-            <span className="text-destructive flex items-center gap-2">
+            <span className="text-destructive flex flex-wrap items-center gap-2">
               <span className="max-w-[32rem] truncate" title={error}>
                 {error}
               </span>
+              {errorHint ? (
+                <span className="text-muted-foreground">· {errorHint}</span>
+              ) : null}
               <Button
                 variant="outline"
                 size="sm"
@@ -2177,13 +2276,16 @@ export function ChartView({
           ) : null}
         </div>
 
+        {compact && error ? (
+          <p className="text-destructive mb-2 text-xs">{error}</p>
+        ) : null}
         {!hasData ? (
           <div className="text-muted-foreground flex h-40 items-center justify-center text-sm">
             {t("chart.empty")}
           </div>
         ) : (
           <>
-            {config.title ? (
+            {config.title && !compact ? (
               <h3 className="mb-2 text-sm font-medium">{config.title}</h3>
             ) : null}
             <svg
@@ -2192,8 +2294,28 @@ export function ChartView({
               height={height}
               className="block"
               role="img"
-              aria-label={summary}
+              aria-label={`${summary}. ${t("chart.keyboardHint")}`}
               style={{ touchAction: "pan-y" }}
+              tabIndex={0}
+              onBlur={() => {
+                setFocusIndex(null)
+                hideTooltip()
+              }}
+              onKeyDown={(event) => {
+                if (data.categories.length === 0) return
+                if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+                  event.preventDefault()
+                  focusCategory(
+                    (focusIndex ?? 0) + (event.key === "ArrowRight" ? 1 : -1),
+                  )
+                } else if (event.key === "Enter" && focusIndex !== null) {
+                  event.preventDefault()
+                  drill(focusIndex)
+                } else if (event.key === "Escape") {
+                  setFocusIndex(null)
+                  hideTooltip()
+                }
+              }}
               onDoubleClick={() => setZoom(null)}
               onPointerDown={(event) => {
                 if (event.pointerType !== "touch" || brushMode) return
@@ -2365,6 +2487,17 @@ export function ChartView({
                   )}
                 </>
               )}
+              {focusIndex !== null && !scatterMode ? (
+                <line
+                  x1={margin.left + (focusIndex + 0.5) * (plotWidth / Math.max(1, data.categories.length))}
+                  x2={margin.left + (focusIndex + 0.5) * (plotWidth / Math.max(1, data.categories.length))}
+                  y1={margin.top}
+                  y2={margin.top + plotHeight}
+                  stroke="var(--ring)"
+                  strokeDasharray="3 3"
+                  pointerEvents="none"
+                />
+              ) : null}
               {brushMode ? (
                 <g>
                   <rect

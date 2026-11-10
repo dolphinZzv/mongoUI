@@ -1133,7 +1133,7 @@ export function ChartView({
                     ? "none"
                     : leavingScatter && config.aggregate === "none"
                       ? config.y.length > 0
-                        ? "sum"
+                        ? "none"
                         : "count"
                       : config.aggregate,
               })
@@ -1201,12 +1201,20 @@ export function ChartView({
           <Label className="text-xs">{t("chart.group")}</Label>
           <Select
             value={config.group || "__none__"}
-            onValueChange={(value) =>
+            onValueChange={(value) => {
+              const group = value === "__none__" ? "" : value
               update({
-                group: value === "__none__" ? "" : value,
-                y: value === "__none__" ? config.y : config.y.slice(0, 1),
+                group,
+                y: group ? config.y.slice(0, 1) : config.y,
+                // Grouping needs an aggregation; leave Raw mode automatically.
+                aggregate:
+                  group && config.aggregate === "none"
+                    ? config.y.length > 0
+                      ? "sum"
+                      : "count"
+                    : config.aggregate,
               })
-            }
+            }}
             disabled={config.type === "pie"}
           >
             <SelectTrigger size="sm" className="w-44" title={t("chart.groupHint")}>

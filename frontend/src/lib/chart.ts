@@ -694,12 +694,13 @@ export function suggestChartConfig(
       ? previous.y
       : numericColumns.slice(0, 2)
 
-  let aggregate: ChartAggregate = previous?.aggregate ?? "sum"
+  // Raw is the default so the chart starts from the actual documents rather
+  // than silently summing numeric fields. Count remains the fallback when the
+  // page has no numeric column to plot.
+  let aggregate: ChartAggregate = previous?.aggregate ?? (y.length > 0 ? "none" : "count")
   if (y.length === 0) {
     aggregate = "count"
     y = []
-  } else if (aggregate === "count") {
-    aggregate = "sum"
   }
 
   const group =

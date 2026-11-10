@@ -61,6 +61,7 @@ import {
   CHART_COLORS,
   formatAxisValue,
   formatChartValue,
+  applyXAxisFormat,
   downsampleChartData,
   normalizeChartConfig,
   resolveTimeBucket,
@@ -248,7 +249,7 @@ export function ChartView({
   onDrilldown,
   onApplyFilter,
 }: ChartViewProps) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const { ref, width } = useElementWidth<HTMLDivElement>()
   const svgRef = React.useRef<SVGSVGElement>(null)
   const [config, setConfig] = React.useState<ChartConfig>(() => {
@@ -519,9 +520,12 @@ export function ChartView({
   }, [baseData, zoom])
 
   const data = React.useMemo<ChartData>(() => {
-    if (config.type !== "line" && config.type !== "area") return windowedData
-    return downsampleChartData(windowedData, 600)
-  }, [windowedData, config.type])
+    const sampled =
+      config.type === "line" || config.type === "area"
+        ? downsampleChartData(windowedData, 600)
+        : windowedData
+    return applyXAxisFormat(sampled, config, locale)
+  }, [windowedData, config, locale])
 
   const downsampled = data.categories.length < windowedData.categories.length
 
@@ -1817,6 +1821,28 @@ export function ChartView({
                   {typeOf(column) ? ` · ${typeOf(column)}` : ""}
                 </SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="grid gap-1.5">
+          <Label className="text-xs">{t("chart.xAxisFormat")}</Label>
+          <Select
+            value={config.xAxisFormat}
+            onValueChange={(value) => update({ xAxisFormat: value as ChartConfig["xAxisFormat"] })}
+          >
+            <SelectTrigger size="sm" className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">{t("chart.xformat.auto")}</SelectItem>
+              <SelectItem value="number">{t("chart.xformat.number")}</SelectItem>
+              <SelectItem value="compact">{t("chart.xformat.compact")}</SelectItem>
+              <SelectItem value="percent">{t("chart.xformat.percent")}</SelectItem>
+              <SelectItem value="date">{t("chart.xformat.date")}</SelectItem>
+              <SelectItem value="datetime">{t("chart.xformat.datetime")}</SelectItem>
+              <SelectItem value="year">{t("chart.xformat.year")}</SelectItem>
+              <SelectItem value="month">{t("chart.xformat.month")}</SelectItem>
             </SelectContent>
           </Select>
         </div>

@@ -8,6 +8,15 @@ export type ChartTimeBucket = "none" | "auto" | "day" | "week" | "month" | "quar
 export type ChartNumberFormat = "auto" | "plain" | "percent" | "currency"
 export type ChartTimeZone = "utc" | "local"
 export type ChartAxisScale = "none" | "k" | "m" | "b" | "bytes"
+export type ChartXAxisFormat =
+  | "auto"
+  | "number"
+  | "compact"
+  | "percent"
+  | "date"
+  | "datetime"
+  | "year"
+  | "month"
 
 export interface ChartConfig {
   type: ChartType
@@ -42,6 +51,8 @@ export interface ChartConfig {
   timeZone: ChartTimeZone
   /** Display conversion applied to the Y axis, labels and tooltips. */
   yAxisScale: ChartAxisScale
+  /** How category labels on the X axis are rendered. */
+  xAxisFormat: ChartXAxisFormat
 }
 
 export interface ChartSeries {
@@ -123,6 +134,18 @@ export function normalizeChartConfig(input: unknown): ChartConfig {
     yAxisScale: ["none", "k", "m", "b", "bytes"].includes(raw.yAxisScale as string)
       ? (raw.yAxisScale as ChartAxisScale)
       : "none",
+    xAxisFormat: [
+      "auto",
+      "number",
+      "compact",
+      "percent",
+      "date",
+      "datetime",
+      "year",
+      "month",
+    ].includes(raw.xAxisFormat as string)
+      ? (raw.xAxisFormat as ChartXAxisFormat)
+      : "auto",
   }
 }
 
@@ -221,6 +244,7 @@ export const DEFAULT_CHART_CONFIG: ChartConfig = {
   referenceLine: null,
   timeZone: "utc",
   yAxisScale: "none",
+  xAxisFormat: "auto",
 }
 
 /** Distinct group values rendered as series; beyond this the largest win. */
@@ -652,6 +676,69 @@ export function buildChartData(
   )
 }
 
+/** Formats one X-axis category using the configured display format. */
+export function formatXAxisLabel(
+  raw: unknown,
+  fallback: string,
+  format: ChartXAxisFormat,
+  locale: string,
+  timeZone: ChartTimeZone,
+): string {
+  if (format === "auto") return fallback
+  const tag = locale === "zh" ? "zh-CN" : "en-US"
+  if (format === "date" || format === "datetime" || format === "year" || format === "month") {
+    const date = toDate(raw)
+    if (!date) return fallback
+    const options: Intl.DateTimeFormatOptions = {
+      ...(timeZone === "utc" ? { timeZone: "UTC" } : {}),
+    }
+    if (format === "year") options.year = "numeric"
+    else if (format === "month") {
+      options.year = "numeric"
+      options.month = "2-digit"
+    } else {
+      options.year = "numeric"
+      options.month = "2-digit"
+      options.day = "2-digit"
+      if (format === "datetime") {
+        options.hour = "2-digit"
+        options.minute = "2-digit"
+      }
+    }
+    try {
+      return new Intl.DateTimeFormat(tag, options).format(date)
+    } catch {
+      return fallback
+    }
+  }
+  const numeric = toNumeric(raw)
+  if (numeric === null) return fallback
+  if (format === "percent") return `${(numeric * 100).toFixed(1)}%`
+  if (format === "compact") return formatNumber(numeric)
+  return numeric.toLocaleString(tag)
+}
+
+/** Applies the X-axis label format without touching raw values used for filters. */
+export function applyXAxisFormat(
+  data: ChartData,
+  config: ChartConfig,
+  locale: string,
+): ChartData {
+  if (config.xAxisFormat === "auto") return data
+  return {
+    ...data,
+    categories: data.categories.map((label, index) =>
+      formatXAxisLabel(
+        data.rawCategories[index],
+        label,
+        config.xAxisFormat,
+        locale,
+        config.timeZone,
+      ),
+    ),
+  }
+}
+
 /** Aggregation pipeline that produces the same shape as buildChartData remotely. */
 export function buildChartPipeline(
   config: ChartConfig,
@@ -965,6 +1052,7 @@ export function suggestChartConfig(
     referenceLine: previous?.referenceLine ?? null,
     timeZone: previous?.timeZone ?? "utc",
     yAxisScale: previous?.yAxisScale ?? "none",
+    xAxisFormat: previous?.xAxisFormat ?? "auto",
   }
 }
 

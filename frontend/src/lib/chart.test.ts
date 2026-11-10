@@ -7,6 +7,7 @@ import {
   DEFAULT_CHART_CONFIG,
   formatAxisValue,
   formatChartValue,
+  formatXAxisLabel,
   normalizeChartConfig,
   resolveTimeBucket,
   timeBucketEnd,
@@ -199,5 +200,13 @@ describe("formatting and config", () => {
   it("formats axis ticks with the conversion and unit", () => {
     expect(formatAxisValue(12_500, config({ yAxisScale: "k", unit: "req" }))).toBe("12.5k req")
     expect(formatAxisValue(2_000_000, config({ yAxisScale: "m", decimals: 0 }))).toBe("2M")
+  })
+
+  it("formats X-axis labels as dates and numbers", () => {
+    expect(
+      formatXAxisLabel({ $date: "2024-01-02T10:00:00Z" }, "2024-01-02", "date", "en", "utc"),
+    ).toBe("01/02/2024")
+    expect(formatXAxisLabel(12_500, "12500", "compact", "en", "utc")).toBe("12.5k")
+    expect(formatXAxisLabel("plain", "plain", "date", "en", "utc")).toBe("plain")
   })
 })

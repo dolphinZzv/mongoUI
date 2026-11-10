@@ -19,6 +19,7 @@ import { useAgentTools } from "@/hooks/useAgentTools"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { DOCS_QUERY_DEFAULTS, useRouter, type DocsQueryState } from "@/lib/router"
+import { normalizeChartConfig } from "@/lib/chart"
 import { readTabs, tabKey, writeTabs, type CollectionTab } from "@/lib/collectionTabs"
 import { ThemeProvider } from "@/lib/theme"
 import { cn } from "@/lib/utils"
@@ -524,7 +525,20 @@ export default function App() {
     if (selection.kind === "connection" && selectedConnection) {
       return (
         <React.Suspense fallback={<ContentFallback />}>
-          <ConnectionOverview connection={selectedConnection} />
+          <ConnectionOverview
+            connection={selectedConnection}
+            onOpenChart={(next, chart) => {
+              navigate(next, "documents", {
+                docs: {
+                  ...DOCS_QUERY_DEFAULTS,
+                  chart: {
+                    config: normalizeChartConfig(chart.config),
+                    filter: chart.filter ?? "{}",
+                  },
+                },
+              })
+            }}
+          />
         </React.Suspense>
       )
     }

@@ -52,6 +52,7 @@ export interface RouteState {
 
 export const COLLECTION_TABS = [
   "documents",
+  "chart",
   "sql",
   "aggregation",
   "indexes",

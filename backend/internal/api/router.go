@@ -103,6 +103,9 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 			r.Get("/aliases", a.getAliases)
 			r.Patch("/aliases", a.updateAlias)
 
+			r.Get("/chart-views", a.getChartViews)
+			r.Put("/chart-views", a.updateChartViews)
+
 			r.Get("/ai", a.getAISettings)
 			r.Put("/ai", a.updateAISettings)
 			r.Post("/ai/test", a.testAISettings)

@@ -93,6 +93,18 @@ func emptyAliases() AliasSettings {
 }
 
 // Settings persists server-wide preferences that are not connection specific.
+// ChartView is a named, optionally shared chart configuration for one
+// connection/database/collection scope.
+type ChartView struct {
+	ID        string          `json:"id"`
+	Name      string          `json:"name"`
+	Config    json.RawMessage `json:"config"`
+	Filter    string          `json:"filter,omitempty"`
+	Pinned    bool            `json:"pinned,omitempty"`
+	UpdatedAt string          `json:"updatedAt,omitempty"`
+	UpdatedBy string          `json:"updatedBy,omitempty"`
+}
+
 type Settings struct {
 	mu      sync.RWMutex
 	path    string
@@ -106,16 +118,19 @@ type Settings struct {
 	// LegacyAI is the pre-per-user server-wide profile. It is migrated into
 	// AIByUser["local"] on load and never written back.
 	LegacyAI *AISettings `json:"ai,omitempty"`
+	// ChartViews holds shared chart views keyed by connection::database::collection.
+	ChartViews map[string][]ChartView `json:"chartViews,omitempty"`
 }
 
 // NewSettings returns an in-memory settings holder. Updates are not persisted
 // when no path has been configured.
 func NewSettings(mcp MCPSettings) *Settings {
 	return &Settings{
-		MCP:      mcp,
-		Update:   DefaultUpdateSettings(),
-		Aliases:  emptyAliases(),
-		AIByUser: map[string]AISettings{},
+		MCP:        mcp,
+		Update:     DefaultUpdateSettings(),
+		Aliases:    emptyAliases(),
+		AIByUser:   map[string]AISettings{},
+		ChartViews: map[string][]ChartView{},
 	}
 }
 
@@ -146,6 +161,9 @@ func LoadSettings(path string, def MCPSettings) (*Settings, error) {
 	}
 	if s.AIByUser == nil {
 		s.AIByUser = map[string]AISettings{}
+	}
+	if s.ChartViews == nil {
+		s.ChartViews = map[string][]ChartView{}
 	}
 	// Older builds stored a single server-wide AI profile. Move it to the
 	// local (auth-disabled) slot; authenticated installs start per user, so a
@@ -225,10 +243,58 @@ func (s *Settings) SetAI(userID string, ai AISettings) error {
 	if s.AIByUser == nil {
 		s.AIByUser = map[string]AISettings{}
 	}
+	if s.ChartViews == nil {
+		s.ChartViews = map[string][]ChartView{}
+	}
 	if strings.TrimSpace(ai.Provider) == "" {
 		delete(s.AIByUser, key)
 	} else {
 		s.AIByUser[key] = ai
+	}
+	s.mu.Unlock()
+	if s.path == "" {
+		return nil
+	}
+	return s.persist()
+}
+
+// GetChartViews returns a copy of the shared views for one scope.
+func (s *Settings) GetChartViews(scope string) []ChartView {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	views := s.ChartViews[scope]
+	out := make([]ChartView, len(views))
+	copy(out, views)
+	return out
+}
+
+// ChartViewsForConnection returns every shared view whose scope belongs to the
+// connection, used by the connection overview's pinned charts.
+func (s *Settings) ChartViewsForConnection(connectionID string) map[string][]ChartView {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := map[string][]ChartView{}
+	prefix := connectionID + "::"
+	for scope, views := range s.ChartViews {
+		if strings.HasPrefix(scope, prefix) && len(views) > 0 {
+			copied := make([]ChartView, len(views))
+			copy(copied, views)
+			out[scope] = copied
+		}
+	}
+	return out
+}
+
+// SetChartViews replaces the shared views for one scope and persists them.
+func (s *Settings) SetChartViews(scope string, views []ChartView) error {
+	s.mu.Lock()
+	if s.ChartViews == nil {
+		s.ChartViews = map[string][]ChartView{}
+	}
+	if len(views) == 0 {
+		delete(s.ChartViews, scope)
+	} else {
+		s.ChartViews[scope] = append([]ChartView(nil), views...)
 	}
 	s.mu.Unlock()
 	if s.path == "" {

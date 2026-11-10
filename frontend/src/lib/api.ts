@@ -1,3 +1,4 @@
+import type { SavedChartView } from "@/lib/chart"
 import type {
   AggregateResult,
   AIFilterInput,
@@ -415,6 +416,19 @@ export const api = {
     request<AITestResult>("/ai/test", { method: "POST", body: JSON.stringify(input) }),
   generateAIFilter: (input: AIFilterInput) =>
     request<AIFilterResult>("/ai/filter", { method: "POST", body: JSON.stringify(input) }),
+
+  // shared chart views ------------------------------------------------------------
+  getChartViews: (scope: string) =>
+    request<SavedChartView[]>(`/chart-views?scope=${encodeURIComponent(scope)}`),
+  getConnectionChartViews: (connectionId: string) =>
+    request<{ scopes: Record<string, SavedChartView[]> }>(
+      `/chart-views?connectionId=${encodeURIComponent(connectionId)}`,
+    ),
+  saveChartViews: (scope: string, views: SavedChartView[]) =>
+    request<SavedChartView[]>("/chart-views", {
+      method: "PUT",
+      body: JSON.stringify({ scope, views }),
+    }),
 
   // indexes ---------------------------------------------------------------------
   listIndexes: (id: string, db: string, col: string) =>

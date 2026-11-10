@@ -13,6 +13,9 @@ import type { DocsQueryState } from "@/lib/router"
 
 // The collection tabs other than Documents are loaded on first open, so the
 // initial bundle only carries the documents view.
+const ChartTab = React.lazy(() =>
+  import("@/components/chart-tab").then((m) => ({ default: m.ChartTab })),
+)
 const SqlTab = React.lazy(() => import("@/components/sql-tab").then((m) => ({ default: m.SqlTab })))
 const AggregationTab = React.lazy(() =>
   import("@/components/aggregation-tab").then((m) => ({ default: m.AggregationTab })),
@@ -112,6 +115,9 @@ export function CollectionView({
           <TabsTrigger value="documents" className="shrink-0 px-1.5 sm:px-3">
             {t("collection.tab.documents")}
           </TabsTrigger>
+          <TabsTrigger value="chart" className="shrink-0 px-1.5 sm:px-3">
+            {t("collection.tab.chart")}
+          </TabsTrigger>
           <TabsTrigger value="sql" className="shrink-0 px-1.5 sm:px-3">
             {t("collection.tab.sql")}
           </TabsTrigger>
@@ -140,6 +146,16 @@ export function CollectionView({
             initialDocs={docs}
             onDocsChange={onDocsChange}
           />
+        </TabsContent>
+        <TabsContent value="chart" className="min-h-0 flex-1">
+          <React.Suspense fallback={<TabFallback />}>
+            <ChartTab
+              connectionId={connectionId}
+              database={database}
+              collection={collection}
+              initialFilter={docs?.filter}
+            />
+          </React.Suspense>
         </TabsContent>
         <TabsContent value="sql" className="min-h-0 flex-1">
           <React.Suspense fallback={<TabFallback />}>

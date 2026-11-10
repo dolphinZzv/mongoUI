@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { ChartView } from "@/components/chart-view"
+import { Button } from "@/components/ui/button"
 import { MongoFilterEditor } from "@/components/mongo-filter-editor"
 import { copyToClipboard } from "@/lib/clipboard"
 import { useI18n } from "@/lib/i18n"
@@ -134,6 +135,35 @@ export function ChartDialog({
               <AlertCircle className="size-3.5" /> {t("docs.invalidJson")}
             </p>
           ) : null}
+          {parsed !== null && debounced.trim() !== (filter ?? "{}").trim() ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-700 dark:text-amber-300">
+              <span>{t("chart.filterDiffers")}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-[11px]"
+                onClick={() => {
+                  setFilterText(filter ?? "{}")
+                  setDebounced(filter ?? "{}")
+                }}
+              >
+                {t("chart.resetToTable")}
+              </Button>
+              {onApplyFilter ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => {
+                    onApplyFilter(filterText)
+                    onOpenChange(false)
+                  }}
+                >
+                  {t("chart.applyToDocuments")}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <ChartView
@@ -148,6 +178,16 @@ export function ChartDialog({
           filterValid={parsed !== null}
           initialConfig={initialConfig}
           onConfigChange={onConfigChange}
+          scope={
+            connectionId && database && collection
+              ? `${connectionId}::${database}::${collection}`
+              : undefined
+          }
+          currentFilter={filterText}
+          onApplyFilterText={(next) => {
+            setFilterText(next)
+            setDebounced(next)
+          }}
           onShare={share}
           storageKey={storageKey}
           height={420}

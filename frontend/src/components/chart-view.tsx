@@ -1,17 +1,22 @@
 import * as React from "react"
 import {
   AreaChart as AreaIcon,
+  AlertTriangle,
   BarChart3,
   Bookmark,
   Copy,
   Download,
   Loader2,
   LineChart,
+  Maximize2,
   PieChart,
   Plus,
   RefreshCw,
   RotateCcw,
+  Search,
   Share2,
+  Sparkles,
+  SlidersHorizontal,
   Table2,
   Trash2,
 } from "lucide-react"
@@ -52,8 +57,10 @@ import {
   buildScatterData,
   chartDataFromRows,
   CHART_COLORS,
-  formatNumber,
+  formatAxisValue,
+  formatChartValue,
   normalizeChartConfig,
+  resolveTimeBucket,
   isTemporalColumn,
   niceScale,
   suggestChartConfig,
@@ -63,9 +70,11 @@ import {
   type ChartSort,
   type ChartTimeBucket,
   type ChartType,
+  type SavedChartView,
   type ScatterPoint,
 } from "@/lib/chart"
 import { cn } from "@/lib/utils"
+import { valueType } from "@/lib/mongo"
 import type { MongoDocument } from "@/lib/types"
 
 interface ChartViewProps {
@@ -86,6 +95,12 @@ interface ChartViewProps {
   onConfigChange?: (config: ChartConfig) => void
   /** Copy a URL that restores this chart. */
   onShare?: (config: ChartConfig) => void
+  /** Server scope (connection::database::collection) for shared chart views. */
+  scope?: string
+  /** Current filter text, saved with a view and restored when it is applied. */
+  currentFilter?: string
+  /** Replace the dialog's filter, e.g. when applying a saved view. */
+  onApplyFilterText?: (filter: string) => void
   /** Remember the chosen configuration under this key. */
   storageKey?: string
   height?: number
@@ -137,12 +152,6 @@ function loadConfig(storageKey?: string): ChartConfig | null {
   }
 }
 
-interface SavedChartView {
-  id: string
-  name: string
-  config: ChartConfig
-}
-
 function readSavedViews(key: string): SavedChartView[] {
   if (!key) return []
   try {
@@ -160,6 +169,7 @@ const CHART_TYPES: { value: ChartType; labelKey: string; icon: React.ComponentTy
   { value: "area", labelKey: "chart.type.area", icon: AreaIcon },
   { value: "pie", labelKey: "chart.type.pie", icon: PieChart },
   { value: "scatter", labelKey: "chart.type.scatter", icon: BarChart3 },
+  { value: "combo", labelKey: "chart.type.combo", icon: LineChart },
 ]
 
 const TIME_BUCKETS: { value: ChartTimeBucket; labelKey: string }[] = [
@@ -219,6 +229,9 @@ export function ChartView({
   initialConfig,
   onConfigChange,
   onShare,
+  scope,
+  currentFilter,
+  onApplyFilterText,
   storageKey,
   height = 380,
   className,
@@ -239,17 +252,27 @@ export function ChartView({
   const [refreshToken, setRefreshToken] = React.useState(0)
   const [rows, setRows] = React.useState<MongoDocument[] | null>(null)
   const [rawDocs, setRawDocs] = React.useState<MongoDocument[] | null>(null)
+  const [rawTotal, setRawTotal] = React.useState<number | null>(null)
+  const [probeDocs, setProbeDocs] = React.useState<MongoDocument[]>([])
+  const [fieldQuery, setFieldQuery] = React.useState("")
+  const [configOpen, setConfigOpen] = React.useState(
+    () => typeof window === "undefined" || window.innerWidth >= 1024,
+  )
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const viewsKey = storageKey ? `mongoui-chart-views:${storageKey}` : ""
   const [views, setViews] = React.useState<SavedChartView[]>(() => readSavedViews(viewsKey))
+  const [teamViews, setTeamViews] = React.useState<SavedChartView[]>([])
   const [viewsOpen, setViewsOpen] = React.useState(false)
   const [viewName, setViewName] = React.useState("")
+  const [shareView, setShareView] = React.useState(false)
+  const [pinView, setPinView] = React.useState(false)
   const columnsKey = columns.join("|")
   const serverMode = Boolean(connectionId && database && collection)
 
   // Re-detect when the result shape changes and the current config no longer fits.
   React.useEffect(() => {
+    if (initialConfig) return
     setConfig((previous) => {
       const validX = !previous.x || columns.includes(previous.x)
       const validY = previous.y.every((field) => columns.includes(field))
@@ -267,6 +290,23 @@ export function ChartView({
       /* storage may be unavailable */
     }
   }, [views, viewsKey])
+
+  React.useEffect(() => {
+    if (!scope) {
+      setTeamViews([])
+      return
+    }
+    let cancelled = false
+    void api
+      .getChartViews(scope)
+      .then((list) => {
+        if (!cancelled) setTeamViews(Array.isArray(list) ? list : [])
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [scope])
 
   // Report changes upward (URL mirroring) without making the view controlled.
   const notifyRef = React.useRef(onConfigChange)
@@ -296,8 +336,10 @@ export function ChartView({
   }, [config, storageKey])
 
   const temporalX = React.useMemo(
-    () => isTemporalColumn(documents, config.x) || /date/i.test(fieldTypes?.[config.x] ?? ""),
-    [documents, fieldTypes, config.x],
+    () =>
+      isTemporalColumn([...documents, ...probeDocs], config.x) ||
+      /date/i.test(fieldTypes?.[config.x] ?? ""),
+    [documents, probeDocs, fieldTypes, config.x],
   )
 
   const effectiveConfig = React.useMemo<ChartConfig>(
@@ -305,11 +347,32 @@ export function ChartView({
       ...config,
       timeBucket:
         temporalX && config.type !== "scatter" && config.aggregate !== "none"
-          ? config.timeBucket
+          ? resolveTimeBucket([...documents, ...probeDocs], config.x, config.timeBucket)
           : "none",
     }),
-    [config, temporalX],
+    [config, temporalX, documents, probeDocs],
   )
+
+  // A lightweight sample of the filtered result keeps the field pickers useful
+  // even when the current page does not contain a field.
+  React.useEffect(() => {
+    if (!serverMode) return
+    const controller = new AbortController()
+    void api
+      .find(
+        connectionId!,
+        database!,
+        collection!,
+        { filter: filter ?? {}, limit: 50 },
+        controller.signal,
+      )
+      .then((res) => {
+        if (!controller.signal.aborted) setProbeDocs(res.documents)
+      })
+      .catch(() => undefined)
+    return () => controller.abort()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverMode, connectionId, database, collection, JSON.stringify(filter)])
 
   // Only the fields that change the server response belong in the fetch key;
   // sorting/limit/others are applied client-side without another round trip.
@@ -344,6 +407,7 @@ export function ChartView({
           )
           if (controller.signal.aborted) return
           setRawDocs(res.documents)
+          setRawTotal(res.total)
           setRows(null)
         } else {
           const pipeline = buildChartPipeline(effectiveConfig, filter ?? {}, temporalX)
@@ -389,10 +453,58 @@ export function ChartView({
     [config.type, source, effectiveConfig],
   )
 
-  const numericColumns = React.useMemo(
-    () => columns.filter((column) => documents.some((doc) => toNumeric(doc[column]) !== null)),
-    [columns, documents],
+  const fieldCatalog = React.useMemo(() => {
+    const types = new Map<string, string>()
+    const add = (doc: MongoDocument) => {
+      for (const [key, value] of Object.entries(doc)) {
+        if (!types.has(key)) types.set(key, valueType(value))
+      }
+    }
+    documents.forEach(add)
+    probeDocs.forEach(add)
+    rawDocs?.forEach(add)
+    for (const [key, value] of Object.entries(fieldTypes ?? {})) types.set(key, value)
+    if (config.x) types.set(config.x, types.get(config.x) ?? "")
+    if (config.group) types.set(config.group, types.get(config.group) ?? "")
+    return [...types.entries()].map(([name, type]) => ({ name, type }))
+  }, [documents, probeDocs, rawDocs, fieldTypes, config.x, config.group])
+
+  const fieldNames = React.useMemo(
+    () => (fieldCatalog.length > 0 ? fieldCatalog.map((field) => field.name) : columns),
+    [fieldCatalog, columns],
   )
+
+  const typeOf = React.useCallback(
+    (name: string) => fieldCatalog.find((field) => field.name === name)?.type ?? "",
+    [fieldCatalog],
+  )
+
+  const isNumericField = React.useCallback(
+    (name: string) =>
+      /int|long|double|decimal|number/i.test(typeOf(name)) ||
+      documents.some((doc) => toNumeric(doc[name]) !== null) ||
+      probeDocs.some((doc) => toNumeric(doc[name]) !== null),
+    [typeOf, documents, probeDocs],
+  )
+
+  const numericColumns = React.useMemo(
+    () => fieldNames.filter((column) => isNumericField(column)),
+    [fieldNames, isNumericField],
+  )
+
+  const fieldMatches = React.useCallback(
+    (name: string) => !fieldQuery.trim() || name.toLowerCase().includes(fieldQuery.trim().toLowerCase()),
+    [fieldQuery],
+  )
+
+  // In the chart tab the field list only arrives with the probe request; adopt
+  // a sensible configuration as soon as columns are known.
+  React.useEffect(() => {
+    if (config.x || fieldNames.length === 0) return
+    setConfig((previous) =>
+      suggestChartConfig([...documents, ...probeDocs], fieldNames, previous),
+    )
+  }, [config.x, fieldNames, documents, probeDocs])
 
   const series = React.useMemo(
     () => data.series.filter((item) => !hidden.has(item.name)),
@@ -415,24 +527,43 @@ export function ChartView({
     config.stacked &&
     series.length > 1 &&
     series.every((item) => item.values.every((value) => value >= 0))
+  const percentStacked = stacked && config.percentStacked
+  const comboMode = config.type === "combo"
+  const comboBar = comboMode ? series.slice(0, 1) : []
+  const comboLines = comboMode ? series.slice(1) : []
 
   const scaleValues = horizontal
     ? series.flatMap((item) => item.values)
+    : comboMode
+      ? comboBar.flatMap((item) => item.values)
     : stacked
       ? data.categories.map((_, index) =>
           series.reduce((sum, item) => sum + (item.values[index] ?? 0), 0),
         )
       : series.flatMap((item) => item.values)
-  const scale = niceScale(
-    Math.min(0, ...(scaleValues.length ? scaleValues : [0])),
-    Math.max(0, ...(scaleValues.length ? scaleValues : [1])),
-    5,
-  )
+  const scale = percentStacked
+    ? { min: 0, max: 1, ticks: [0, 0.25, 0.5, 0.75, 1] }
+    : niceScale(
+        Math.min(0, ...(scaleValues.length ? scaleValues : [0])),
+        Math.max(0, ...(scaleValues.length ? scaleValues : [1])),
+        5,
+      )
 
   const yFor = (value: number) =>
     margin.top + plotHeight - ((value - scale.min) / (scale.max - scale.min || 1)) * plotHeight
   const xForValue = (value: number) =>
     margin.left + ((value - scale.min) / (scale.max - scale.min || 1)) * plotWidth
+
+  const rightValues = comboLines.flatMap((item) => item.values)
+  const rightScale = niceScale(
+    Math.min(0, ...(rightValues.length ? rightValues : [0])),
+    Math.max(0, ...(rightValues.length ? rightValues : [1])),
+    5,
+  )
+  const yForRight = (value: number) =>
+    margin.top +
+    plotHeight -
+    ((value - rightScale.min) / (rightScale.max - rightScale.min || 1)) * plotHeight
 
   const scatterBounds = React.useMemo(() => {
     if (!scatter || scatter.points.length === 0) {
@@ -461,6 +592,10 @@ export function ChartView({
   const hasData =
     scatterMode ? Boolean(scatter && scatter.points.length > 0) : data.categories.length > 0 && series.length > 0
 
+  const crowded =
+    data.categories.length > (config.type === "pie" ? 12 : 40) ||
+    (!config.others && data.categories.length >= config.limit)
+
   const update = (patch: Partial<ChartConfig>) => setConfig((prev) => ({ ...prev, ...patch }))
 
   const toggleY = (field: string) => {
@@ -477,26 +612,52 @@ export function ChartView({
     setHidden(new Set())
   }
 
-  const saveView = () => {
+  const saveView = async () => {
     const name = viewName.trim()
     if (!name) return
-    setViews((prev) => [
-      ...prev,
-      { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name, config },
-    ])
+    const view: SavedChartView = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name,
+      config,
+      filter: currentFilter,
+      pinned: shareView && pinView,
+      shared: shareView,
+    }
+    if (shareView && scope) {
+      const next = [...teamViews, view]
+      try {
+        setTeamViews(await api.saveChartViews(scope, next))
+        toast.success(t("chart.viewSaved"))
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : t("chart.viewSaveFailed"))
+        return
+      }
+    } else {
+      setViews((prev) => [...prev, view])
+      toast.success(t("chart.viewSaved"))
+    }
     setViewName("")
+    setPinView(false)
     setViewsOpen(false)
-    toast.success(t("chart.viewSaved"))
   }
 
   const applyView = (view: SavedChartView) => {
-    setConfig({ ...view.config })
+    setConfig(normalizeChartConfig(view.config))
     setHidden(new Set())
+    if (view.filter && onApplyFilterText) onApplyFilterText(view.filter)
     setViewsOpen(false)
   }
 
-  const deleteView = (id: string) => {
-    setViews((prev) => prev.filter((view) => view.id !== id))
+  const deleteView = async (view: SavedChartView) => {
+    if (view.shared && scope) {
+      try {
+        setTeamViews(await api.saveChartViews(scope, teamViews.filter((item) => item.id !== view.id)))
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : t("chart.viewSaveFailed"))
+      }
+      return
+    }
+    setViews((prev) => prev.filter((item) => item.id !== view.id))
   }
 
   const toggleSeries = (name: string) => {
@@ -509,7 +670,7 @@ export function ChartView({
   }
 
   const showTooltip = (
-    event: React.MouseEvent,
+    event: React.MouseEvent | React.PointerEvent,
     title: string,
     rows: { name: string; value: number; display?: string; color?: string }[],
   ) => {
@@ -522,13 +683,25 @@ export function ChartView({
       title,
       rows: rows.map((row, index) => ({
         name: row.name,
-        value: row.display ?? formatNumber(row.value),
+        value: row.display ?? formatChartValue(row.value, config),
         color: row.color ?? CHART_COLORS[index % CHART_COLORS.length],
       })),
     })
   }
 
   const hideTooltip = () => setTooltip(null)
+
+  const categoryTooltip = (
+    event: React.MouseEvent | React.PointerEvent,
+    category: string,
+    index: number,
+  ) => {
+    showTooltip(
+      event,
+      category,
+      series.map((item) => ({ name: item.name, value: item.values[index] ?? 0 })),
+    )
+  }
 
   const drill = (index: number) => {
     if (!onDrilldown || !config.x) return
@@ -572,7 +745,7 @@ export function ChartView({
               textAnchor="end"
               className="fill-muted-foreground text-[10px]"
             >
-              {formatNumber(tick)}
+              {formatAxisValue(tick, config)}
             </text>
           </g>
         )
@@ -625,9 +798,14 @@ export function ChartView({
       return (
         <g>
           {data.categories.map((category, ci) => {
+            const total = series.reduce(
+              (sum, item) => sum + Math.max(0, item.values[ci] ?? 0),
+              0,
+            )
             let offset = 0
             return series.map((item, si) => {
-              const value = Math.max(0, item.values[ci] ?? 0)
+              const raw = Math.max(0, item.values[ci] ?? 0)
+              const value = percentStacked ? (total > 0 ? raw / total : 0) : raw
               const top = yFor(offset + value)
               const bottom = yFor(offset)
               offset += value
@@ -651,6 +829,7 @@ export function ChartView({
                     )
                   }
                   onMouseLeave={hideTooltip}
+                  onPointerDown={(event) => categoryTooltip(event, category, ci)}
                   onClick={() => drill(ci)}
                 />
               )
@@ -690,6 +869,7 @@ export function ChartView({
                     )
                   }
                   onMouseLeave={hideTooltip}
+                  onPointerDown={(event) => categoryTooltip(event, category, ci)}
                   onClick={() => drill(ci)}
                 />
                 {config.showValues && barWidth > 22 && h > 12 ? (
@@ -699,7 +879,7 @@ export function ChartView({
                     textAnchor="middle"
                     className="fill-muted-foreground text-[9px]"
                   >
-                    {formatNumber(value)}
+                    {formatChartValue(value, config)}
                   </text>
                 ) : null}
               </g>
@@ -748,6 +928,7 @@ export function ChartView({
                     )
                   }
                   onMouseLeave={hideTooltip}
+                  onPointerDown={(event) => categoryTooltip(event, category, ci)}
                   onClick={() => drill(ci)}
                 />
                 {config.showValues && w > 30 ? (
@@ -756,7 +937,7 @@ export function ChartView({
                     y={y + barHeight / 2 + 3}
                     className="fill-muted-foreground text-[9px]"
                   >
-                    {formatNumber(value)}
+                    {formatChartValue(value, config)}
                   </text>
                 ) : null}
               </g>
@@ -823,6 +1004,7 @@ export function ChartView({
                 )
               }
               onMouseLeave={hideTooltip}
+              onPointerDown={(event) => categoryTooltip(event, data.categories[index], index)}
               onClick={() => drill(index)}
             />
           )),
@@ -830,6 +1012,106 @@ export function ChartView({
       </g>
     )
   }
+
+  const renderCombo = () => {
+    const band = plotWidth / Math.max(1, data.categories.length)
+    const barWidth = Math.max(1, band * 0.46)
+    const baseline = yFor(0)
+    const bar = comboBar[0]
+    return (
+      <g>
+        {bar
+          ? data.categories.map((category, index) => {
+              const value = bar.values[index] ?? 0
+              const y = value >= 0 ? yFor(value) : baseline
+              const h = Math.abs(yFor(value) - baseline)
+              const color = CHART_COLORS[data.series.indexOf(bar) % CHART_COLORS.length]
+              return (
+                <g key={`combo-bar-${index}`}>
+                  <rect
+                    x={margin.left + index * band + (band - barWidth) / 2}
+                    y={y}
+                    width={barWidth}
+                    height={h}
+                    fill={color}
+                    rx={2}
+                    className="cursor-pointer hover:opacity-80"
+                    onMouseMove={(event) => categoryTooltip(event, category, index)}
+                    onMouseLeave={hideTooltip}
+                    onPointerDown={(event) => categoryTooltip(event, category, index)}
+                    onClick={() => drill(index)}
+                  />
+                  {config.showValues && barWidth > 22 && h > 12 ? (
+                    <text
+                      x={margin.left + index * band + band / 2}
+                      y={Math.min(y, baseline) - 4}
+                      textAnchor="middle"
+                      className="fill-muted-foreground text-[9px]"
+                    >
+                      {formatChartValue(value, config)}
+                    </text>
+                  ) : null}
+                </g>
+              )
+            })
+          : null}
+        {comboLines.map((item) => {
+          const color = CHART_COLORS[data.series.indexOf(item) % CHART_COLORS.length]
+          return (
+            <g key={`combo-line-${item.name}`}>
+              <path
+                d={item.values
+                  .map(
+                    (value, index) =>
+                      `${index === 0 ? "M" : "L"}${margin.left + (index + 0.5) * band},${yForRight(value)}`,
+                  )
+                  .join(" ")}
+                fill="none"
+                stroke={color}
+                strokeWidth={2}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+              {item.values.map((value, index) => (
+                <circle
+                  key={`combo-dot-${index}`}
+                  cx={margin.left + (index + 0.5) * band}
+                  cy={yForRight(value)}
+                  r={3}
+                  fill={color}
+                  className="cursor-pointer hover:opacity-80"
+                  onMouseMove={(event) =>
+                    categoryTooltip(event, data.categories[index], index)
+                  }
+                  onMouseLeave={hideTooltip}
+                  onPointerDown={(event) =>
+                    categoryTooltip(event, data.categories[index], index)
+                  }
+                  onClick={() => drill(index)}
+                />
+              ))}
+            </g>
+          )
+        })}
+      </g>
+    )
+  }
+
+  const renderRightAxis = () => (
+    <g>
+      {rightScale.ticks.map((tick) => (
+        <text
+          key={`right-${tick}`}
+          x={margin.left + plotWidth + 8}
+          y={yForRight(tick) + 3}
+          textAnchor="start"
+          className="fill-muted-foreground text-[10px]"
+        >
+          {formatAxisValue(tick, config)}
+        </text>
+      ))}
+    </g>
+  )
 
   const renderPie = () => {
     // A pie needs one measure; multiple value fields would be summed, which is
@@ -874,13 +1156,24 @@ export function ChartView({
                     {
                       name: measure.name,
                       value: totals[index],
-                      display: `${formatNumber(totals[index])} (${percent}%)`,
+                      display: `${formatChartValue(totals[index], config)} (${percent}%)`,
                       color: CHART_COLORS[index % CHART_COLORS.length],
                     },
                   ])
                 }}
                 onMouseLeave={hideTooltip}
                 onClick={() => drill(index)}
+                onPointerDown={(event) => {
+                  const percent = total > 0 ? ((totals[index] / total) * 100).toFixed(1) : "0.0"
+                  showTooltip(event, category, [
+                    {
+                      name: measure.name,
+                      value: totals[index],
+                      display: `${formatChartValue(totals[index], config)} (${percent}%)`,
+                      color: CHART_COLORS[index % CHART_COLORS.length],
+                    },
+                  ])
+                }}
               />
               {config.showValues && fraction >= 0.05 ? (
                 <text
@@ -917,7 +1210,7 @@ export function ChartView({
             textAnchor="end"
             className="fill-muted-foreground text-[10px]"
           >
-            {formatNumber(tick)}
+            {formatAxisValue(tick, config)}
           </text>
         </g>
       ))}
@@ -937,7 +1230,7 @@ export function ChartView({
             textAnchor="middle"
             className="fill-muted-foreground text-[10px]"
           >
-            {formatNumber(tick)}
+            {formatAxisValue(tick, config)}
           </text>
         </g>
       ))}
@@ -969,19 +1262,35 @@ export function ChartView({
                   {
                     name: scatter.xField,
                     value: point.x,
-                    display: formatNumber(point.x),
+                    display: formatChartValue(point.x, config),
                     color: CHART_COLORS[groupIndex % CHART_COLORS.length],
                   },
                   {
                     name: scatter.yField,
                     value: point.y,
-                    display: formatNumber(point.y),
+                    display: formatChartValue(point.y, config),
                     color: CHART_COLORS[groupIndex % CHART_COLORS.length],
                   },
                 ])
               }
               onMouseLeave={hideTooltip}
               onClick={() => drillValue(scatter.xField, point.x)}
+              onPointerDown={(event) =>
+                showTooltip(event, point.label, [
+                  {
+                    name: scatter.xField,
+                    value: point.x,
+                    display: formatChartValue(point.x, config),
+                    color: CHART_COLORS[groupIndex % CHART_COLORS.length],
+                  },
+                  {
+                    name: scatter.yField,
+                    value: point.y,
+                    display: formatChartValue(point.y, config),
+                    color: CHART_COLORS[groupIndex % CHART_COLORS.length],
+                  },
+                ])
+              }
             />
           )
         })}
@@ -1112,11 +1421,18 @@ export function ChartView({
         series: series.length,
       })
 
-  const xOptions = config.type === "scatter" ? numericColumns : columns
+  const xOptions = config.type === "scatter" ? numericColumns : fieldNames
+  const allViews = React.useMemo(
+    () => [
+      ...teamViews.map((view) => ({ ...view, shared: true })),
+      ...views.map((view) => ({ ...view, shared: false })),
+    ],
+    [teamViews, views],
+  )
 
   return (
     <div className={cn("flex h-full min-h-0 flex-col", className)}>
-      <div className="flex shrink-0 flex-wrap items-end gap-3 border-b p-3">
+      <div className={cn("flex shrink-0 flex-wrap items-end gap-3 border-b p-3", !configOpen && "hidden")}>
         <div className="grid gap-1.5">
           <Label className="text-xs">{t("chart.type")}</Label>
           <Select
@@ -1167,9 +1483,10 @@ export function ChartView({
               <SelectValue placeholder={t("chart.pickField")} />
             </SelectTrigger>
             <SelectContent>
-              {xOptions.map((column) => (
+              {xOptions.filter(fieldMatches).map((column) => (
                 <SelectItem key={column} value={column || " "}>
                   {column}
+                  {typeOf(column) ? ` · ${typeOf(column)}` : ""}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -1222,11 +1539,12 @@ export function ChartView({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="__none__">{t("chart.groupNone")}</SelectItem>
-              {columns
-                .filter((column) => column !== config.x)
+              {fieldNames
+                .filter((column) => column !== config.x && fieldMatches(column))
                 .map((column) => (
                   <SelectItem key={column} value={column}>
                     {column}
+                    {typeOf(column) ? ` · ${typeOf(column)}` : ""}
                   </SelectItem>
                 ))}
             </SelectContent>
@@ -1240,7 +1558,7 @@ export function ChartView({
               value={config.timeBucket}
               onValueChange={(value) => update({ timeBucket: value as ChartTimeBucket })}
             >
-              <SelectTrigger size="sm" className="w-28">
+              <SelectTrigger size="sm" className="w-28" title={t("chart.bucketHint")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1281,6 +1599,79 @@ export function ChartView({
           />
         </div>
 
+        <div className="grid gap-1.5">
+          <Label className="text-xs">{t("chart.titleLabel")}</Label>
+          <Input
+            value={config.title}
+            onChange={(event) => update({ title: event.target.value })}
+            placeholder={t("chart.titlePlaceholder")}
+            className="h-8 w-44 text-xs"
+          />
+        </div>
+
+        <div className="grid gap-1.5">
+          <Label className="text-xs">{t("chart.numberFormat")}</Label>
+          <Select
+            value={config.numberFormat}
+            onValueChange={(value) => update({ numberFormat: value as ChartConfig["numberFormat"] })}
+          >
+            <SelectTrigger size="sm" className="w-28">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">{t("chart.format.auto")}</SelectItem>
+              <SelectItem value="plain">{t("chart.format.plain")}</SelectItem>
+              <SelectItem value="percent">{t("chart.format.percent")}</SelectItem>
+              <SelectItem value="currency">{t("chart.format.currency")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="grid gap-1.5">
+          <Label className="text-xs">{t("chart.unit")}</Label>
+          <Input
+            value={config.unit}
+            onChange={(event) => update({ unit: event.target.value })}
+            placeholder="%, $, kg"
+            className="h-8 w-20 text-xs"
+          />
+        </div>
+
+        <div className="grid gap-1.5">
+          <Label className="text-xs">{t("chart.decimals")}</Label>
+          <Input
+            value={config.decimals === null ? "" : String(config.decimals)}
+            onChange={(event) => {
+              const raw = event.target.value.trim()
+              const next = Number(raw)
+              update({
+                decimals:
+                  raw === "" || !Number.isFinite(next)
+                    ? null
+                    : Math.max(0, Math.min(6, Math.floor(next))),
+              })
+            }}
+            placeholder="auto"
+            inputMode="numeric"
+            className="h-8 w-16 text-xs"
+          />
+        </div>
+
+        <div className="grid gap-1.5">
+          <Label className="text-xs">{t("chart.referenceLine")}</Label>
+          <Input
+            value={config.referenceLine === null ? "" : String(config.referenceLine)}
+            onChange={(event) => {
+              const raw = event.target.value.trim()
+              const next = Number(raw)
+              update({ referenceLine: raw === "" || !Number.isFinite(next) ? null : next })
+            }}
+            placeholder="—"
+            inputMode="decimal"
+            className="h-8 w-20 text-xs"
+          />
+        </div>
+
         <label className="flex items-center gap-2 pb-2 text-xs">
           <Switch
             checked={config.others}
@@ -1296,6 +1687,15 @@ export function ChartView({
               onCheckedChange={(checked) => update({ stacked: checked })}
             />
             {t("chart.stacked")}
+          </label>
+        ) : null}
+        {config.type === "bar" && config.stacked ? (
+          <label className="flex items-center gap-2 pb-2 text-xs">
+            <Switch
+              checked={config.percentStacked}
+              onCheckedChange={(checked) => update({ percentStacked: checked })}
+            />
+            {t("chart.percentStacked")}
           </label>
         ) : null}
 
@@ -1317,6 +1717,18 @@ export function ChartView({
           >
             <RefreshCw className={cn(loading && "animate-spin")} />
             <span className="hidden sm:inline">{t("common.refresh")}</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setConfig(suggestChartConfig([...documents, ...probeDocs], fieldNames))
+              setHidden(new Set())
+            }}
+            title={t("chart.recommend")}
+          >
+            <Sparkles />
+            <span className="hidden lg:inline">{t("chart.recommend")}</span>
           </Button>
           <Button variant="outline" size="sm" onClick={reset} title={t("chart.reset")}>
             <RotateCcw />
@@ -1385,16 +1797,28 @@ export function ChartView({
         </div>
 
         <div className="grid w-full gap-1.5">
-          <Label className="text-xs">{t("chart.yAxis")}</Label>
+          <div className="flex flex-wrap items-center gap-2">
+            <Label className="text-xs">{t("chart.yAxis")}</Label>
+            <div className="relative">
+              <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3 -translate-y-1/2" />
+              <Input
+                value={fieldQuery}
+                onChange={(event) => setFieldQuery(event.target.value)}
+                placeholder={t("chart.searchFields")}
+                className="h-7 w-44 pl-7 text-xs"
+              />
+            </div>
+          </div>
           {numericColumns.length > 0 ? (
             <div className="flex flex-wrap items-center gap-1.5">
-              {numericColumns.map((column) => {
+              {numericColumns.filter(fieldMatches).map((column) => {
                 const active = config.y.includes(column)
                 return (
                   <button
                     key={column}
                     type="button"
                     aria-pressed={active}
+                    title={`${column}${typeOf(column) ? ` · ${typeOf(column)}` : ""}`}
                     onClick={() => {
                       toggleY(column)
                       if (!active && config.aggregate === "count" && config.type !== "scatter") {
@@ -1427,6 +1851,76 @@ export function ChartView({
           <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5">
             {serverMode ? t("chart.serverData") : t("chart.pageData")}
           </span>
+          <Button
+            variant={configOpen ? "secondary" : "outline"}
+            size="sm"
+            className="h-6 px-2 text-[11px]"
+            onClick={() => setConfigOpen((value) => !value)}
+          >
+            <SlidersHorizontal className="size-3" /> {t("chart.configure")}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 px-2 text-[11px]"
+            onClick={() => {
+              if (document.fullscreenElement) void document.exitFullscreen()
+              else void ref.current?.requestFullscreen?.()
+            }}
+            title={t("chart.fullscreen")}
+          >
+            <Maximize2 className="size-3" />
+          </Button>
+          {config.aggregate === "none" && serverMode ? (
+            <span className="text-muted-foreground">
+              {t("chart.rawHint", {
+                shown: data.categories.length,
+                total: rawTotal ?? data.categories.length,
+              })}
+            </span>
+          ) : null}
+          {config.aggregate === "none" && serverMode ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => update({ limit: Math.min(Math.max(config.limit * 2, 40), 500) })}
+            >
+              {t("chart.showMore")}
+            </Button>
+          ) : null}
+          {config.aggregate === "none" && serverMode ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => update({ aggregate: config.y.length > 0 ? "sum" : "count" })}
+            >
+              {t("chart.useAggregate")}
+            </Button>
+          ) : null}
+          {crowded ? (
+            <span className="text-muted-foreground flex flex-wrap items-center gap-1">
+              <AlertTriangle className="size-3 text-amber-500" />
+              {t("chart.crowded")}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-[11px]"
+                onClick={() => update({ others: true })}
+              >
+                {t("chart.mergeOthers")}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-[11px]"
+                onClick={() => update({ type: "hbar" })}
+              >
+                {t("chart.type.hbar")}
+              </Button>
+            </span>
+          ) : null}
           {loading ? (
             <span className="text-muted-foreground flex items-center gap-1">
               <Loader2 className="size-3 animate-spin" /> {t("common.loading")}
@@ -1455,6 +1949,9 @@ export function ChartView({
           </div>
         ) : (
           <>
+            {config.title ? (
+              <h3 className="mb-2 text-sm font-medium">{config.title}</h3>
+            ) : null}
             <svg
               ref={svgRef}
               width={chartWidth}
@@ -1489,7 +1986,7 @@ export function ChartView({
                             textAnchor="middle"
                             className="fill-muted-foreground text-[10px]"
                           >
-                            {formatNumber(tick)}
+                            {formatAxisValue(tick, config)}
                           </text>
                         </g>
                       ))}
@@ -1508,6 +2005,28 @@ export function ChartView({
                         )
                       })}
                       {renderHBars()}
+                      {config.referenceLine !== null &&
+                      config.referenceLine >= scale.min &&
+                      config.referenceLine <= scale.max ? (
+                        <g>
+                          <line
+                            x1={xForValue(config.referenceLine)}
+                            x2={xForValue(config.referenceLine)}
+                            y1={margin.top}
+                            y2={margin.top + plotHeight}
+                            stroke="var(--chart-1)"
+                            strokeDasharray="4 4"
+                          />
+                          <text
+                            x={xForValue(config.referenceLine)}
+                            y={margin.top - 4}
+                            textAnchor="middle"
+                            className="fill-muted-foreground text-[9px]"
+                          >
+                            {formatChartValue(config.referenceLine, config)}
+                          </text>
+                        </g>
+                      ) : null}
                     </>
                   ) : (
                     <>
@@ -1518,9 +2037,37 @@ export function ChartView({
                         </>
                       ) : null}
                       {config.type === "bar" ? renderBars() : null}
+                      {config.type === "combo" ? renderCombo() : null}
+                      {config.type === "combo" && comboLines.length > 0
+                        ? renderRightAxis()
+                        : null}
                       {config.type === "line" ? renderLines(false) : null}
                       {config.type === "area" ? renderLines(true) : null}
                       {config.type === "pie" ? renderPie() : null}
+                      {!scatterMode &&
+                      config.type !== "pie" &&
+                      config.referenceLine !== null &&
+                      config.referenceLine >= scale.min &&
+                      config.referenceLine <= scale.max ? (
+                        <g>
+                          <line
+                            x1={margin.left}
+                            x2={margin.left + plotWidth}
+                            y1={yFor(config.referenceLine)}
+                            y2={yFor(config.referenceLine)}
+                            stroke="var(--chart-1)"
+                            strokeDasharray="4 4"
+                          />
+                          <text
+                            x={margin.left + plotWidth}
+                            y={yFor(config.referenceLine) - 4}
+                            textAnchor="end"
+                            className="fill-muted-foreground text-[9px]"
+                          >
+                            {formatChartValue(config.referenceLine, config)}
+                          </text>
+                        </g>
+                      ) : null}
                       {config.type !== "pie" ? (
                         <>
                           <text
@@ -1538,8 +2085,20 @@ export function ChartView({
                             textAnchor="end"
                             className="fill-muted-foreground text-[9px]"
                           >
-                            {config.y.join(", ") || t("chart.agg.count")}
+                            {comboMode
+                              ? comboBar[0]?.name ?? ""
+                              : config.y.join(", ") || t("chart.agg.count")}
                           </text>
+                          {comboMode && comboLines[0] ? (
+                            <text
+                              x={margin.left + plotWidth}
+                              y={margin.top - 8}
+                              textAnchor="end"
+                              className="fill-muted-foreground text-[9px]"
+                            >
+                              {comboLines[0].name}
+                            </text>
+                          ) : null}
                         </>
                       ) : null}
                     </>
@@ -1571,7 +2130,7 @@ export function ChartView({
                         </td>
                         {series.map((item) => (
                           <td key={item.name} className="px-2 py-1 text-right font-mono">
-                            {formatNumber(item.values[index] ?? 0)}
+                            {formatChartValue(item.values[index] ?? 0, config)}
                           </td>
                         ))}
                       </tr>
@@ -1590,27 +2149,32 @@ export function ChartView({
               <DialogDescription>{t("chart.viewsDesc")}</DialogDescription>
             </DialogHeader>
             <div className="max-h-56 space-y-1 overflow-auto">
-              {views.length === 0 ? (
+              {allViews.length === 0 ? (
                 <p className="text-muted-foreground text-sm">{t("chart.noViews")}</p>
               ) : (
-                views.map((view) => (
+                allViews.map((view) => (
                   <div
-                    key={view.id}
+                    key={`${view.shared ? "team" : "local"}-${view.id}`}
                     className="hover:bg-accent/50 flex items-center gap-2 rounded-md border px-2 py-1.5"
                   >
                     <button
                       type="button"
                       onClick={() => applyView(view)}
-                      className="min-w-0 flex-1 truncate text-left text-sm"
+                      className="min-w-0 flex-1 text-left text-sm"
                       title={view.name}
                     >
-                      {view.name}
+                      <span className="block truncate">{view.name}</span>
+                      <span className="text-muted-foreground text-[10px]">
+                        {view.shared ? t("chart.teamView") : t("chart.localView")}
+                        {view.pinned ? ` · ${t("chart.pinnedView")}` : ""}
+                        {view.updatedBy ? ` · ${view.updatedBy}` : ""}
+                      </span>
                     </button>
                     <Button
                       variant="ghost"
                       size="icon-sm"
                       aria-label={t("chart.deleteView")}
-                      onClick={() => deleteView(view.id)}
+                      onClick={() => void deleteView(view)}
                     >
                       <Trash2 />
                     </Button>
@@ -1632,10 +2196,22 @@ export function ChartView({
                   }}
                   placeholder={t("chart.viewNamePlaceholder")}
                 />
-                <Button onClick={saveView} disabled={!viewName.trim()}>
+                <Button onClick={() => void saveView()} disabled={!viewName.trim()}>
                   <Plus /> {t("common.save")}
                 </Button>
               </div>
+              {scope ? (
+                <label className="flex items-center gap-2 text-xs">
+                  <Switch checked={shareView} onCheckedChange={setShareView} />
+                  {t("chart.shareTeam")}
+                </label>
+              ) : null}
+              {scope && shareView ? (
+                <label className="flex items-center gap-2 text-xs">
+                  <Switch checked={pinView} onCheckedChange={setPinView} />
+                  {t("chart.pinOverview")}
+                </label>
+              ) : null}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setViewsOpen(false)}>

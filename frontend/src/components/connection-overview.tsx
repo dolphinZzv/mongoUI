@@ -1,5 +1,5 @@
 import * as React from "react"
-import { AlertCircle, Database, HardDrive, Loader2, RefreshCw, Server, ShieldCheck } from "lucide-react"
+import { AlertCircle, BarChart3, Database, HardDrive, Loader2, RefreshCw, Server, ShieldCheck } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -16,10 +16,12 @@ import { databaseLabel, useAliases } from "@/lib/aliases"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { formatBytes } from "@/lib/mongo"
-import type { Connection, DatabaseInfo } from "@/lib/types"
+import type { SavedChartView } from "@/lib/chart"
+import type { Connection, DatabaseInfo, Selection } from "@/lib/types"
 
 interface ConnectionOverviewProps {
   connection: Connection
+  onOpenChart?: (selection: Selection, chart: SavedChartView) => void
 }
 
 function maskUri(uri: string): string {
@@ -39,7 +41,7 @@ function display(value: unknown): string {
   return String(value)
 }
 
-export function ConnectionOverview({ connection }: ConnectionOverviewProps) {
+export function ConnectionOverview({ connection, onOpenChart }: ConnectionOverviewProps) {
   const { t } = useI18n()
   const aliases = useAliases()
   const [databases, setDatabases] = React.useState<DatabaseInfo[]>([])
@@ -47,6 +49,9 @@ export function ConnectionOverview({ connection }: ConnectionOverviewProps) {
   const [server, setServer] = React.useState<Record<string, unknown> | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [pinnedCharts, setPinnedCharts] = React.useState<
+    { scope: string; view: SavedChartView }[]
+  >([])
 
   const load = React.useCallback(async () => {
     setError(null)
@@ -57,13 +62,19 @@ export function ConnectionOverview({ connection }: ConnectionOverviewProps) {
     }
     setLoading(true)
     try {
-      const [dbResult, serverResult] = await Promise.all([
+      const [dbResult, serverResult, chartResult] = await Promise.all([
         api.listDatabases(connection.id),
         api.serverInfo(connection.id).catch(() => null),
+        api.getConnectionChartViews(connection.id).catch(() => ({ scopes: {} })),
       ])
       setDatabases(dbResult.databases)
       setTotalSize(dbResult.totalSize)
       setServer(serverResult)
+      setPinnedCharts(
+        Object.entries(chartResult.scopes ?? {}).flatMap(([scope, views]) =>
+          views.filter((view) => view.pinned).map((view) => ({ scope, view })),
+        ),
+      )
     } catch (err) {
       setError(err instanceof Error ? err.message : t("overview.loadDbFailed"))
     } finally {
@@ -123,6 +134,40 @@ export function ConnectionOverview({ connection }: ConnectionOverviewProps) {
         </div>
       ) : (
         <div className="space-y-4 p-4">
+          {pinnedCharts.length > 0 ? (
+            <div className="space-y-2">
+              <h2 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                {t("overview.pinnedCharts")}
+              </h2>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {pinnedCharts.map(({ scope, view }) => {
+                  const [connectionId, database, collection] = scope.split("::")
+                  if (!database || !collection) return null
+                  return (
+                    <button
+                      key={`${scope}-${view.id}`}
+                      type="button"
+                      onClick={() =>
+                        onOpenChart?.(
+                          { kind: "collection", connectionId, database, collection },
+                          view,
+                        )
+                      }
+                      className="hover:bg-accent/50 flex items-center gap-3 rounded-lg border p-3 text-left transition-colors"
+                    >
+                      <BarChart3 className="text-muted-foreground size-4 shrink-0" />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium">{view.name}</span>
+                        <span className="text-muted-foreground block truncate text-xs">
+                          {database}.{collection}
+                        </span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Card className="gap-0 py-4">
               <CardHeader className="px-4">

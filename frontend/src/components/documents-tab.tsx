@@ -1,6 +1,7 @@
 import * as React from "react"
 import {
   AlertCircle,
+  BarChart3,
   Braces,
   Ban,
   ChevronDown,
@@ -689,6 +690,11 @@ export function DocumentsTab({
         formatQuery()
         return
       }
+      if (event.altKey && event.shiftKey && event.code === "KeyG") {
+        event.preventDefault()
+        openChart()
+        return
+      }
       if (event.metaKey || event.ctrlKey || event.altKey) return
       const target = event.target as HTMLElement
       if (
@@ -828,6 +834,7 @@ export function DocumentsTab({
     documents,
     focusRow,
     formatQuery,
+    openChart,
     moveActiveCell,
     readOnly,
     selected,
@@ -1237,6 +1244,17 @@ export function DocumentsTab({
           >
             <Braces />
             <span className="hidden lg:inline">{t("docs.format")}</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9"
+            onClick={openChart}
+            title={t("chart.open")}
+            aria-label={t("chart.open")}
+          >
+            <BarChart3 />
+            <span className="hidden lg:inline">{t("chart.openShort")}</span>
           </Button>
           <div className="bg-border mx-1 h-5 w-px shrink-0" />
           <Button

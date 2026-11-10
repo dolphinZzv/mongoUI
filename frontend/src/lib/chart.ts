@@ -1,10 +1,11 @@
 import { isPlainObject } from "@/lib/mongo"
 import type { MongoDocument } from "@/lib/types"
 
-export type ChartType = "bar" | "line" | "area" | "pie" | "hbar" | "scatter"
+export type ChartType = "bar" | "line" | "area" | "pie" | "hbar" | "scatter" | "combo"
 export type ChartAggregate = "none" | "count" | "sum" | "avg" | "min" | "max"
 export type ChartSort = "none" | "asc" | "desc"
-export type ChartTimeBucket = "none" | "day" | "week" | "month" | "quarter" | "year"
+export type ChartTimeBucket = "none" | "auto" | "day" | "week" | "month" | "quarter" | "year"
+export type ChartNumberFormat = "auto" | "plain" | "percent" | "currency"
 
 export interface ChartConfig {
   type: ChartType
@@ -23,6 +24,18 @@ export interface ChartConfig {
   others: boolean
   /** Print numeric labels on bars/slices. */
   showValues: boolean
+  /** How values are rendered on axes, labels, tooltips and the data table. */
+  numberFormat: ChartNumberFormat
+  /** Optional unit shown next to values; for currency it is used as a prefix. */
+  unit: string
+  /** Fixed decimal places; null keeps compact automatic formatting. */
+  decimals: number | null
+  /** Optional chart title shown above the plot. */
+  title: string
+  /** Normalise stacked bars to 100%. */
+  percentStacked: boolean
+  /** Optional horizontal reference line, in value units. */
+  referenceLine: number | null
 }
 
 export interface ChartSeries {
@@ -40,6 +53,18 @@ export interface ChartData {
 }
 
 /** One point for a scatter plot; scatter uses a separate numeric x axis. */
+/** A named chart configuration stored locally or shared through the server. */
+export interface SavedChartView {
+  id: string
+  name: string
+  config: ChartConfig
+  filter?: string
+  pinned?: boolean
+  shared?: boolean
+  updatedAt?: string
+  updatedBy?: string
+}
+
 export interface ScatterPoint {
   x: number
   y: number
@@ -47,10 +72,10 @@ export interface ScatterPoint {
   group: string
 }
 
-const CHART_TYPE_VALUES: ChartType[] = ["bar", "hbar", "line", "area", "pie", "scatter"]
+const CHART_TYPE_VALUES: ChartType[] = ["bar", "hbar", "line", "area", "pie", "scatter", "combo"]
 const AGGREGATE_VALUES: ChartAggregate[] = ["none", "count", "sum", "avg", "min", "max"]
 const SORT_VALUES: ChartSort[] = ["none", "asc", "desc"]
-const BUCKET_VALUES: ChartTimeBucket[] = ["none", "day", "week", "month", "quarter", "year"]
+const BUCKET_VALUES: ChartTimeBucket[] = ["none", "auto", "day", "week", "month", "quarter", "year"]
 
 /** Validates persisted/shared config so a stale or tampered value cannot break rendering. */
 export function normalizeChartConfig(input: unknown): ChartConfig {
@@ -74,7 +99,61 @@ export function normalizeChartConfig(input: unknown): ChartConfig {
       : "none",
     others: raw.others !== false,
     showValues: Boolean(raw.showValues),
+    numberFormat: ["auto", "plain", "percent", "currency"].includes(raw.numberFormat as string)
+      ? (raw.numberFormat as ChartNumberFormat)
+      : "auto",
+    unit: typeof raw.unit === "string" ? raw.unit : "",
+    decimals:
+      typeof raw.decimals === "number" && Number.isFinite(raw.decimals)
+        ? Math.max(0, Math.min(6, Math.floor(raw.decimals)))
+        : null,
+    title: typeof raw.title === "string" ? raw.title : "",
+    percentStacked: Boolean(raw.percentStacked),
+    referenceLine:
+      typeof raw.referenceLine === "number" && Number.isFinite(raw.referenceLine)
+        ? raw.referenceLine
+        : null,
   }
+}
+
+/** Resolves the "auto" bucket from the time span of the sampled documents. */
+export function resolveTimeBucket(
+  documents: MongoDocument[],
+  column: string,
+  bucket: ChartTimeBucket,
+): ChartTimeBucket {
+  if (bucket !== "auto") return bucket
+  const times = documents
+    .map((doc) => toDate(doc[column]))
+    .filter((date): date is Date => date !== null)
+    .map((date) => date.getTime())
+    .sort((a, b) => a - b)
+  if (times.length < 2) return "day"
+  const span = times[times.length - 1] - times[0]
+  const day = 86_400_000
+  if (span <= 90 * day) return "day"
+  if (span <= 730 * day) return "month"
+  return "year"
+}
+
+/** Formats a value using the chart's number format, unit and decimals. */
+export function formatChartValue(value: number, config: ChartConfig): string {
+  if (config.numberFormat === "percent") {
+    return `${(value * 100).toFixed(config.decimals ?? 1)}%`
+  }
+  const text =
+    config.decimals !== null
+      ? value.toFixed(config.decimals)
+      : formatNumber(value)
+  if (!config.unit) return text
+  return config.numberFormat === "currency" ? `${config.unit}${text}` : `${text} ${config.unit}`
+}
+
+/** Compact value formatter for axis ticks. */
+export function formatAxisValue(value: number, config: ChartConfig): string {
+  if (config.numberFormat === "percent") return `${(value * 100).toFixed(0)}%`
+  const text = formatNumber(value)
+  return config.unit && config.numberFormat === "currency" ? `${config.unit}${text}` : text
 }
 
 /** Palette backed by the theme's chart CSS variables. */
@@ -101,6 +180,12 @@ export const DEFAULT_CHART_CONFIG: ChartConfig = {
   timeBucket: "none",
   others: true,
   showValues: false,
+  numberFormat: "auto",
+  unit: "",
+  decimals: null,
+  title: "",
+  percentStacked: false,
+  referenceLine: null,
 }
 
 /** Distinct group values rendered as series; beyond this the largest win. */
@@ -511,7 +596,15 @@ export function buildChartPipeline(
   const xExpr =
     unit === "none"
       ? `$${x}`
-      : { $dateTrunc: { date: `$${x}`, unit, startOfWeek: "monday" } }
+      : {
+          $dateTrunc: {
+            // $convert tolerates BSON dates, ISO strings and epoch numbers; a
+            // plain field reference would fail for string timestamps.
+            date: { $convert: { input: `$${x}`, to: "date", onError: null, onNull: null } },
+            unit,
+            startOfWeek: "monday",
+          },
+        }
   const accumulators: Record<string, unknown> = {}
   if (aggregate === "count" || y.length === 0) {
     accumulators.v0 = { $sum: 1 }
@@ -708,11 +801,13 @@ export function suggestChartConfig(
       ? previous.group
       : ""
 
-  const timeBucket: ChartTimeBucket =
-    previous?.timeBucket && temporalColumns.has(x) ? previous.timeBucket : "none"
+  const temporal = temporalColumns.has(x)
+  const timeBucket: ChartTimeBucket = temporal
+    ? previous?.timeBucket ?? "auto"
+    : "none"
 
   return {
-    type: previous?.type ?? "bar",
+    type: previous?.type ?? (temporal ? "line" : "bar"),
     x,
     y,
     aggregate,
@@ -723,6 +818,12 @@ export function suggestChartConfig(
     timeBucket,
     others: previous?.others ?? true,
     showValues: previous?.showValues ?? false,
+    numberFormat: previous?.numberFormat ?? "auto",
+    unit: previous?.unit ?? "",
+    decimals: previous?.decimals ?? null,
+    title: previous?.title ?? "",
+    percentStacked: previous?.percentStacked ?? false,
+    referenceLine: previous?.referenceLine ?? null,
   }
 }
 

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -227,5 +228,46 @@ func TestAISettingsLegacyMigration(t *testing.T) {
 	}
 	if _, exists := s.AIByUser["user-a"]; exists {
 		t.Fatalf("legacy profile must not be shared with accounts")
+	}
+}
+
+func TestChartViewsPersist(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	s, err := LoadSettings(path, DefaultMCPSettings())
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	scope := "conn::db::users"
+	if err := s.SetChartViews(scope, []ChartView{{
+		ID:     "v1",
+		Name:   "Daily users",
+		Config: json.RawMessage(`{"type":"line"}`),
+		Filter: "{}",
+		Pinned: true,
+	}}); err != nil {
+		t.Fatalf("set views: %v", err)
+	}
+
+	reloaded, err := LoadSettings(path, DefaultMCPSettings())
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	views := reloaded.GetChartViews(scope)
+	if len(views) != 1 || views[0].Name != "Daily users" || !views[0].Pinned {
+		t.Fatalf("unexpected views: %#v", views)
+	}
+	if views := reloaded.GetChartViews("conn::db::other"); len(views) != 0 || views == nil {
+		t.Fatalf("empty scope should return an empty slice: %#v", views)
+	}
+	byConnection := reloaded.ChartViewsForConnection("conn")
+	if len(byConnection[scope]) != 1 {
+		t.Fatalf("connection lookup missing scope: %#v", byConnection)
+	}
+
+	if err := reloaded.SetChartViews(scope, nil); err != nil {
+		t.Fatalf("clear views: %v", err)
+	}
+	if views := reloaded.GetChartViews(scope); len(views) != 0 {
+		t.Fatalf("views should be removed: %#v", views)
 	}
 }

@@ -30,6 +30,7 @@ const GENERAL: Shortcut[] = [
   { keys: ["alt", "shift", "T"], labelKey: "shortcuts.reopenTab" },
   { keys: ["mod", "S"], labelKey: "shortcuts.saveView" },
   { keys: ["shift", "alt", "F"], labelKey: "shortcuts.formatQuery" },
+  { keys: ["shift", "alt", "G"], labelKey: "shortcuts.chart" },
 ]
 
 const TABLE: Shortcut[] = [

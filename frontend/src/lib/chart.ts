@@ -1,4 +1,4 @@
-import { isPlainObject } from "@/lib/mongo"
+import { formatBytes, isPlainObject } from "@/lib/mongo"
 import type { MongoDocument } from "@/lib/types"
 
 export type ChartType = "bar" | "line" | "area" | "pie" | "hbar" | "scatter" | "combo"
@@ -7,6 +7,7 @@ export type ChartSort = "none" | "asc" | "desc"
 export type ChartTimeBucket = "none" | "auto" | "day" | "week" | "month" | "quarter" | "year"
 export type ChartNumberFormat = "auto" | "plain" | "percent" | "currency"
 export type ChartTimeZone = "utc" | "local"
+export type ChartAxisScale = "none" | "k" | "m" | "b" | "bytes"
 
 export interface ChartConfig {
   type: ChartType
@@ -39,6 +40,8 @@ export interface ChartConfig {
   referenceLine: number | null
   /** Bucket dates in UTC or the viewer's local time zone. */
   timeZone: ChartTimeZone
+  /** Display conversion applied to the Y axis, labels and tooltips. */
+  yAxisScale: ChartAxisScale
 }
 
 export interface ChartSeries {
@@ -117,6 +120,9 @@ export function normalizeChartConfig(input: unknown): ChartConfig {
         ? raw.referenceLine
         : null,
     timeZone: raw.timeZone === "local" ? "local" : "utc",
+    yAxisScale: ["none", "k", "m", "b", "bytes"].includes(raw.yAxisScale as string)
+      ? (raw.yAxisScale as ChartAxisScale)
+      : "none",
   }
 }
 
@@ -140,24 +146,47 @@ export function resolveTimeBucket(
   return "year"
 }
 
-/** Formats a value using the chart's number format, unit and decimals. */
+function axisConversion(value: number, scale: ChartAxisScale): { value: number; suffix: string } {
+  switch (scale) {
+    case "k":
+      return { value: value / 1_000, suffix: "k" }
+    case "m":
+      return { value: value / 1_000_000, suffix: "M" }
+    case "b":
+      return { value: value / 1_000_000_000, suffix: "B" }
+    default:
+      return { value, suffix: "" }
+  }
+}
+
+/** Formats a value using the chart's axis conversion, number format and unit. */
 export function formatChartValue(value: number, config: ChartConfig): string {
+  if (config.yAxisScale === "bytes") return formatBytes(value)
+  const converted = axisConversion(value, config.yAxisScale)
   if (config.numberFormat === "percent") {
-    return `${(value * 100).toFixed(config.decimals ?? 1)}%`
+    return `${(converted.value * 100).toFixed(config.decimals ?? 1)}%`
   }
   const text =
     config.decimals !== null
-      ? value.toFixed(config.decimals)
-      : formatNumber(value)
-  if (!config.unit) return text
-  return config.numberFormat === "currency" ? `${config.unit}${text}` : `${text} ${config.unit}`
+      ? converted.value.toFixed(config.decimals)
+      : formatNumber(converted.value)
+  const number = `${text}${converted.suffix}`
+  if (!config.unit) return number
+  return config.numberFormat === "currency" ? `${config.unit}${number}` : `${number} ${config.unit}`
 }
 
-/** Compact value formatter for axis ticks. */
+/** Compact value formatter for axis ticks, honouring the same conversion. */
 export function formatAxisValue(value: number, config: ChartConfig): string {
-  if (config.numberFormat === "percent") return `${(value * 100).toFixed(0)}%`
-  const text = formatNumber(value)
-  return config.unit && config.numberFormat === "currency" ? `${config.unit}${text}` : text
+  if (config.yAxisScale === "bytes") return formatBytes(value)
+  const converted = axisConversion(value, config.yAxisScale)
+  if (config.numberFormat === "percent") return `${(converted.value * 100).toFixed(0)}%`
+  const text =
+    config.decimals !== null
+      ? converted.value.toFixed(config.decimals)
+      : formatNumber(converted.value)
+  const number = `${text}${converted.suffix}`
+  if (!config.unit) return number
+  return config.numberFormat === "currency" ? `${config.unit}${number}` : `${number} ${config.unit}`
 }
 
 /** Palette backed by the theme's chart CSS variables. */
@@ -191,6 +220,7 @@ export const DEFAULT_CHART_CONFIG: ChartConfig = {
   percentStacked: false,
   referenceLine: null,
   timeZone: "utc",
+  yAxisScale: "none",
 }
 
 /** Distinct group values rendered as series; beyond this the largest win. */
@@ -934,6 +964,7 @@ export function suggestChartConfig(
     percentStacked: previous?.percentStacked ?? false,
     referenceLine: previous?.referenceLine ?? null,
     timeZone: previous?.timeZone ?? "utc",
+    yAxisScale: previous?.yAxisScale ?? "none",
   }
 }
 

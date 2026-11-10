@@ -5,6 +5,7 @@ import {
   buildChartPipeline,
   chartDataFromRows,
   DEFAULT_CHART_CONFIG,
+  formatAxisValue,
   formatChartValue,
   normalizeChartConfig,
   resolveTimeBucket,
@@ -181,6 +182,9 @@ describe("formatting and config", () => {
     expect(formatChartValue(12.3, config({ numberFormat: "currency", unit: "$", decimals: 2 }))).toBe(
       "$12.30",
     )
+    expect(formatChartValue(12_500, config({ yAxisScale: "k", decimals: 1 }))).toBe("12.5k")
+    expect(formatChartValue(2_500_000, config({ yAxisScale: "m", unit: "req" }))).toBe("2.5M req")
+    expect(formatChartValue(1536, config({ yAxisScale: "bytes" }))).toBe("1.5 KB")
   })
 
   it("normalises stale or tampered configs", () => {
@@ -189,5 +193,11 @@ describe("formatting and config", () => {
     expect(normalized.limit).toBe(20)
     expect(normalized.timeBucket).toBe("none")
     expect(normalized.timeZone).toBe("utc")
+    expect(normalized.yAxisScale).toBe("none")
+  })
+
+  it("formats axis ticks with the conversion and unit", () => {
+    expect(formatAxisValue(12_500, config({ yAxisScale: "k", unit: "req" }))).toBe("12.5k req")
+    expect(formatAxisValue(2_000_000, config({ yAxisScale: "m", decimals: 0 }))).toBe("2M")
   })
 })

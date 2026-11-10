@@ -10,6 +10,7 @@ import {
   Loader2,
   LineChart,
   Maximize2,
+  Minimize2,
   PieChart,
   Plus,
   RefreshCw,
@@ -69,6 +70,7 @@ import {
   suggestChartConfig,
   toNumeric,
   type ChartAggregate,
+  type ChartAxisScale,
   type ChartConfig,
   type ChartData,
   type ChartSort,
@@ -270,6 +272,11 @@ export function ChartView({
   const [brushMode, setBrushMode] = React.useState(false)
   const [brush, setBrush] = React.useState<{ start: number; end: number } | null>(null)
   const [focusIndex, setFocusIndex] = React.useState<number | null>(null)
+  const rootRef = React.useRef<HTMLDivElement>(null)
+  const [isFullscreen, setIsFullscreen] = React.useState(false)
+  const [viewportHeight, setViewportHeight] = React.useState(
+    () => (typeof window === "undefined" ? 800 : window.innerHeight),
+  )
   const pointersRef = React.useRef(new Map<number, { x: number; y: number }>())
   const pinchRef = React.useRef<{
     distance: number
@@ -290,6 +297,29 @@ export function ChartView({
   const [pinView, setPinView] = React.useState(false)
   const columnsKey = columns.join("|")
   const serverMode = Boolean(connectionId && database && collection)
+
+  React.useEffect(() => {
+    const onChange = () => {
+      setIsFullscreen(document.fullscreenElement === rootRef.current)
+      setViewportHeight(window.innerHeight)
+    }
+    document.addEventListener("fullscreenchange", onChange)
+    window.addEventListener("resize", onChange)
+    return () => {
+      document.removeEventListener("fullscreenchange", onChange)
+      window.removeEventListener("resize", onChange)
+    }
+  }, [])
+
+  const chartHeight = isFullscreen ? Math.max(320, viewportHeight - 110) : height
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen()
+    } else {
+      void rootRef.current?.requestFullscreen?.()
+    }
+  }
 
   // Re-detect when the result shape changes and the current config no longer fits.
   React.useEffect(() => {
@@ -584,7 +614,7 @@ export function ChartView({
       ? { top: 20, right: 24, bottom: 52, left: 64 }
       : { top: 24, right: 20, bottom: 80, left: 64 }
   const plotWidth = Math.max(40, chartWidth - margin.left - margin.right)
-  const plotHeight = Math.max(60, height - margin.top - margin.bottom)
+  const plotHeight = Math.max(60, chartHeight - margin.top - margin.bottom)
 
   const stacked =
     config.type === "bar" &&
@@ -1587,7 +1617,7 @@ export function ChartView({
   const exportSVG = () => {
     const svg = svgRef.current
     if (!svg) return
-    const clone = inlineSVG(svg, chartWidth, height)
+    const clone = inlineSVG(svg, chartWidth, chartHeight)
     saveBlob(
       new Blob([new XMLSerializer().serializeToString(clone)], {
         type: "image/svg+xml;charset=utf-8",
@@ -1599,7 +1629,7 @@ export function ChartView({
   const exportPNG = async () => {
     const svg = svgRef.current
     if (!svg) return
-    const clone = inlineSVG(svg, chartWidth, height)
+    const clone = inlineSVG(svg, chartWidth, chartHeight)
     const markup = new XMLSerializer().serializeToString(clone)
     const url = URL.createObjectURL(new Blob([markup], { type: "image/svg+xml;charset=utf-8" }))
     try {
@@ -1612,7 +1642,7 @@ export function ChartView({
       const ratio = window.devicePixelRatio || 1
       const canvas = document.createElement("canvas")
       canvas.width = chartWidth * ratio
-      canvas.height = height * ratio
+      canvas.height = chartHeight * ratio
       const context = canvas.getContext("2d")
       if (!context) return
       context.scale(ratio, ratio)
@@ -1621,8 +1651,8 @@ export function ChartView({
         .getPropertyValue("--background")
         .trim()
       context.fillStyle = background || "#ffffff"
-      context.fillRect(0, 0, chartWidth, height)
-      context.drawImage(image, 0, 0, chartWidth, height)
+      context.fillRect(0, 0, chartWidth, chartHeight)
+      context.drawImage(image, 0, 0, chartWidth, chartHeight)
       canvas.toBlob((blob) => {
         if (blob) saveBlob(blob, "chart.png")
       })
@@ -1706,11 +1736,29 @@ export function ChartView({
   )
 
   return (
-    <div className={cn("flex h-full min-h-0 flex-col", className)}>
+    <div
+      ref={rootRef}
+      className={cn(
+        "relative flex h-full min-h-0 flex-col",
+        isFullscreen && "bg-background",
+        className,
+      )}
+    >
+      {isFullscreen ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="absolute top-2 right-2 z-30"
+          onClick={toggleFullscreen}
+          title={t("chart.exitFullscreen")}
+        >
+          <Minimize2 /> {t("chart.exitFullscreen")}
+        </Button>
+      ) : null}
       <div
         className={cn(
           "flex shrink-0 flex-wrap items-end gap-3 border-b p-3",
-          (!configOpen || compact) && "hidden",
+          (!configOpen || compact || isFullscreen) && "hidden",
         )}
       >
         <div className="grid gap-1.5">
@@ -1921,6 +1969,25 @@ export function ChartView({
               <SelectItem value="plain">{t("chart.format.plain")}</SelectItem>
               <SelectItem value="percent">{t("chart.format.percent")}</SelectItem>
               <SelectItem value="currency">{t("chart.format.currency")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="grid gap-1.5">
+          <Label className="text-xs">{t("chart.yAxisScale")}</Label>
+          <Select
+            value={config.yAxisScale}
+            onValueChange={(value) => update({ yAxisScale: value as ChartAxisScale })}
+          >
+            <SelectTrigger size="sm" className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">{t("chart.scale.none")}</SelectItem>
+              <SelectItem value="k">{t("chart.scale.k")}</SelectItem>
+              <SelectItem value="m">{t("chart.scale.m")}</SelectItem>
+              <SelectItem value="b">{t("chart.scale.b")}</SelectItem>
+              <SelectItem value="bytes">{t("chart.scale.bytes")}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -2145,7 +2212,12 @@ export function ChartView({
       </div>
 
       <div ref={ref} className="scrollbar-thin relative min-h-0 flex-1 overflow-auto p-3">
-        <div className={cn("mb-2 flex flex-wrap items-center gap-2 text-[11px]", compact && "hidden")}>
+        <div
+          className={cn(
+            "mb-2 flex flex-wrap items-center gap-2 text-[11px]",
+            (compact || isFullscreen) && "hidden",
+          )}
+        >
           <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5">
             {serverMode ? t("chart.serverData") : t("chart.pageData")}
           </span>
@@ -2161,10 +2233,7 @@ export function ChartView({
             variant="outline"
             size="sm"
             className="h-6 px-2 text-[11px]"
-            onClick={() => {
-              if (document.fullscreenElement) void document.exitFullscreen()
-              else void ref.current?.requestFullscreen?.()
-            }}
+            onClick={toggleFullscreen}
             title={t("chart.fullscreen")}
           >
             <Maximize2 className="size-3" />
@@ -2291,7 +2360,7 @@ export function ChartView({
             <svg
               ref={svgRef}
               width={chartWidth}
-              height={height}
+              height={chartHeight}
               className="block"
               role="img"
               aria-label={`${summary}. ${t("chart.keyboardHint")}`}
@@ -2454,7 +2523,7 @@ export function ChartView({
                         <>
                           <text
                             x={margin.left + plotWidth}
-                            y={height - 10}
+                            y={chartHeight - 10}
                             textAnchor="end"
                             className="fill-muted-foreground text-[9px]"
                           >

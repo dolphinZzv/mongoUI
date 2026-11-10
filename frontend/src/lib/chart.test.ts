@@ -8,6 +8,7 @@ import {
   formatAxisValue,
   formatChartValue,
   formatXAxisLabel,
+  withLiveWindow,
   normalizeChartConfig,
   resolveTimeBucket,
   timeBucketEnd,
@@ -200,6 +201,21 @@ describe("formatting and config", () => {
   it("formats axis ticks with the conversion and unit", () => {
     expect(formatAxisValue(12_500, config({ yAxisScale: "k", unit: "req" }))).toBe("12.5k req")
     expect(formatAxisValue(2_000_000, config({ yAxisScale: "m", decimals: 0 }))).toBe("2M")
+  })
+
+  it("adds a moving live window", () => {
+    const now = Date.parse("2024-01-01T12:00:00Z")
+    expect(withLiveWindow({ status: "a" }, "createdAt", 5, now)).toEqual({
+      $and: [
+        { status: "a" },
+        {
+          createdAt: {
+            $gte: { $date: "2024-01-01T11:55:00.000Z" },
+          },
+        },
+      ],
+    })
+    expect(withLiveWindow({}, "createdAt", 0, now)).toEqual({})
   })
 
   it("formats X-axis labels as dates and numbers", () => {

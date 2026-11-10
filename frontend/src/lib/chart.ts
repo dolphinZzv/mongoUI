@@ -53,6 +53,10 @@ export interface ChartConfig {
   yAxisScale: ChartAxisScale
   /** How category labels on the X axis are rendered. */
   xAxisFormat: ChartXAxisFormat
+  /** Automatic refresh interval in seconds; 0 disables it. */
+  refreshInterval: number
+  /** Rolling time window in minutes applied to a temporal X field; 0 = all data. */
+  liveWindowMinutes: number
 }
 
 export interface ChartSeries {
@@ -146,6 +150,18 @@ export function normalizeChartConfig(input: unknown): ChartConfig {
     ].includes(raw.xAxisFormat as string)
       ? (raw.xAxisFormat as ChartXAxisFormat)
       : "auto",
+    refreshInterval:
+      typeof raw.refreshInterval === "number" &&
+      Number.isFinite(raw.refreshInterval) &&
+      raw.refreshInterval > 0
+        ? Math.min(Math.floor(raw.refreshInterval), 3600)
+        : 0,
+    liveWindowMinutes:
+      typeof raw.liveWindowMinutes === "number" &&
+      Number.isFinite(raw.liveWindowMinutes) &&
+      raw.liveWindowMinutes > 0
+        ? Math.min(Math.floor(raw.liveWindowMinutes), 10080)
+        : 0,
   }
 }
 
@@ -245,6 +261,8 @@ export const DEFAULT_CHART_CONFIG: ChartConfig = {
   timeZone: "utc",
   yAxisScale: "none",
   xAxisFormat: "auto",
+  refreshInterval: 0,
+  liveWindowMinutes: 0,
 }
 
 /** Distinct group values rendered as series; beyond this the largest win. */
@@ -470,6 +488,34 @@ function bucketOf(
   }
 }
 
+/** Compares two category values as numbers, dates, then labels. */
+function compareCategoryValues(
+  aRaw: unknown,
+  bRaw: unknown,
+  aLabel: string,
+  bLabel: string,
+): number {
+  const aNumber = toNumeric(aRaw)
+  const bNumber = toNumeric(bRaw)
+  if (aNumber !== null && bNumber !== null) return aNumber - bNumber
+  const aDate = toDate(aRaw)
+  const bDate = toDate(bRaw)
+  if (aDate && bDate) return aDate.getTime() - bDate.getTime()
+  if (isPlainObject(aRaw) && isPlainObject(bRaw) && "$oid" in aRaw && "$oid" in bRaw) {
+    return String(aRaw.$oid).localeCompare(String(bRaw.$oid))
+  }
+  return aLabel.localeCompare(bLabel)
+}
+
+/** Categories with a natural order (numbers, dates, ObjectIds). */
+function isOrderableCategory(raw: unknown): boolean {
+  return (
+    toNumeric(raw) !== null ||
+    toDate(raw) !== null ||
+    (isPlainObject(raw) && "$oid" in raw)
+  )
+}
+
 /** Sort, limit and optionally merge the tail into an "Other" category. */
 function finalizeChartData(
   categories: string[],
@@ -487,7 +533,16 @@ function finalizeChartData(
       if (!ra || !rb) return a - b
       return ra.start.getTime() - rb.start.getTime() || a - b
     })
-  } else if (config.sort !== "none" && series.length > 0) {
+  } else if (config.sort === "none") {
+    // The table is commonly sorted by _id descending; charts should not
+    // inherit that. Numbers, dates and ObjectIds are ordered ascending, while
+    // arbitrary labels keep their natural encounter order.
+    if (rawCategories.every(isOrderableCategory)) {
+      order = order.sort((a, b) =>
+        compareCategoryValues(rawCategories[a], rawCategories[b], categories[a], categories[b]),
+      )
+    }
+  } else if (series.length > 0) {
     const totals = categories.map((_, index) =>
       series.reduce((sum, item) => sum + (item.values[index] ?? 0), 0),
     )
@@ -630,7 +685,18 @@ export function buildChartData(
     if (aggregate === "none") {
       // Raw: one point per document, capped by "Max points". Keep document
       // order rather than the label map so repeated labels stay aligned.
-      const points = documents.slice(0, Math.max(1, config.limit))
+      const rawPoints = documents.slice(0, Math.max(1, config.limit))
+      const orderedPoints = rawPoints.every((doc) => isOrderableCategory(x ? doc[x] : undefined))
+        ? [...rawPoints].sort((a, b) =>
+            compareCategoryValues(
+              x ? a[x] : undefined,
+              x ? b[x] : undefined,
+              formatCategory(x ? a[x] : undefined),
+              formatCategory(x ? b[x] : undefined),
+            ),
+          )
+        : rawPoints
+      const points = orderedPoints
       series = y.map((field) => ({
         name: field,
         values: points.map((doc) => toNumeric(doc[field]) ?? 0),
@@ -737,6 +803,22 @@ export function applyXAxisFormat(
       ),
     ),
   }
+}
+
+/** Adds a moving "last N minutes" condition on a temporal X field. */
+export function withLiveWindow(
+  filter: unknown,
+  field: string,
+  minutes: number,
+  now: number = Date.now(),
+): unknown {
+  if (!field || minutes <= 0) return filter ?? {}
+  const since = new Date(now - minutes * 60_000).toISOString()
+  const window = { [field]: { $gte: { $date: since } } }
+  if (!filter || typeof filter !== "object" || Object.keys(filter as object).length === 0) {
+    return window
+  }
+  return { $and: [filter, window] }
 }
 
 /** Aggregation pipeline that produces the same shape as buildChartData remotely. */
@@ -1053,6 +1135,8 @@ export function suggestChartConfig(
     timeZone: previous?.timeZone ?? "utc",
     yAxisScale: previous?.yAxisScale ?? "none",
     xAxisFormat: previous?.xAxisFormat ?? "auto",
+    refreshInterval: previous?.refreshInterval ?? 0,
+    liveWindowMinutes: previous?.liveWindowMinutes ?? 0,
   }
 }
 

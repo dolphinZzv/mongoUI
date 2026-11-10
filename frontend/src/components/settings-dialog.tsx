@@ -2,6 +2,7 @@ import * as React from "react"
 import {
   BotIcon,
   CheckIcon,
+  Clock,
   DatabaseBackup,
   KeyRound,
   Languages,
@@ -51,6 +52,13 @@ import { refreshTeamAliases, setAliasMode, useAliasStore } from "@/lib/aliases"
 import { LazyMount } from "@/components/lazy-mount"
 import { api } from "@/lib/api"
 import { LOCALES, useI18n } from "@/lib/i18n"
+import {
+  LOCAL_TIME_ZONE,
+  UTC_TIME_ZONE,
+  supportedTimeZones,
+  useDateTimeZone,
+  writeDateTimeZone,
+} from "@/lib/dateTime"
 import { useTheme, type Theme } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 import { agentToolList, setAgentEnabled, useAgentEnabled, webMcpAvailable } from "@/lib/webmcp"
@@ -108,6 +116,8 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
   const aliasStore = useAliasStore()
   const agentEnabled = useAgentEnabled()
   const agentTools = React.useMemo(() => agentToolList(), [])
+  const timeZones = React.useMemo(() => supportedTimeZones(), [])
+  const dateTimeZone = useDateTimeZone()
   const webmcp = React.useMemo(() => webMcpAvailable(), [])
 
   const isAdmin = !authEnabled || role === "admin"
@@ -322,6 +332,31 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <p className="flex items-center gap-2 text-sm font-medium">
+                      <Clock className="size-4" /> {t("settings.dateTimeZone")}
+                    </p>
+                    <Select value={dateTimeZone} onValueChange={writeDateTimeZone}>
+                      <SelectTrigger className="w-full sm:w-56">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-72">
+                        <SelectItem value={LOCAL_TIME_ZONE}>{t("dateTime.local")}</SelectItem>
+                        <SelectItem value={UTC_TIME_ZONE}>{t("dateTime.utc")}</SelectItem>
+                        {timeZones
+                          .filter((zone) => zone !== "UTC")
+                          .map((zone) => (
+                            <SelectItem key={zone} value={zone}>
+                              {zone}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-muted-foreground text-xs">
+                      {t("settings.dateTimeZoneHint")}
+                    </p>
                   </div>
                 </Panel>
               ) : null}

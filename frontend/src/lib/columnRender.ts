@@ -1,3 +1,5 @@
+import { intlTimeZone, LOCAL_TIME_ZONE } from "@/lib/dateTime"
+
 /** Convert integer/BSON numeric/date-like values into a Date for display. */
 export function toDisplayDate(value: unknown): Date | null {
   if (value instanceof Date) {
@@ -52,17 +54,30 @@ function numberFromExtendedJSON(record: Record<string, unknown>): number {
   return Number.NaN
 }
 
-/** Human-readable local date/time for a numeric timestamp or BSON date. */
-export function formatDateValue(value: unknown, locale: string): string | null {
+/** Human-readable date/time for a timestamp or BSON date in the chosen zone. */
+export function formatDateValue(
+  value: unknown,
+  locale: string,
+  timeZone: string = LOCAL_TIME_ZONE,
+): string | null {
   const date = toDisplayDate(value)
   if (!date) return null
   const tag = locale === "zh" ? "zh-CN" : "en-US"
+  const zone = intlTimeZone(timeZone)
   try {
     return new Intl.DateTimeFormat(tag, {
       dateStyle: "medium",
       timeStyle: "medium",
+      ...(zone ? { timeZone: zone } : {}),
     }).format(date)
   } catch {
-    return date.toLocaleString()
+    try {
+      return new Intl.DateTimeFormat(tag, {
+        dateStyle: "medium",
+        timeStyle: "medium",
+      }).format(date)
+    } catch {
+      return date.toLocaleString()
+    }
   }
 }

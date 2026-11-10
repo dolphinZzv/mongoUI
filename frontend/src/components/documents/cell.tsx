@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { findDictionaryEntry } from "@/lib/columnDictionary"
 import { formatDateValue } from "@/lib/columnRender"
+import { useDateTimeZone } from "@/lib/dateTime"
 import type { ColumnDictionaryEntry, ColumnRender } from "@/lib/columnPrefs"
 import { classForType, formatValue, prettyJSON, valueType } from "@/lib/mongo"
 import { useI18n } from "@/lib/i18n"
@@ -49,6 +50,7 @@ export function CellValue({
   toggleDisabled = false,
 }: CellValueProps) {
   const { t, locale } = useI18n()
+  const timeZone = useDateTimeZone()
   const type = valueType(value)
   const text = formatValue(value)
   const expandable = Boolean(onExpand) && isPreviewableValue(value)
@@ -63,7 +65,7 @@ export function CellValue({
       }
     : undefined
   if (renderer === "date") {
-    const formatted = formatDateValue(value, locale)
+    const formatted = formatDateValue(value, locale, timeZone)
     if (formatted) {
       return (
         <span

@@ -1,5 +1,6 @@
 import * as React from "react"
 
+import type { ChartConfig } from "@/lib/chart"
 import type { Selection } from "@/lib/types"
 
 /**
@@ -17,6 +18,12 @@ import type { Selection } from "@/lib/types"
  * pagination (limit/skip) into the URL so a refresh restores the exact page.
  */
 
+/** Chart state that travels in the URL so a link restores the same chart. */
+export interface ChartShareState {
+  config: ChartConfig
+  filter: string
+}
+
 export interface DocsQueryState {
   filter: string
   sort: string
@@ -25,6 +32,8 @@ export interface DocsQueryState {
   skip: number
   /** Explicit pinned columns when present in the URL; absent means use local prefs. */
   pinned?: string[]
+  /** Open chart dialog, configuration and its own filter. */
+  chart?: ChartShareState
 }
 
 export const DOCS_QUERY_DEFAULTS: DocsQueryState = {
@@ -52,7 +61,7 @@ export const COLLECTION_TABS = [
 
 const TAB_SET = new Set<string>(COLLECTION_TABS)
 
-const DOCS_PARAM_KEYS = ["filter", "sort", "projection", "limit", "skip", "pin"] as const
+const DOCS_PARAM_KEYS = ["filter", "sort", "projection", "limit", "skip", "pin", "chart"] as const
 
 function seg(value: string): string {
   return encodeURIComponent(value)
@@ -63,6 +72,40 @@ function parseCount(value: string | null, fallback: number, min = 0): number {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) return fallback
   return Math.max(min, Math.floor(parsed))
+}
+
+function base64UrlEncode(text: string): string {
+  const bytes = new TextEncoder().encode(text)
+  let binary = ""
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+}
+
+function base64UrlDecode(text: string): string {
+  const padded = text.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((text.length + 3) % 4)
+  const binary = atob(padded)
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
+  return new TextDecoder().decode(bytes)
+}
+
+/** Encodes the chart state for the `chart` query parameter (URL-safe base64). */
+export function encodeChartParam(chart: ChartShareState): string {
+  return base64UrlEncode(JSON.stringify(chart))
+}
+
+/** Decodes and validates a `chart` query parameter; malformed values are ignored. */
+export function decodeChartParam(value: string | null): ChartShareState | undefined {
+  if (!value) return undefined
+  try {
+    const parsed = JSON.parse(base64UrlDecode(value)) as Partial<ChartShareState>
+    if (!parsed || typeof parsed !== "object" || !parsed.config) return undefined
+    return {
+      config: parsed.config,
+      filter: typeof parsed.filter === "string" ? parsed.filter : "{}",
+    }
+  } catch {
+    return undefined
+  }
 }
 
 function parseDocs(search: string): DocsQueryState | undefined {
@@ -81,6 +124,7 @@ function parseDocs(search: string): DocsQueryState | undefined {
     limit: parseCount(params.get("limit"), DOCS_QUERY_DEFAULTS.limit, 1),
     skip: parseCount(params.get("skip"), DOCS_QUERY_DEFAULTS.skip),
     pinned,
+    chart: decodeChartParam(params.get("chart")),
   }
 }
 
@@ -118,6 +162,9 @@ export function buildPath(selection: Selection, tab?: string, docs?: DocsQuerySt
           } else {
             for (const column of docs.pinned) params.append("pin", column)
           }
+        }
+        if (docs.chart) {
+          params.set("chart", encodeChartParam(docs.chart))
         }
       }
       const query = params.toString()

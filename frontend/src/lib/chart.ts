@@ -1,9 +1,10 @@
 import { isPlainObject } from "@/lib/mongo"
 import type { MongoDocument } from "@/lib/types"
 
-export type ChartType = "bar" | "line" | "area" | "pie"
+export type ChartType = "bar" | "line" | "area" | "pie" | "hbar" | "scatter"
 export type ChartAggregate = "none" | "count" | "sum" | "avg" | "min" | "max"
 export type ChartSort = "none" | "asc" | "desc"
+export type ChartTimeBucket = "none" | "day" | "week" | "month" | "quarter" | "year"
 
 export interface ChartConfig {
   type: ChartType
@@ -12,6 +13,16 @@ export interface ChartConfig {
   aggregate: ChartAggregate
   sort: ChartSort
   limit: number
+  /** Optional categorical field that becomes the series (stacked bars / lines). */
+  group: string
+  /** Draw bar series on top of each other instead of side by side. */
+  stacked: boolean
+  /** Truncate temporal x values into buckets instead of one point per value. */
+  timeBucket: ChartTimeBucket
+  /** Merge categories beyond `limit` into a single "Other" category. */
+  others: boolean
+  /** Print numeric labels on bars/slices. */
+  showValues: boolean
 }
 
 export interface ChartSeries {
@@ -22,6 +33,48 @@ export interface ChartSeries {
 export interface ChartData {
   categories: string[]
   series: ChartSeries[]
+  /** Original (unformatted) value per category, used for click-to-filter. */
+  rawCategories: unknown[]
+  /** Start/end ISO timestamps for bucketed categories, used for drill-down. */
+  ranges?: ({ start: string; end: string } | undefined)[]
+}
+
+/** One point for a scatter plot; scatter uses a separate numeric x axis. */
+export interface ScatterPoint {
+  x: number
+  y: number
+  label: string
+  group: string
+}
+
+const CHART_TYPE_VALUES: ChartType[] = ["bar", "hbar", "line", "area", "pie", "scatter"]
+const AGGREGATE_VALUES: ChartAggregate[] = ["none", "count", "sum", "avg", "min", "max"]
+const SORT_VALUES: ChartSort[] = ["none", "asc", "desc"]
+const BUCKET_VALUES: ChartTimeBucket[] = ["none", "day", "week", "month", "quarter", "year"]
+
+/** Validates persisted/shared config so a stale or tampered value cannot break rendering. */
+export function normalizeChartConfig(input: unknown): ChartConfig {
+  const raw = (input && typeof input === "object" ? input : {}) as Partial<ChartConfig>
+  return {
+    type: CHART_TYPE_VALUES.includes(raw.type as ChartType) ? (raw.type as ChartType) : "bar",
+    x: typeof raw.x === "string" ? raw.x : "",
+    y: Array.isArray(raw.y) ? raw.y.filter((field): field is string => typeof field === "string") : [],
+    aggregate: AGGREGATE_VALUES.includes(raw.aggregate as ChartAggregate)
+      ? (raw.aggregate as ChartAggregate)
+      : "count",
+    sort: SORT_VALUES.includes(raw.sort as ChartSort) ? (raw.sort as ChartSort) : "none",
+    limit:
+      typeof raw.limit === "number" && Number.isFinite(raw.limit) && raw.limit > 0
+        ? Math.min(Math.floor(raw.limit), 500)
+        : 20,
+    group: typeof raw.group === "string" ? raw.group : "",
+    stacked: Boolean(raw.stacked),
+    timeBucket: BUCKET_VALUES.includes(raw.timeBucket as ChartTimeBucket)
+      ? (raw.timeBucket as ChartTimeBucket)
+      : "none",
+    others: raw.others !== false,
+    showValues: Boolean(raw.showValues),
+  }
 }
 
 /** Palette backed by the theme's chart CSS variables. */
@@ -31,6 +84,9 @@ export const CHART_COLORS = [
   "var(--chart-3)",
   "var(--chart-4)",
   "var(--chart-5)",
+  "var(--chart-6)",
+  "var(--chart-7)",
+  "var(--chart-8)",
 ]
 
 export const DEFAULT_CHART_CONFIG: ChartConfig = {
@@ -40,7 +96,15 @@ export const DEFAULT_CHART_CONFIG: ChartConfig = {
   aggregate: "count",
   sort: "none",
   limit: 20,
+  group: "",
+  stacked: false,
+  timeBucket: "none",
+  others: true,
+  showValues: false,
 }
+
+/** Distinct group values rendered as series; beyond this the largest win. */
+export const MAX_GROUP_SERIES = 8
 
 /** Converts a BSON / Extended JSON value to a number when possible. */
 export function toNumeric(value: unknown): number | null {
@@ -120,71 +184,462 @@ function aggregateValues(values: number[], aggregate: ChartAggregate): number {
  * Turns a list of documents plus a chart config into plot-ready categories and
  * series. `count` ignores the y fields; every other aggregate groups by x.
  */
-export function buildChartData(documents: MongoDocument[], config: ChartConfig): ChartData {
-  const { x, y, aggregate, sort, limit } = config
+/** True for values that represent a point in time (Date, BSON $date or ISO string). */
+export function isDateLike(value: unknown): boolean {
+  if (value instanceof Date) return !Number.isNaN(value.getTime())
+  if (typeof value === "string") return /^\d{4}-\d{2}-\d{2}([T ]|$)/.test(value.trim())
+  return isPlainObject(value) && "$date" in value
+}
 
-  let categories: string[] = []
+/** Whether a column looks temporal based on the currently loaded sample. */
+export function isTemporalColumn(documents: MongoDocument[], column: string): boolean {
+  if (!column) return false
+  for (const doc of documents) {
+    const value = doc[column]
+    if (value === undefined || value === null) continue
+    return isDateLike(value)
+  }
+  return false
+}
+
+/** Converts Dates, epoch numbers, ISO strings and BSON $date values to a Date. */
+export function toDate(value: unknown): Date | null {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value
+  if (typeof value === "number" && Number.isFinite(value)) {
+    // Mongo stores milliseconds; tolerate seconds for hand-written charts.
+    const ms = Math.abs(value) < 1e11 ? value * 1000 : value
+    const date = new Date(ms)
+    return Number.isNaN(date.getTime()) ? null : date
+  }
+  if (typeof value === "string") {
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? null : date
+  }
+  if (isPlainObject(value)) {
+    if ("$date" in value) return toDate(value.$date)
+    if ("$numberLong" in value) return toDate(Number(value.$numberLong))
+  }
+  return null
+}
+
+/** UTC start of the bucket containing date. */
+export function timeBucketStart(date: Date, unit: ChartTimeBucket): Date {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
+  switch (unit) {
+    case "week": {
+      const offset = (d.getUTCDay() + 6) % 7
+      d.setUTCDate(d.getUTCDate() - offset)
+      return d
+    }
+    case "month":
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1))
+    case "quarter":
+      return new Date(Date.UTC(d.getUTCFullYear(), Math.floor(d.getUTCMonth() / 3) * 3, 1))
+    case "year":
+      return new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+    default:
+      return d
+  }
+}
+
+/** UTC end (exclusive) of a bucket started at `start`. */
+export function timeBucketEnd(start: Date, unit: ChartTimeBucket): Date {
+  const end = new Date(start)
+  switch (unit) {
+    case "week":
+      end.setUTCDate(end.getUTCDate() + 7)
+      break
+    case "month":
+      end.setUTCMonth(end.getUTCMonth() + 1)
+      break
+    case "quarter":
+      end.setUTCMonth(end.getUTCMonth() + 3)
+      break
+    case "year":
+      end.setUTCFullYear(end.getUTCFullYear() + 1)
+      break
+    default:
+      end.setUTCDate(end.getUTCDate() + 1)
+  }
+  return end
+}
+
+export function timeBucketLabel(start: Date, unit: ChartTimeBucket): string {
+  const y = start.getUTCFullYear()
+  const m = String(start.getUTCMonth() + 1).padStart(2, "0")
+  const d = String(start.getUTCDate()).padStart(2, "0")
+  switch (unit) {
+    case "month":
+      return `${y}-${m}`
+    case "quarter":
+      return `${y} Q${Math.floor(start.getUTCMonth() / 3) + 1}`
+    case "year":
+      return String(y)
+    default:
+      return `${y}-${m}-${d}`
+  }
+}
+
+interface Bucket {
+  start: Date
+  end: Date
+  label: string
+}
+
+function bucketOf(value: unknown, unit: ChartTimeBucket): Bucket | null {
+  const date = toDate(value)
+  if (!date) return null
+  const start = timeBucketStart(date, unit)
+  return { start, end: timeBucketEnd(start, unit), label: timeBucketLabel(start, unit) }
+}
+
+/** Sort, limit and optionally merge the tail into an "Other" category. */
+function finalizeChartData(
+  categories: string[],
+  series: ChartSeries[],
+  rawCategories: unknown[],
+  ranges: (Bucket | undefined)[] | undefined,
+  config: ChartConfig,
+  othersLabel: string,
+): ChartData {
+  let order = categories.map((_, index) => index)
+  if (ranges && config.timeBucket !== "none") {
+    order = order.sort((a, b) => {
+      const ra = ranges[a]
+      const rb = ranges[b]
+      if (!ra || !rb) return a - b
+      return ra.start.getTime() - rb.start.getTime() || a - b
+    })
+  } else if (config.sort !== "none" && series.length > 0) {
+    const totals = categories.map((_, index) =>
+      series.reduce((sum, item) => sum + (item.values[index] ?? 0), 0),
+    )
+    order = order.sort((a, b) =>
+      config.sort === "asc" ? totals[a] - totals[b] : totals[b] - totals[a],
+    )
+  }
+
+  let ordered = order
+  const cap = Math.max(1, config.limit)
+  let merged: number[] = []
+  if (order.length > cap) {
+    ordered = order.slice(0, cap)
+    merged = order.slice(cap)
+  }
+
+  const mergedValues = series.map((item) =>
+    merged.reduce((sum, index) => sum + (item.values[index] ?? 0), 0),
+  )
+  const outCategories = ordered.map((index) => categories[index])
+  const outRaw = ordered.map((index) => rawCategories[index])
+  let outRanges = ranges ? ordered.map((index) => ranges[index]) : undefined
+  let outSeries = series.map((item) => ({
+    name: item.name,
+    values: ordered.map((index) => item.values[index] ?? 0),
+  }))
+
+  if (merged.length > 0 && config.others) {
+    outCategories.push(othersLabel)
+    outRaw.push(undefined)
+    if (outRanges) outRanges = [...outRanges, undefined]
+    outSeries = outSeries.map((item, index) => ({
+      name: item.name,
+      values: [...item.values, mergedValues[index] ?? 0],
+    }))
+  }
+
+  return {
+    categories: outCategories,
+    series: outSeries,
+    rawCategories: outRaw,
+    ranges: outRanges?.map((bucket) =>
+      bucket ? { start: bucket.start.toISOString(), end: bucket.end.toISOString() } : undefined,
+    ),
+  }
+}
+
+/**
+ * Turns a list of documents plus a chart config into plot-ready categories and
+ * series. `count` ignores the y fields; every other aggregate groups by x.
+ */
+export function buildChartData(
+  documents: MongoDocument[],
+  config: ChartConfig,
+  othersLabel = "Other",
+): ChartData {
+  const { x, y, aggregate, group, type } = config
+  const temporal = isTemporalColumn(documents, x)
+  const bucket = temporal && aggregate !== "none" ? config.timeBucket : "none"
+  // A pie slice is already a category, so a second grouping dimension does not
+  // apply; scatter is handled separately.
+  const groupField = type === "pie" || type === "scatter" ? "" : group
+
+  const labels: string[] = []
+  const raws: unknown[] = []
+  const ranges: (Bucket | undefined)[] = []
+  const indexByLabel = new Map<string, number>()
+  let hasRanges = false
+
+  const categoryFor = (doc: MongoDocument): { label: string; raw: unknown; bucket?: Bucket } => {
+    const value = x ? doc[x] : undefined
+    if (bucket !== "none") {
+      const entry = bucketOf(value, bucket)
+      if (entry) return { label: entry.label, raw: entry.start, bucket: entry }
+    }
+    return { label: formatCategory(value), raw: value }
+  }
+
+  const addCategory = (entry: { label: string; raw: unknown; bucket?: Bucket }): number => {
+    const existing = indexByLabel.get(entry.label)
+    if (existing !== undefined) return existing
+    const index = labels.length
+    labels.push(entry.label)
+    raws.push(entry.raw)
+    ranges.push(entry.bucket)
+    if (entry.bucket) hasRanges = true
+    indexByLabel.set(entry.label, index)
+    return index
+  }
+
   let series: ChartSeries[] = []
 
-  if (aggregate === "none") {
-    categories = documents.map((doc) => formatCategory(x ? doc[x] : undefined))
-    series = y.map((field) => ({
-      name: field,
-      values: documents.map((doc) => toNumeric(doc[field]) ?? 0),
-    }))
-    if (series.length === 0 && documents.length > 0) {
-      series = [{ name: "count", values: documents.map(() => 1) }]
-    }
-  } else {
-    const groups = new Map<string, MongoDocument[]>()
-    const order: string[] = []
+  if (groupField) {
+    // group value -> category index -> documents
+    const groups = new Map<string, Map<number, MongoDocument[]>>()
     for (const doc of documents) {
-      const key = formatCategory(x ? doc[x] : undefined)
-      let bucket = groups.get(key)
-      if (!bucket) {
-        bucket = []
-        groups.set(key, bucket)
-        order.push(key)
+      const index = addCategory(categoryFor(doc))
+      const groupKey = formatCategory(doc[groupField])
+      let byCategory = groups.get(groupKey)
+      if (!byCategory) {
+        byCategory = new Map()
+        groups.set(groupKey, byCategory)
       }
-      bucket.push(doc)
+      const bucketDocs = byCategory.get(index)
+      if (bucketDocs) bucketDocs.push(doc)
+      else byCategory.set(index, [doc])
     }
-    categories = order
+
+    const measure = (docs: MongoDocument[]): number => {
+      if (aggregate === "count" || y.length === 0) return docs.length
+      const numbers = docs
+        .map((doc) => toNumeric(doc[y[0]]))
+        .filter((value): value is number => value !== null)
+      if (numbers.length === 0) return 0
+      return aggregateValues(numbers, aggregate)
+    }
+
+    series = [...groups.entries()]
+      .map(([name, byCategory]) => ({
+        name,
+        byCategory,
+        total: [...byCategory.values()].reduce((sum, docs) => sum + measure(docs), 0),
+      }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, MAX_GROUP_SERIES)
+      .map(({ name, byCategory }) => ({
+        name,
+        values: labels.map((_, index) => measure(byCategory.get(index) ?? [])),
+      }))
+  } else {
+    const groups: MongoDocument[][] = labels.map(() => [])
+
+    for (const doc of documents) {
+      const index = addCategory(categoryFor(doc))
+      groups[index].push(doc)
+    }
+
+    if (aggregate === "none") {
+      // Raw: one point per document, capped by "Max points". Keep document
+      // order rather than the label map so repeated labels stay aligned.
+      const points = documents.slice(0, Math.max(1, config.limit))
+      series = y.map((field) => ({
+        name: field,
+        values: points.map((doc) => toNumeric(doc[field]) ?? 0),
+      }))
+      if (series.length === 0 && points.length > 0) {
+        series = [{ name: "count", values: points.map(() => 1) }]
+      }
+      return {
+        categories: points.map((doc) => formatCategory(x ? doc[x] : undefined)),
+        series,
+        rawCategories: points.map((doc) => (x ? doc[x] : undefined)),
+        ranges: undefined,
+      }
+    }
 
     if (aggregate === "count" || y.length === 0) {
-      series = [{ name: "count", values: categories.map((key) => groups.get(key)?.length ?? 0) }]
+      series = [
+        {
+          name: "count",
+          values: groups.map((docs) => docs.length),
+        },
+      ]
     } else {
       series = y.map((field) => ({
         name: field,
-        values: categories.map((key) =>
-          aggregateValues(
-            (groups.get(key) ?? [])
-              .map((doc) => toNumeric(doc[field]))
-              .filter((n): n is number => n !== null),
-            aggregate,
-          ),
-        ),
+        values: groups.map((docs) => {
+          const numbers = docs
+            .map((doc) => toNumeric(doc[field]))
+            .filter((value): value is number => value !== null)
+          return numbers.length === 0 ? 0 : aggregateValues(numbers, aggregate)
+        }),
       }))
     }
   }
 
-  if (sort !== "none" && series.length > 0) {
-    const totals = categories.map((_, i) =>
-      series.reduce((sum, s) => sum + (s.values[i] ?? 0), 0),
-    )
-    const order = categories.map((_, i) => i)
-    order.sort((a, b) => (sort === "asc" ? totals[a] - totals[b] : totals[b] - totals[a]))
-    categories = order.map((i) => categories[i])
-    series = series.map((s) => ({ name: s.name, values: order.map((i) => s.values[i]) }))
+  return finalizeChartData(
+    labels,
+    series,
+    raws,
+    hasRanges ? ranges : undefined,
+    config,
+    othersLabel,
+  )
+}
+
+/** Aggregation pipeline that produces the same shape as buildChartData remotely. */
+export function buildChartPipeline(
+  config: ChartConfig,
+  filter: unknown,
+  temporal: boolean,
+): unknown[] {
+  const { x, y, aggregate, group, type } = config
+  const unit = temporal && config.timeBucket !== "none" && aggregate !== "none"
+    ? config.timeBucket
+    : "none"
+  const groupField = type === "pie" || type === "scatter" ? "" : group
+  const xExpr =
+    unit === "none"
+      ? `$${x}`
+      : { $dateTrunc: { date: `$${x}`, unit, startOfWeek: "monday" } }
+  const accumulators: Record<string, unknown> = {}
+  if (aggregate === "count" || y.length === 0) {
+    accumulators.v0 = { $sum: 1 }
+  } else {
+    const fields = groupField ? y.slice(0, 1) : y
+    fields.forEach((field, index) => {
+      const op =
+        aggregate === "sum"
+          ? "$sum"
+          : aggregate === "avg"
+            ? "$avg"
+            : aggregate === "min"
+              ? "$min"
+              : aggregate === "max"
+                ? "$max"
+                : "$sum"
+      accumulators[`v${index}`] = { [op]: `$${field}` }
+    })
   }
 
-  const cap = Math.max(1, limit)
-  if (categories.length > cap) {
-    // For an unsorted chart keep the leading rows; otherwise keep the top N.
-    categories = categories.slice(0, cap)
-    series = series.map((s) => ({ name: s.name, values: s.values.slice(0, cap) }))
+  const stages: unknown[] = []
+  if (filter && typeof filter === "object" && Object.keys(filter as object).length > 0) {
+    stages.push({ $match: filter })
+  }
+  stages.push({
+    $group: {
+      _id: { x: xExpr, g: groupField ? `$${groupField}` : null },
+      ...accumulators,
+    },
+  })
+  stages.push({ $sort: { "_id.x": 1, "_id.g": 1 } })
+  return stages
+}
+
+/** Maps aggregation rows (as returned by /aggregate) back to chart data. */
+export function chartDataFromRows(
+  rows: MongoDocument[],
+  config: ChartConfig,
+  othersLabel = "Other",
+): ChartData {
+  const { y, aggregate, group, type } = config
+  const temporal = config.timeBucket !== "none"
+  const groupField = type === "pie" || type === "scatter" ? "" : group
+
+  const labels: string[] = []
+  const raws: unknown[] = []
+  const ranges: (Bucket | undefined)[] = []
+  const indexByLabel = new Map<string, number>()
+  const seriesMaps = new Map<string, Map<number, number>>()
+
+  for (const row of rows) {
+    const id = (row._id ?? {}) as Record<string, unknown>
+    const rawX = id.x
+    const bucket = temporal ? bucketOf(rawX, config.timeBucket) : null
+    const label = bucket ? bucket.label : formatCategory(rawX)
+    let index = indexByLabel.get(label)
+    if (index === undefined) {
+      index = labels.length
+      indexByLabel.set(label, index)
+      labels.push(label)
+      raws.push(bucket ? bucket.start : rawX)
+      ranges.push(bucket ?? undefined)
+    }
+
+    const fields = groupField ? [groupField] : aggregate === "count" || y.length === 0 ? [] : y
+    if (groupField) {
+      const name = formatCategory(id.g)
+      let values = seriesMaps.get(name)
+      if (!values) {
+        values = new Map()
+        seriesMaps.set(name, values)
+      }
+      values.set(index, toNumeric(row.v0) ?? 0)
+    } else if (fields.length === 0) {
+      let values = seriesMaps.get("count")
+      if (!values) {
+        values = new Map()
+        seriesMaps.set("count", values)
+      }
+      values.set(index, toNumeric(row.v0) ?? 0)
+    } else {
+      fields.forEach((field, fieldIndex) => {
+        let values = seriesMaps.get(field)
+        if (!values) {
+          values = new Map()
+          seriesMaps.set(field, values)
+        }
+        values.set(index, toNumeric(row[`v${fieldIndex}`]) ?? 0)
+      })
+    }
   }
 
-  return { categories, series }
+  const series = [...seriesMaps.entries()].map(([name, values]) => ({
+    name,
+    values: labels.map((_, index) => values.get(index) ?? 0),
+  }))
+
+  return finalizeChartData(
+    labels,
+    series,
+    raws,
+    ranges.some(Boolean) ? ranges : undefined,
+    config,
+    othersLabel,
+  )
+}
+
+/** Scatter points from raw documents (x and the first y field must be numeric). */
+export function buildScatterData(
+  documents: MongoDocument[],
+  config: ChartConfig,
+): { points: ScatterPoint[]; xField: string; yField: string } {
+  const xField = config.x
+  const yField = config.y[0] ?? ""
+  const points: ScatterPoint[] = []
+  for (const doc of documents) {
+    const x = toNumeric(doc[xField])
+    const y = toNumeric(doc[yField])
+    if (x === null || y === null) continue
+    points.push({
+      x,
+      y,
+      label: formatCategory(doc._id ?? `${x}, ${y}`),
+      group: config.group ? formatCategory(doc[config.group]) : "",
+    })
+    if (points.length >= 2000) break
+  }
+  return { points, xField, yField }
 }
 
 /** Heuristics used to pick sensible defaults for a fresh result set. */
@@ -230,6 +685,9 @@ export function suggestChartConfig(
     x = best ?? columns.find((column) => column !== "_id") ?? columns[0] ?? ""
   }
 
+  const temporalColumns = new Set(
+    columns.filter((column) => isTemporalColumn(documents, column)),
+  )
   const numericColumns = columns.filter(isNumericColumn)
   let y =
     previous?.y && previous.y.length > 0 && previous.y.every((field) => columns.includes(field))
@@ -244,13 +702,26 @@ export function suggestChartConfig(
     aggregate = "sum"
   }
 
+  const group =
+    previous?.group && previous.group !== x && columns.includes(previous.group)
+      ? previous.group
+      : ""
+
+  const timeBucket: ChartTimeBucket =
+    previous?.timeBucket && temporalColumns.has(x) ? previous.timeBucket : "none"
+
   return {
-    type: previous?.type ?? (aggregate === "count" ? "bar" : "bar"),
+    type: previous?.type ?? "bar",
     x,
     y,
     aggregate,
     sort: previous?.sort ?? "none",
     limit: previous?.limit ?? 20,
+    group,
+    stacked: previous?.stacked ?? false,
+    timeBucket,
+    others: previous?.others ?? true,
+    showValues: previous?.showValues ?? false,
   }
 }
 

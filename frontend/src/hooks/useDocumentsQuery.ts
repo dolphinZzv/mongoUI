@@ -3,7 +3,7 @@ import { toast } from "sonner"
 
 import { api, isAbortError } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
-import { DOCS_QUERY_DEFAULTS, type DocsQueryState } from "@/lib/router"
+import { DOCS_QUERY_DEFAULTS, type ChartShareState, type DocsQueryState } from "@/lib/router"
 import type { FindResult } from "@/lib/types"
 
 /** Signature of the parts that only change when the user runs a query. */
@@ -38,7 +38,8 @@ function normalizedJSON(value: string): string {
 function docsQuerySignature(docs?: DocsQueryState): string {
   const value = docs ?? DOCS_QUERY_DEFAULTS
   const pinned = value.pinned === undefined ? "local" : value.pinned.join("\u0001")
-  return `${value.filter}\u0000${value.sort}\u0000${value.projection}\u0000${value.limit}\u0000${value.skip}\u0000${pinned}`
+  const chart = value.chart ? JSON.stringify(value.chart) : ""
+  return `${value.filter}\u0000${value.sort}\u0000${value.projection}\u0000${value.limit}\u0000${value.skip}\u0000${pinned}\u0000${chart}`
 }
 
 export interface DocumentsQueryOptions {
@@ -49,6 +50,10 @@ export interface DocumentsQueryOptions {
   initialDocs?: DocsQueryState
   /** Persist the current query/pagination so a refresh restores it. */
   onDocsChange?: (docs: DocsQueryState) => void
+  /** Open chart state mirrored into the URL. */
+  chart?: ChartShareState
+  /** Apply a chart state coming from the URL (back/forward or a shared link). */
+  onChartFromURL?: (chart: ChartShareState | undefined) => void
   /** Pinned columns mirrored into the URL. */
   pinned: string[]
   /** Pinned columns to apply when the URL carries its own list. */
@@ -108,6 +113,8 @@ export function useDocumentsQuery({
   collection,
   initialDocs,
   onDocsChange,
+  chart,
+  onChartFromURL,
   pinned,
   readPinned,
   onPinnedFromURL,
@@ -277,12 +284,12 @@ export function useDocumentsQuery({
   // not re-render the app on every keystroke.
   React.useEffect(() => {
     const timer = window.setTimeout(() => {
-      const next: DocsQueryState = { filter, sort, projection, limit, skip, pinned }
+      const next: DocsQueryState = { filter, sort, projection, limit, skip, pinned, chart }
       appliedDocsRef.current = docsQuerySignature(next)
       onDocsChange?.(next)
     }, 300)
     return () => window.clearTimeout(timer)
-  }, [filter, sort, projection, limit, skip, pinned, onDocsChange])
+  }, [filter, sort, projection, limit, skip, pinned, chart, onDocsChange])
 
   // Adopt query changes coming from the URL (back/forward) without clobbering
   // the user's in-flight edits.
@@ -296,7 +303,8 @@ export function useDocumentsQuery({
     setLimit(initialDocs?.limit ?? DOCS_QUERY_DEFAULTS.limit)
     setSkip(initialDocs?.skip ?? DOCS_QUERY_DEFAULTS.skip)
     onPinnedFromURL(initialDocs?.pinned ?? readPinned())
-  }, [initialDocs, onPinnedFromURL, readPinned])
+    onChartFromURL?.(initialDocs?.chart)
+  }, [initialDocs, onPinnedFromURL, readPinned, onChartFromURL])
 
   const documents = result?.documents ?? []
   const total = result?.total ?? 0

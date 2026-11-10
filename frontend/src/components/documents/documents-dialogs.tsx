@@ -18,6 +18,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { useI18n } from "@/lib/i18n"
 import { prettyJSON } from "@/lib/mongo"
+import type { ChartConfig } from "@/lib/chart"
 import type { ColumnDictionaryEntry } from "@/lib/columnPrefs"
 import type { ExplainRequest, MongoDocument } from "@/lib/types"
 
@@ -103,6 +104,10 @@ interface DocumentsDialogsProps {
 
   chartOpen: boolean
   onChartOpenChange: (open: boolean) => void
+  chartConfig?: ChartConfig
+  chartFilter: string
+  onChartConfigChange: (config: ChartConfig) => void
+  onChartFilterChange: (filter: string) => void
   documents: MongoDocument[]
   columns: string[]
 
@@ -110,6 +115,8 @@ interface DocumentsDialogsProps {
   onBuilderOpenChange: (open: boolean) => void
   fieldTypes: Record<string, string>
   onApplyBuilder: (filter: string, projection: string) => void
+  /** Push the chart's filter back to the documents query. */
+  onApplyChartFilter: (filter: string) => void
 }
 
 /**
@@ -159,12 +166,17 @@ export function DocumentsDialogs({
   onCopyOpenChange,
   chartOpen,
   onChartOpenChange,
+  chartConfig,
+  chartFilter,
+  onChartConfigChange,
+  onChartFilterChange,
   documents,
   columns,
   builderOpen,
   onBuilderOpenChange,
   fieldTypes,
   onApplyBuilder,
+  onApplyChartFilter,
 }: DocumentsDialogsProps) {
   const { t } = useI18n()
 
@@ -323,7 +335,17 @@ export function DocumentsDialogs({
           onOpenChange={onChartOpenChange}
           documents={documents}
           columns={columns}
+          fieldTypes={fieldTypes}
+          connectionId={connectionId}
+          database={database}
+          collection={collection}
+          filter={filter}
           storageKey={`docs:${connectionId}:${database}:${collection}`}
+          initialConfig={chartConfig}
+          initialFilter={chartFilter}
+          onConfigChange={onChartConfigChange}
+          onFilterChange={onChartFilterChange}
+          onApplyFilter={onApplyChartFilter}
         />
       </LazyMount>
       <LazyMount active={builderOpen}>

@@ -48,7 +48,8 @@ import { toFindJS, toSQL } from "@/lib/queryText"
 import { useI18n } from "@/lib/i18n"
 import { copyToClipboard } from "@/lib/clipboard"
 import { collectColumns, documentId, formatValue, prettyJSON, valueType } from "@/lib/mongo"
-import type { DocsQueryState } from "@/lib/router"
+import type { ChartShareState, DocsQueryState } from "@/lib/router"
+import type { ChartConfig } from "@/lib/chart"
 import { cn } from "@/lib/utils"
 import type { ExplainRequest, MongoDocument } from "@/lib/types"
 
@@ -117,7 +118,13 @@ export function DocumentsTab({
   const [copyOpen, setCopyOpen] = React.useState(false)
   const [explainOpen, setExplainOpen] = React.useState(false)
   const [dictionaryColumn, setDictionaryColumn] = React.useState<string | null>(null)
-  const [chartOpen, setChartOpen] = React.useState(false)
+  const [chartOpen, setChartOpen] = React.useState(Boolean(initialDocs?.chart))
+  const [chartConfig, setChartConfig] = React.useState<ChartConfig | undefined>(
+    initialDocs?.chart?.config,
+  )
+  const [chartFilter, setChartFilter] = React.useState(
+    initialDocs?.chart?.filter ?? initialDocs?.filter ?? "{}",
+  )
   const [builderOpen, setBuilderOpen] = React.useState(false)
   const [cellMenu, setCellMenu] = React.useState<{
     x: number
@@ -169,6 +176,20 @@ export function DocumentsTab({
     })
   }, [])
   const handleBeforeLoad = React.useCallback(() => setInlineEdit(null), [])
+  const handleChartFromURL = React.useCallback((next?: ChartShareState) => {
+    if (!next) {
+      setChartOpen(false)
+      setChartConfig(undefined)
+      return
+    }
+    setChartConfig(next.config)
+    setChartFilter(next.filter)
+    setChartOpen(true)
+  }, [])
+  const chartShare = React.useMemo<ChartShareState | undefined>(
+    () => (chartOpen && chartConfig ? { config: chartConfig, filter: chartFilter } : undefined),
+    [chartOpen, chartConfig, chartFilter],
+  )
   const handleLoaded = React.useCallback(() => {
     setSelected(new Set())
     setAllMatching(false)
@@ -209,6 +230,8 @@ export function DocumentsTab({
     collection,
     initialDocs,
     onDocsChange,
+    chart: chartShare,
+    onChartFromURL: handleChartFromURL,
     pinned: prefs.pinned,
     readPinned,
     onPinnedFromURL: handlePinnedFromURL,
@@ -216,6 +239,12 @@ export function DocumentsTab({
     onBeforeLoad: handleBeforeLoad,
     onLoaded: handleLoaded,
   })
+
+  const openChart = React.useCallback(() => {
+    setChartFilter(filter)
+    setChartConfig(undefined)
+    setChartOpen(true)
+  }, [filter])
 
   const pinnedFilter = filter.trim() || "{}"
   const isFilterPinned = React.useMemo(
@@ -1235,7 +1264,7 @@ export function DocumentsTab({
               setExplainOpen(true)
             }}
             onCopyCollection={() => setCopyOpen(true)}
-            onChart={() => setChartOpen(true)}
+            onChart={openChart}
             onCopyMongo={() =>
               copyText(toFindJS(collection, { filter, sort, projection, skip, limit }))
             }
@@ -1462,7 +1491,14 @@ export function DocumentsTab({
         copyOpen={copyOpen}
         onCopyOpenChange={setCopyOpen}
         chartOpen={chartOpen}
-        onChartOpenChange={setChartOpen}
+        onChartOpenChange={(open) => {
+          setChartOpen(open)
+          if (!open) setChartConfig(undefined)
+        }}
+        chartConfig={chartConfig}
+        chartFilter={chartFilter}
+        onChartConfigChange={setChartConfig}
+        onChartFilterChange={setChartFilter}
         documents={documents}
         columns={allColumns}
         builderOpen={builderOpen}
@@ -1472,6 +1508,12 @@ export function DocumentsTab({
           setFilter(nextFilter)
           setProjection(nextProjection)
           void load({ skip: 0, filter: nextFilter, projection: nextProjection })
+        }}
+        onApplyChartFilter={(nextFilter) => {
+          setFilter(nextFilter)
+          setChartOpen(false)
+          setChartConfig(undefined)
+          void load({ skip: 0, filter: nextFilter })
         }}
       />
     </div>

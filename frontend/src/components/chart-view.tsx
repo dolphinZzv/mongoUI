@@ -5,6 +5,7 @@ import {
   BarChart3,
   Bookmark,
   Copy,
+  Crop,
   Download,
   Loader2,
   LineChart,
@@ -62,13 +63,16 @@ import {
   normalizeChartConfig,
   resolveTimeBucket,
   isTemporalColumn,
+  toDate,
   niceScale,
   suggestChartConfig,
   toNumeric,
   type ChartAggregate,
   type ChartConfig,
+  type ChartData,
   type ChartSort,
   type ChartTimeBucket,
+  type ChartTimeZone,
   type ChartType,
   type SavedChartView,
   type ScatterPoint,
@@ -258,6 +262,17 @@ export function ChartView({
   const [configOpen, setConfigOpen] = React.useState(
     () => typeof window === "undefined" || window.innerWidth >= 1024,
   )
+  const [zoom, setZoom] = React.useState<{ start: number; end: number } | null>(null)
+  const [brushMode, setBrushMode] = React.useState(false)
+  const [brush, setBrush] = React.useState<{ start: number; end: number } | null>(null)
+  const pointersRef = React.useRef(new Map<number, { x: number; y: number }>())
+  const pinchRef = React.useRef<{
+    distance: number
+    span: number
+    start: number
+    center: number
+  } | null>(null)
+  const suppressClickRef = React.useRef(false)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const viewsKey = storageKey ? `mongoui-chart-views:${storageKey}` : ""
@@ -440,13 +455,47 @@ export function ChartView({
       : rows ?? []
     : documents
 
-  const data = React.useMemo(() => {
+  const baseData = React.useMemo<ChartData>(() => {
     if (config.type === "scatter") return { categories: [], series: [], rawCategories: [] }
     if (serverMode && config.aggregate !== "none") {
       return chartDataFromRows(rows ?? [], effectiveConfig, t("chart.others"))
     }
     return buildChartData(source, effectiveConfig, t("chart.others"))
   }, [serverMode, rows, source, effectiveConfig, config.type, config.aggregate, t])
+
+  const data = React.useMemo<ChartData>(() => {
+    if (!zoom) return baseData
+    const n = baseData.categories.length
+    const start = Math.max(0, Math.floor(zoom.start))
+    const end = Math.min(n, Math.ceil(zoom.end))
+    if (end - start < 2) return baseData
+    return {
+      categories: baseData.categories.slice(start, end),
+      series: baseData.series.map((item) => ({
+        name: item.name,
+        values: item.values.slice(start, end),
+      })),
+      rawCategories: baseData.rawCategories.slice(start, end),
+      ranges: baseData.ranges?.slice(start, end),
+    }
+  }, [baseData, zoom])
+
+  // Reset zoom when the query changes and keep an existing window in bounds.
+  React.useEffect(() => {
+    setZoom(null)
+  }, [fetchKey])
+
+  React.useEffect(() => {
+    const n = baseData.categories.length
+    setZoom((previous) => {
+      if (!previous) return previous
+      if (n < 2) return null
+      const span = Math.min(previous.end - previous.start, n)
+      const start = Math.max(0, Math.min(previous.start, n - span))
+      const next = { start, end: start + span }
+      return next.start === previous.start && next.end === previous.end ? previous : next
+    })
+  }, [baseData])
 
   const scatter = React.useMemo(
     () => (config.type === "scatter" ? buildScatterData(source, effectiveConfig) : null),
@@ -548,6 +597,9 @@ export function ChartView({
         Math.max(0, ...(scaleValues.length ? scaleValues : [1])),
         5,
       )
+
+  const formatTick = (tick: number) =>
+    percentStacked ? `${Math.round(tick * 100)}%` : formatAxisValue(tick, config)
 
   const yFor = (value: number) =>
     margin.top + plotHeight - ((value - scale.min) / (scale.max - scale.min || 1)) * plotHeight
@@ -704,6 +756,10 @@ export function ChartView({
   }
 
   const drill = (index: number) => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false
+      return
+    }
     if (!onDrilldown || !config.x) return
     const range = data.ranges?.[index]
     if (range) {
@@ -721,8 +777,141 @@ export function ChartView({
   }
 
   const drillValue = (field: string, value: number) => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false
+      return
+    }
     if (!onDrilldown || !field) return
     onDrilldown({ [field]: value })
+  }
+
+  const indexAtClientX = (clientX: number): number => {
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect) return 0
+    const n = baseData.categories.length
+    const fraction = (clientX - rect.left - margin.left) / Math.max(1, plotWidth)
+    return Math.max(0, Math.min(n, fraction * n))
+  }
+
+  const currentZoom = () => zoom ?? { start: 0, end: baseData.categories.length }
+
+  const applyZoomAround = (center: number, nextSpan: number) => {
+    const n = baseData.categories.length
+    if (n < 2) return
+    const span = Math.max(2, Math.min(n, nextSpan))
+    const current = currentZoom()
+    const ratio = span / Math.max(0.001, current.end - current.start)
+    let start = center - (center - current.start) * ratio
+    start = Math.max(0, Math.min(start, n - span))
+    setZoom(span >= n ? null : { start, end: start + span })
+  }
+
+  React.useEffect(() => {
+    const element = svgRef.current
+    if (!element) return
+    const onWheel = (event: WheelEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || scatterMode) return
+      if (baseData.categories.length < 3) return
+      event.preventDefault()
+      const center = indexAtClientX(event.clientX)
+      const current = currentZoom()
+      const factor = event.deltaY > 0 ? 1.25 : 0.8
+      applyZoomAround(center, (current.end - current.start) * factor)
+    }
+    element.addEventListener("wheel", onWheel, { passive: false })
+    return () => element.removeEventListener("wheel", onWheel)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseData, zoom, scatterMode, plotWidth, margin.left])
+
+  const startPinch = () => {
+    const points = [...pointersRef.current.values()]
+    if (points.length !== 2) return
+    const distance = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y)
+    const center = indexAtClientX((points[0].x + points[1].x) / 2)
+    const current = currentZoom()
+    pinchRef.current = {
+      distance: Math.max(1, distance),
+      span: current.end - current.start,
+      start: current.start,
+      center,
+    }
+  }
+
+  const movePinch = () => {
+    const pinch = pinchRef.current
+    const points = [...pointersRef.current.values()]
+    if (!pinch || points.length !== 2) return
+    const distance = Math.max(1, Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y))
+    const n = baseData.categories.length
+    const span = Math.max(2, Math.min(n, pinch.span * (pinch.distance / distance)))
+    const ratio = span / Math.max(0.001, pinch.span)
+    const start = Math.max(0, Math.min(n - span, pinch.center - (pinch.center - pinch.start) * ratio))
+    setZoom(span >= n ? null : { start, end: start + span })
+    suppressClickRef.current = true
+    window.setTimeout(() => {
+      suppressClickRef.current = false
+    }, 400)
+  }
+
+  const endPinch = (pointerId: number) => {
+    pointersRef.current.delete(pointerId)
+    if (pointersRef.current.size < 2) pinchRef.current = null
+  }
+
+  const startBrush = (event: React.PointerEvent<SVGRectElement>) => {
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect) return
+    event.currentTarget.setPointerCapture(event.pointerId)
+    const x = Math.max(0, Math.min(plotWidth, event.clientX - rect.left - margin.left))
+    setBrush({ start: x, end: x })
+  }
+
+  const moveBrush = (event: React.PointerEvent<SVGRectElement>) => {
+    if (!brush) return
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const x = Math.max(0, Math.min(plotWidth, event.clientX - rect.left - margin.left))
+    setBrush({ start: brush.start, end: x })
+  }
+
+  const finishBrush = () => {
+    if (!brush) return
+    const lo = Math.min(brush.start, brush.end)
+    const hi = Math.max(brush.start, brush.end)
+    setBrush(null)
+    setBrushMode(false)
+    if (hi - lo < 4) return
+    const n = data.categories.length
+    const first = Math.max(0, Math.min(n - 1, Math.floor((lo / plotWidth) * n)))
+    const last = Math.max(first, Math.min(n - 1, Math.floor((hi / plotWidth) * n)))
+    const rangeStart = data.ranges?.[first]
+    const rangeEnd = data.ranges?.[last]
+    let filter: Record<string, unknown> | null = null
+    if (rangeStart && rangeEnd) {
+      filter = {
+        [config.x]: {
+          $gte: { $date: rangeStart.start },
+          $lt: { $date: rangeEnd.end },
+        },
+      }
+    } else {
+      const startDate = toDate(data.rawCategories[first])
+      const endDate = toDate(data.rawCategories[last])
+      if (startDate && endDate) {
+        filter = {
+          [config.x]: {
+            $gte: { $date: startDate.toISOString() },
+            $lte: { $date: endDate.toISOString() },
+          },
+        }
+      }
+    }
+    if (filter && onDrilldown) {
+      onDrilldown(filter)
+    } else {
+      const base = zoom ? zoom.start : 0
+      setZoom({ start: base + first, end: base + last + 1 })
+    }
   }
 
   const renderAxes = () => (
@@ -745,7 +934,7 @@ export function ChartView({
               textAnchor="end"
               className="fill-muted-foreground text-[10px]"
             >
-              {formatAxisValue(tick, config)}
+              {formatTick(tick)}
             </text>
           </g>
         )
@@ -1107,7 +1296,7 @@ export function ChartView({
           textAnchor="start"
           className="fill-muted-foreground text-[10px]"
         >
-          {formatAxisValue(tick, config)}
+          {formatTick(tick)}
         </text>
       ))}
     </g>
@@ -1210,7 +1399,7 @@ export function ChartView({
             textAnchor="end"
             className="fill-muted-foreground text-[10px]"
           >
-            {formatAxisValue(tick, config)}
+            {formatTick(tick)}
           </text>
         </g>
       ))}
@@ -1230,7 +1419,7 @@ export function ChartView({
             textAnchor="middle"
             className="fill-muted-foreground text-[10px]"
           >
-            {formatAxisValue(tick, config)}
+            {formatTick(tick)}
           </text>
         </g>
       ))}
@@ -1572,6 +1761,24 @@ export function ChartView({
           </div>
         ) : null}
 
+        {temporalX && config.type !== "scatter" && config.aggregate !== "none" ? (
+          <div className="grid gap-1.5">
+            <Label className="text-xs">{t("chart.timezone")}</Label>
+            <Select
+              value={config.timeZone}
+              onValueChange={(value) => update({ timeZone: value as ChartTimeZone })}
+            >
+              <SelectTrigger size="sm" className="w-28">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="utc">{t("chart.timezone.utc")}</SelectItem>
+                <SelectItem value="local">{t("chart.timezone.local")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
+
         <div className="grid gap-1.5">
           <Label className="text-xs">{t("chart.sort")}</Label>
           <Select value={config.sort} onValueChange={(value) => update({ sort: value as ChartSort })}>
@@ -1871,6 +2078,33 @@ export function ChartView({
           >
             <Maximize2 className="size-3" />
           </Button>
+          {temporalX && !scatterMode ? (
+            <Button
+              variant={brushMode ? "secondary" : "outline"}
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => {
+                setBrushMode((value) => !value)
+                setBrush(null)
+              }}
+              title={t("chart.brush")}
+            >
+              <Crop className="size-3" /> {t("chart.brush")}
+            </Button>
+          ) : null}
+          {zoom ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => setZoom(null)}
+            >
+              {t("chart.resetZoom")}
+            </Button>
+          ) : null}
+          {brushMode ? (
+            <span className="text-muted-foreground">{t("chart.brushHint")}</span>
+          ) : null}
           {config.aggregate === "none" && serverMode ? (
             <span className="text-muted-foreground">
               {t("chart.rawHint", {
@@ -1959,6 +2193,32 @@ export function ChartView({
               className="block"
               role="img"
               aria-label={summary}
+              style={{ touchAction: "pan-y" }}
+              onDoubleClick={() => setZoom(null)}
+              onPointerDown={(event) => {
+                if (event.pointerType !== "touch" || brushMode) return
+                pointersRef.current.set(event.pointerId, {
+                  x: event.clientX,
+                  y: event.clientY,
+                })
+                if (pointersRef.current.size === 2) startPinch()
+              }}
+              onPointerMove={(event) => {
+                if (
+                  event.pointerType !== "touch" ||
+                  brushMode ||
+                  !pointersRef.current.has(event.pointerId)
+                ) {
+                  return
+                }
+                pointersRef.current.set(event.pointerId, {
+                  x: event.clientX,
+                  y: event.clientY,
+                })
+                if (pointersRef.current.size === 2) movePinch()
+              }}
+              onPointerUp={(event) => endPinch(event.pointerId)}
+              onPointerCancel={(event) => endPinch(event.pointerId)}
             >
               <title>{summary}</title>
               {scatterMode ? (
@@ -1986,7 +2246,7 @@ export function ChartView({
                             textAnchor="middle"
                             className="fill-muted-foreground text-[10px]"
                           >
-                            {formatAxisValue(tick, config)}
+                            {formatTick(tick)}
                           </text>
                         </g>
                       ))}
@@ -2105,6 +2365,36 @@ export function ChartView({
                   )}
                 </>
               )}
+              {brushMode ? (
+                <g>
+                  <rect
+                    x={margin.left}
+                    y={margin.top}
+                    width={plotWidth}
+                    height={plotHeight}
+                    fill="transparent"
+                    className="cursor-crosshair"
+                    onPointerDown={startBrush}
+                    onPointerMove={moveBrush}
+                    onPointerUp={finishBrush}
+                    onPointerCancel={() => {
+                      setBrush(null)
+                      setBrushMode(false)
+                    }}
+                  />
+                  {brush ? (
+                    <rect
+                      x={margin.left + Math.min(brush.start, brush.end)}
+                      y={margin.top}
+                      width={Math.abs(brush.end - brush.start)}
+                      height={plotHeight}
+                      fill="var(--primary)"
+                      opacity={0.15}
+                      pointerEvents="none"
+                    />
+                  ) : null}
+                </g>
+              ) : null}
             </svg>
 
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">{legendItems()}</div>

@@ -610,7 +610,10 @@ const zh: Record<string, string> = {
   "chart.bucket": "时间粒度",
   "chart.bucket.none": "不聚合",
   "chart.bucket.auto": "自动",
-  "chart.bucketHint": "时间分桶按 UTC 计算。",
+  "chart.bucketHint": "按所选时区进行时间分桶。",
+  "chart.timezone": "时区",
+  "chart.timezone.utc": "UTC",
+  "chart.timezone.local": "本地",
   "chart.bucket.day": "按天",
   "chart.bucket.week": "按周",
   "chart.bucket.month": "按月",
@@ -667,6 +670,9 @@ const zh: Record<string, string> = {
   "chart.decimals": "小数位",
   "chart.referenceLine": "参考线",
   "chart.percentStacked": "百分比堆叠",
+  "chart.brush": "框选区间",
+  "chart.brushHint": "在图表上拖拽以筛选时间区间。",
+  "chart.resetZoom": "重置缩放",
   "chart.summary": "{{type}}，{{categories}} 个分类，{{series}} 条系列",
 
   // connection overview

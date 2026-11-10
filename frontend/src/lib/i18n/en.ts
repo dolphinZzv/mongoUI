@@ -613,7 +613,10 @@ const en: Record<string, string> = {
   "chart.bucket": "Time bucket",
   "chart.bucket.none": "No bucket",
   "chart.bucket.auto": "Auto",
-  "chart.bucketHint": "Buckets use UTC.",
+  "chart.bucketHint": "Buckets use the selected time zone.",
+  "chart.timezone": "Time zone",
+  "chart.timezone.utc": "UTC",
+  "chart.timezone.local": "Local",
   "chart.bucket.day": "Day",
   "chart.bucket.week": "Week",
   "chart.bucket.month": "Month",
@@ -670,6 +673,9 @@ const en: Record<string, string> = {
   "chart.decimals": "Decimals",
   "chart.referenceLine": "Reference line",
   "chart.percentStacked": "100% stacked",
+  "chart.brush": "Select range",
+  "chart.brushHint": "Drag on the chart to filter a time range.",
+  "chart.resetZoom": "Reset zoom",
   "chart.summary": "{{type}} chart with {{categories}} categories and {{series}} series",
 
   // connection overview

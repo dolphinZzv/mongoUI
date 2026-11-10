@@ -6,6 +6,7 @@ export type ChartAggregate = "none" | "count" | "sum" | "avg" | "min" | "max"
 export type ChartSort = "none" | "asc" | "desc"
 export type ChartTimeBucket = "none" | "auto" | "day" | "week" | "month" | "quarter" | "year"
 export type ChartNumberFormat = "auto" | "plain" | "percent" | "currency"
+export type ChartTimeZone = "utc" | "local"
 
 export interface ChartConfig {
   type: ChartType
@@ -36,6 +37,8 @@ export interface ChartConfig {
   percentStacked: boolean
   /** Optional horizontal reference line, in value units. */
   referenceLine: number | null
+  /** Bucket dates in UTC or the viewer's local time zone. */
+  timeZone: ChartTimeZone
 }
 
 export interface ChartSeries {
@@ -113,6 +116,7 @@ export function normalizeChartConfig(input: unknown): ChartConfig {
       typeof raw.referenceLine === "number" && Number.isFinite(raw.referenceLine)
         ? raw.referenceLine
         : null,
+    timeZone: raw.timeZone === "local" ? "local" : "utc",
   }
 }
 
@@ -186,6 +190,7 @@ export const DEFAULT_CHART_CONFIG: ChartConfig = {
   title: "",
   percentStacked: false,
   referenceLine: null,
+  timeZone: "utc",
 }
 
 /** Distinct group values rendered as series; beyond this the largest win. */
@@ -307,57 +312,82 @@ export function toDate(value: unknown): Date | null {
   return null
 }
 
-/** UTC start of the bucket containing date. */
-export function timeBucketStart(date: Date, unit: ChartTimeBucket): Date {
-  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
+/** Start of the bucket containing date, in UTC or the local time zone. */
+export function timeBucketStart(
+  date: Date,
+  unit: ChartTimeBucket,
+  timeZone: ChartTimeZone = "utc",
+): Date {
+  const local = timeZone === "local"
+  const year = local ? date.getFullYear() : date.getUTCFullYear()
+  const month = local ? date.getMonth() : date.getUTCMonth()
+  const day = local ? date.getDate() : date.getUTCDate()
+  const make = (y: number, m: number, d: number) =>
+    local ? new Date(y, m, d) : new Date(Date.UTC(y, m, d))
+  const d = make(year, month, day)
   switch (unit) {
     case "week": {
-      const offset = (d.getUTCDay() + 6) % 7
-      d.setUTCDate(d.getUTCDate() - offset)
+      const offset = ((local ? d.getDay() : d.getUTCDay()) + 6) % 7
+      if (local) d.setDate(d.getDate() - offset)
+      else d.setUTCDate(d.getUTCDate() - offset)
       return d
     }
     case "month":
-      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1))
+      return make(year, month, 1)
     case "quarter":
-      return new Date(Date.UTC(d.getUTCFullYear(), Math.floor(d.getUTCMonth() / 3) * 3, 1))
+      return make(year, Math.floor(month / 3) * 3, 1)
     case "year":
-      return new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+      return make(year, 0, 1)
     default:
       return d
   }
 }
 
-/** UTC end (exclusive) of a bucket started at `start`. */
-export function timeBucketEnd(start: Date, unit: ChartTimeBucket): Date {
+/** End (exclusive) of a bucket started at `start`. */
+export function timeBucketEnd(
+  start: Date,
+  unit: ChartTimeBucket,
+  timeZone: ChartTimeZone = "utc",
+): Date {
+  const local = timeZone === "local"
   const end = new Date(start)
+  const addDays = (days: number) =>
+    local ? end.setDate(end.getDate() + days) : end.setUTCDate(end.getUTCDate() + days)
+  const addMonths = (months: number) =>
+    local ? end.setMonth(end.getMonth() + months) : end.setUTCMonth(end.getUTCMonth() + months)
   switch (unit) {
     case "week":
-      end.setUTCDate(end.getUTCDate() + 7)
+      addDays(7)
       break
     case "month":
-      end.setUTCMonth(end.getUTCMonth() + 1)
+      addMonths(1)
       break
     case "quarter":
-      end.setUTCMonth(end.getUTCMonth() + 3)
+      addMonths(3)
       break
     case "year":
-      end.setUTCFullYear(end.getUTCFullYear() + 1)
+      local ? end.setFullYear(end.getFullYear() + 1) : end.setUTCFullYear(end.getUTCFullYear() + 1)
       break
     default:
-      end.setUTCDate(end.getUTCDate() + 1)
+      addDays(1)
   }
   return end
 }
 
-export function timeBucketLabel(start: Date, unit: ChartTimeBucket): string {
-  const y = start.getUTCFullYear()
-  const m = String(start.getUTCMonth() + 1).padStart(2, "0")
-  const d = String(start.getUTCDate()).padStart(2, "0")
+export function timeBucketLabel(
+  start: Date,
+  unit: ChartTimeBucket,
+  timeZone: ChartTimeZone = "utc",
+): string {
+  const local = timeZone === "local"
+  const y = local ? start.getFullYear() : start.getUTCFullYear()
+  const m = String((local ? start.getMonth() : start.getUTCMonth()) + 1).padStart(2, "0")
+  const d = String((local ? start.getDate() : start.getUTCDate())).padStart(2, "0")
   switch (unit) {
     case "month":
       return `${y}-${m}`
     case "quarter":
-      return `${y} Q${Math.floor(start.getUTCMonth() / 3) + 1}`
+      return `${y} Q${Math.floor((local ? start.getMonth() : start.getUTCMonth()) / 3) + 1}`
     case "year":
       return String(y)
     default:
@@ -371,11 +401,19 @@ interface Bucket {
   label: string
 }
 
-function bucketOf(value: unknown, unit: ChartTimeBucket): Bucket | null {
+function bucketOf(
+  value: unknown,
+  unit: ChartTimeBucket,
+  timeZone: ChartTimeZone,
+): Bucket | null {
   const date = toDate(value)
   if (!date) return null
-  const start = timeBucketStart(date, unit)
-  return { start, end: timeBucketEnd(start, unit), label: timeBucketLabel(start, unit) }
+  const start = timeBucketStart(date, unit, timeZone)
+  return {
+    start,
+    end: timeBucketEnd(start, unit, timeZone),
+    label: timeBucketLabel(start, unit, timeZone),
+  }
 }
 
 /** Sort, limit and optionally merge the tail into an "Other" category. */
@@ -468,7 +506,7 @@ export function buildChartData(
   const categoryFor = (doc: MongoDocument): { label: string; raw: unknown; bucket?: Bucket } => {
     const value = x ? doc[x] : undefined
     if (bucket !== "none") {
-      const entry = bucketOf(value, bucket)
+      const entry = bucketOf(value, bucket, config.timeZone)
       if (entry) return { label: entry.label, raw: entry.start, bucket: entry }
     }
     return { label: formatCategory(value), raw: value }
@@ -603,6 +641,10 @@ export function buildChartPipeline(
             date: { $convert: { input: `$${x}`, to: "date", onError: null, onNull: null } },
             unit,
             startOfWeek: "monday",
+            timezone:
+              config.timeZone === "local"
+                ? Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+                : "UTC",
           },
         }
   const accumulators: Record<string, unknown> = {}
@@ -658,7 +700,7 @@ export function chartDataFromRows(
   for (const row of rows) {
     const id = (row._id ?? {}) as Record<string, unknown>
     const rawX = id.x
-    const bucket = temporal ? bucketOf(rawX, config.timeBucket) : null
+    const bucket = temporal ? bucketOf(rawX, config.timeBucket, config.timeZone) : null
     const label = bucket ? bucket.label : formatCategory(rawX)
     let index = indexByLabel.get(label)
     if (index === undefined) {
@@ -824,6 +866,7 @@ export function suggestChartConfig(
     title: previous?.title ?? "",
     percentStacked: previous?.percentStacked ?? false,
     referenceLine: previous?.referenceLine ?? null,
+    timeZone: previous?.timeZone ?? "utc",
   }
 }
 

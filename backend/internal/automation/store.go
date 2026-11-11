@@ -28,9 +28,11 @@ func NewStore(settings *config.Settings, lease *Lease) *Store {
 }
 
 type automationDoc struct {
-	Alerts   []config.AlertRule  `bson:"alerts"`
-	Runbooks []config.Runbook    `bson:"runbooks"`
-	SMTP     config.SMTPSettings `bson:"smtp"`
+	Alerts              []config.AlertRule             `bson:"alerts"`
+	Runbooks            []config.Runbook               `bson:"runbooks"`
+	SMTP                config.SMTPSettings            `bson:"smtp"`
+	SavedQueries        map[string][]config.SavedQuery `bson:"savedQueries"`
+	SavedQueriesVersion map[string]int64               `bson:"savedQueriesVersion"`
 }
 
 func (s *Store) load() (automationDoc, error) {
@@ -48,6 +50,10 @@ func (s *Store) load() (automationDoc, error) {
 }
 
 func (s *Store) update(field string, value any) error {
+	return s.updateFields(bson.M{field: value})
+}
+
+func (s *Store) updateFields(fields bson.M) error {
 	if s.coll == nil {
 		return nil
 	}
@@ -55,7 +61,7 @@ func (s *Store) update(field string, value any) error {
 	defer cancel()
 	_, err := s.coll.UpdateOne(ctx,
 		bson.M{"_id": "config"},
-		bson.M{"$set": bson.M{field: value}},
+		bson.M{"$set": fields},
 		options.Update().SetUpsert(true),
 	)
 	return err
@@ -135,4 +141,63 @@ func (s *Store) SetSMTP(cfg config.SMTPSettings) error {
 	}
 	cfg.Password = encrypted
 	return s.update("smtp", cfg)
+}
+
+func (s *Store) GetSavedQueries(scope string) []config.SavedQuery {
+	if s.coll == nil {
+		return s.settings.GetSavedQueries(scope)
+	}
+	doc, err := s.load()
+	if err != nil {
+		return nil
+	}
+	queries := doc.SavedQueries[scope]
+	out := make([]config.SavedQuery, len(queries))
+	copy(out, queries)
+	return out
+}
+
+func (s *Store) SavedQueriesRevision(scope string) int64 {
+	if s.coll == nil {
+		return s.settings.SavedQueriesRevision(scope)
+	}
+	doc, err := s.load()
+	if err != nil {
+		return 0
+	}
+	return doc.SavedQueriesVersion[scope]
+}
+
+func (s *Store) SetSavedQueries(scope string, queries []config.SavedQuery, expected *int64) (int64, error) {
+	if s.coll == nil {
+		return s.settings.SetSavedQueries(scope, queries, expected)
+	}
+	doc, err := s.load()
+	if err != nil {
+		return 0, err
+	}
+	if doc.SavedQueries == nil {
+		doc.SavedQueries = map[string][]config.SavedQuery{}
+	}
+	if doc.SavedQueriesVersion == nil {
+		doc.SavedQueriesVersion = map[string]int64{}
+	}
+	current := doc.SavedQueriesVersion[scope]
+	if expected != nil && *expected != current {
+		return current, config.ErrSavedQueriesConflict
+	}
+	if len(queries) == 0 {
+		delete(doc.SavedQueries, scope)
+	} else {
+		doc.SavedQueries[scope] = append([]config.SavedQuery(nil), queries...)
+	}
+	next := current + 1
+	doc.SavedQueriesVersion[scope] = next
+	if err := s.updateFields(bson.M{
+		"savedQueries":        doc.SavedQueries,
+		"savedQueriesVersion": doc.SavedQueriesVersion,
+	}); err != nil {
+		return next, err
+	}
+	return next, nil
 }

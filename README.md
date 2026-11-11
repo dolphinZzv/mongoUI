@@ -395,7 +395,7 @@ export MONGOUI_COORDINATION_URI="mongodb://coordinator:27017"
 export MONGOUI_COORDINATION_DATABASE="mongoui"
 ```
 
-- 告警规则、定时 Runbook、SMTP 配置存放在协调库的 `automation` 集合，所有实例共享
+- 告警规则、定时 Runbook、SMTP 配置、团队保存的 SQL / 管道存放在协调库的 `automation` 集合，所有实例共享
 - `locks` 集合保存 `automation` / `backups` 租约，15 秒续约、45 秒过期；同一时刻只有一个实例执行定时任务
 - 协调库不可用时进程会启动失败，避免多个实例同时执行任务
 - 自动更新仍按实例运行；多实例部署时建议在非主实例设置 `MONGOUI_DISABLE_AUTOUPDATE=1`

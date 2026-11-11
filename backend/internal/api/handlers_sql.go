@@ -85,12 +85,17 @@ func (a *API) runSQL(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else if query.Aggregate {
-		pipeline := make(mongo.Pipeline, 0, len(query.Pipeline)+2)
-		pipeline = append(pipeline, query.Pipeline...)
+		dataStages := bson.A{}
 		if skip > 0 {
-			pipeline = append(pipeline, bson.D{{Key: "$skip", Value: skip}})
+			dataStages = append(dataStages, bson.D{{Key: "$skip", Value: skip}})
 		}
-		pipeline = append(pipeline, bson.D{{Key: "$limit", Value: limit}})
+		dataStages = append(dataStages, bson.D{{Key: "$limit", Value: limit}})
+		pipeline := make(mongo.Pipeline, 0, len(query.Pipeline)+1)
+		pipeline = append(pipeline, query.Pipeline...)
+		pipeline = append(pipeline, bson.D{{Key: "$facet", Value: bson.D{
+			{Key: "data", Value: dataStages},
+			{Key: "total", Value: bson.A{bson.D{{Key: "$count", Value: "n"}}}},
+		}}})
 
 		cursor, err := coll.Aggregate(ctx, pipeline)
 		if err != nil {
@@ -98,11 +103,22 @@ func (a *API) runSQL(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer cursor.Close(ctx)
-		if err := cursor.All(ctx, &docs); err != nil {
+		var facets []struct {
+			Data  []bson.D `bson:"data"`
+			Total []struct {
+				N int64 `bson:"n"`
+			} `bson:"total"`
+		}
+		if err := cursor.All(ctx, &facets); err != nil {
 			a.dbErr(w, err)
 			return
 		}
-		total = int64(len(docs))
+		if len(facets) > 0 {
+			docs = facets[0].Data
+			if len(facets[0].Total) > 0 {
+				total = facets[0].Total[0].N
+			}
+		}
 	} else {
 		total, err = coll.CountDocuments(ctx, query.Filter)
 		if err != nil {

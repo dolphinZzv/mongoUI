@@ -33,7 +33,16 @@ func ExecuteCrossDB(ctx context.Context, client *mongo.Client, defaultDB string,
 	if mainDB == "" {
 		mainDB = defaultDB
 	}
-	rows, err := fetchDocs(ctx, client.Database(mainDB).Collection(query.Collection), bson.D{}, CrossJoinMaxMainDocs)
+	aliases := make([]string, 0, len(query.Joins))
+	for _, join := range query.Joins {
+		alias := join.Alias
+		if alias == "" {
+			alias = join.Collection
+		}
+		aliases = append(aliases, alias)
+	}
+	mainFilter, _ := splitFilter(query.Filter, aliases)
+	rows, err := fetchDocs(ctx, client.Database(mainDB).Collection(query.Collection), mainFilter, CrossJoinMaxMainDocs)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -70,6 +79,107 @@ func ExecuteCrossDB(ctx context.Context, client *mongo.Client, defaultDB string,
 		projected = projected[:limit]
 	}
 	return projected, total, nil
+}
+
+// splitFilter pushes predicates that only reference the main document into the
+// initial Find, while keeping joined-field predicates for the post-join pass.
+func splitFilter(filter bson.D, joinAliases []string) (bson.D, bson.D) {
+	main := bson.D{}
+	rest := bson.D{}
+	for _, e := range filter {
+		switch e.Key {
+		case "$and":
+			parts := asDocs(e.Value)
+			var mainParts []bson.D
+			var restParts []bson.D
+			for _, part := range parts {
+				m, r := splitFilter(part, joinAliases)
+				if len(m) > 0 {
+					mainParts = append(mainParts, m)
+				}
+				if len(r) > 0 {
+					restParts = append(restParts, r)
+				}
+			}
+			if len(mainParts) > 0 {
+				main = append(main, bson.E{Key: "$and", Value: mainParts})
+			}
+			if len(restParts) > 0 {
+				rest = append(rest, bson.E{Key: "$and", Value: restParts})
+			}
+		case "$or", "$nor":
+			parts := asDocs(e.Value)
+			allMain := len(parts) > 0
+			for _, part := range parts {
+				_, r := splitFilter(part, joinAliases)
+				if len(r) > 0 {
+					allMain = false
+					break
+				}
+			}
+			if allMain {
+				main = append(main, e)
+			} else {
+				rest = append(rest, e)
+			}
+		case "$expr":
+			if exprMainOnly(e.Value, joinAliases) {
+				main = append(main, e)
+			} else {
+				rest = append(rest, e)
+			}
+		default:
+			if fieldMainOnly(e.Key, joinAliases) {
+				main = append(main, e)
+			} else {
+				rest = append(rest, e)
+			}
+		}
+	}
+	return main, rest
+}
+
+func fieldMainOnly(field string, joinAliases []string) bool {
+	for _, alias := range joinAliases {
+		if strings.HasPrefix(field, alias+".") {
+			return false
+		}
+	}
+	return true
+}
+
+func exprMainOnly(expression any, joinAliases []string) bool {
+	switch value := expression.(type) {
+	case string:
+		if strings.HasPrefix(value, "$") && !strings.HasPrefix(value, "$$") {
+			return fieldMainOnly(strings.TrimPrefix(value, "$"), joinAliases)
+		}
+	case bson.A:
+		for _, item := range value {
+			if !exprMainOnly(item, joinAliases) {
+				return false
+			}
+		}
+	case []any:
+		for _, item := range value {
+			if !exprMainOnly(item, joinAliases) {
+				return false
+			}
+		}
+	case bson.D:
+		for _, item := range value {
+			if !exprMainOnly(item.Value, joinAliases) {
+				return false
+			}
+		}
+	case bson.M:
+		for _, item := range value {
+			if !exprMainOnly(item, joinAliases) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func fetchDocs(ctx context.Context, coll *mongo.Collection, filter bson.D, cap int) ([]bson.D, error) {

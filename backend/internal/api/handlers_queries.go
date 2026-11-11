@@ -32,8 +32,8 @@ func (a *API) getSavedQueries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ok(w, map[string]any{
-		"version": a.settings.SavedQueriesRevision(scope),
-		"queries": a.settings.GetSavedQueries(scope),
+		"version": a.automationStore.SavedQueriesRevision(scope),
+		"queries": a.automationStore.GetSavedQueries(scope),
 	})
 }
 
@@ -90,7 +90,7 @@ func (a *API) updateSavedQueries(w http.ResponseWriter, r *http.Request) {
 		}
 		queries = append(queries, query)
 	}
-	version, err := a.settings.SetSavedQueries(scope, queries, in.Version)
+	version, err := a.automationStore.SetSavedQueries(scope, queries, in.Version)
 	if errors.Is(err, config.ErrSavedQueriesConflict) {
 		fail(w, http.StatusConflict, err)
 		return

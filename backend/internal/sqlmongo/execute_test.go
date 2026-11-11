@@ -1,6 +1,7 @@
 package sqlmongo
 
 import (
+	"strings"
 	"testing"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -51,5 +52,24 @@ func TestJoinAliasPath(t *testing.T) {
 	}
 	if value := pathValue(withAlias(row, "o", nil), "o"); value != nil {
 		t.Fatalf("alias should be replaced, got %v", value)
+	}
+}
+
+func TestSplitFilterPushdown(t *testing.T) {
+	filter := bson.D{
+		{Key: "$and", Value: bson.A{
+			bson.D{{Key: "active", Value: true}},
+			bson.D{{Key: "o.total", Value: bson.D{{Key: "$gt", Value: int32(10)}}}},
+		}},
+		{Key: "$expr", Value: bson.D{{Key: "$eq", Value: bson.A{"$region", "$o.region"}}}},
+	}
+	main, rest := splitFilter(filter, []string{"o"})
+	mainJSON := extJSON(t, bson.D{{Key: "f", Value: main}})
+	restJSON := extJSON(t, bson.D{{Key: "f", Value: rest}})
+	if mainJSON != `{"f":{"$and":[{"active":true}]}}` {
+		t.Fatalf("main filter = %s", mainJSON)
+	}
+	if !strings.Contains(restJSON, "o.total") || !strings.Contains(restJSON, "$expr") {
+		t.Fatalf("rest filter = %s", restJSON)
 	}
 }

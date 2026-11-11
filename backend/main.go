@@ -21,6 +21,7 @@ import (
 
 	"mongoui/internal/api"
 	"mongoui/internal/auth"
+	"mongoui/internal/automation"
 	"mongoui/internal/autoupdate"
 	"mongoui/internal/config"
 	"mongoui/internal/daemon"
@@ -198,6 +199,12 @@ func main() {
 	if updater != nil {
 		apiServer.SetUpdater(updater)
 	}
+	automationCtx, automationCancel := context.WithCancel(context.Background())
+	defer automationCancel()
+	automationManager := automation.New(settings, store, mgr)
+	automationManager.Start(automationCtx)
+	automation.LogStartup()
+	apiServer.SetAutomation(automationManager)
 	handler := apiServer.Router(webHandler)
 
 	if (*tlsCert == "") != (*tlsKey == "") {

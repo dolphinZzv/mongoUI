@@ -12,6 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"mongoui/internal/auth"
+	"mongoui/internal/automation"
 	"mongoui/internal/autoupdate"
 	"mongoui/internal/config"
 	"mongoui/internal/mongoclient"
@@ -29,6 +30,7 @@ type API struct {
 	updater    *autoupdate.Updater
 	audit      *auditLog
 	backups    *backupManager
+	automation *automation.Manager
 }
 
 // New builds an API instance. mcpHandler, when non-nil, is mounted at /mcp;
@@ -53,6 +55,12 @@ func New(store *config.Store, mgr *mongoclient.Manager, uiEmbedded bool, version
 // SetUpdater attaches the self-updater so the update endpoints can report and
 // trigger it. It may be nil (e.g. in tests), in which case those endpoints
 // report that the updater is unavailable.
+// SetAutomation attaches the background automation manager used by the alert
+// and runbook endpoints.
+func (a *API) SetAutomation(m *automation.Manager) {
+	a.automation = m
+}
+
 func (a *API) SetUpdater(u *autoupdate.Updater) {
 	a.updater = u
 }
@@ -105,6 +113,15 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 
 			r.Get("/chart-views", a.getChartViews)
 			r.Put("/chart-views", a.updateChartViews)
+
+			r.Get("/alerts", a.getAlerts)
+			r.Put("/alerts", a.updateAlerts)
+			r.Post("/alerts/test", a.testAlert)
+			r.Get("/runbooks", a.getRunbooks)
+			r.Put("/runbooks", a.updateRunbooks)
+			r.Post("/runbooks/{id}/run", a.runRunbookNow)
+			r.Get("/smtp", a.getSMTP)
+			r.Put("/smtp", a.updateSMTP)
 
 			r.Get("/ai", a.getAISettings)
 			r.Put("/ai", a.updateAISettings)

@@ -4,6 +4,11 @@ import type {
   AIFilterInput,
   AIFilterResult,
   AISettings,
+  AlertRule,
+  AlertRuntimeState,
+  RunbookRule,
+  RunbookRuntimeState,
+  SMTPSettings,
   AISettingsInput,
   AITestResult,
   AliasState,
@@ -422,6 +427,32 @@ export const api = {
     request<AIFilterResult>("/ai/filter", { method: "POST", body: JSON.stringify(input) }),
 
   // shared chart views ------------------------------------------------------------
+  getAlerts: () =>
+    request<{ rules: AlertRule[]; statuses: Record<string, AlertRuntimeState> }>("/alerts"),
+  saveAlerts: (rules: AlertRule[]) =>
+    request<{ rules: AlertRule[]; statuses: Record<string, AlertRuntimeState> }>("/alerts", {
+      method: "PUT",
+      body: JSON.stringify({ rules }),
+    }),
+  testAlert: (rule: AlertRule) =>
+    request<{ sent: boolean }>("/alerts/test", {
+      method: "POST",
+      body: JSON.stringify(rule),
+    }),
+  getRunbooks: () =>
+    request<{ runbooks: RunbookRule[]; statuses: Record<string, RunbookRuntimeState> }>(
+      "/runbooks",
+    ),
+  saveRunbooks: (runbooks: RunbookRule[]) =>
+    request<{ runbooks: RunbookRule[]; statuses: Record<string, RunbookRuntimeState> }>(
+      "/runbooks",
+      { method: "PUT", body: JSON.stringify({ runbooks }) },
+    ),
+  runRunbook: (id: string) =>
+    request<{ started: boolean }>(`/runbooks/${encodeURIComponent(id)}/run`, { method: "POST" }),
+  getSMTP: () => request<SMTPSettings>("/smtp"),
+  saveSMTP: (settings: SMTPSettings) =>
+    request<SMTPSettings>("/smtp", { method: "PUT", body: JSON.stringify(settings) }),
   getChartViews: (scope: string) =>
     request<{ version: number; views: SavedChartView[] }>(
       `/chart-views?scope=${encodeURIComponent(scope)}`,

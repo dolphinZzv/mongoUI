@@ -363,6 +363,63 @@ export interface AIFilterResult {
   model: string
 }
 
+export interface AlertRule {
+  id: string
+  name: string
+  connectionId: string
+  database: string
+  collection: string
+  filter: string
+  metric: "count" | "value"
+  pipeline?: string
+  valueField?: string
+  operator: "above" | "below"
+  threshold: number
+  intervalSeconds: number
+  cooldownSeconds: number
+  webhookUrl?: string
+  webhookSecret?: string
+  hasWebhookSecret?: boolean
+  emailTo?: string
+  enabled: boolean
+}
+
+export interface AlertRuntimeState {
+  lastRun?: string
+  lastValue?: string
+  lastError?: string
+  lastTriggered?: string
+  triggered?: boolean
+}
+
+export interface RunbookRule {
+  id: string
+  name: string
+  connectionId: string
+  database: string
+  script: string
+  intervalSeconds: number
+  timeoutSeconds: number
+  enabled: boolean
+}
+
+export interface RunbookRuntimeState {
+  lastRun?: string
+  lastStatus?: string
+  lastError?: string
+  history?: { at: string; status: string; durationMs: number; error?: string }[]
+}
+
+export interface SMTPSettings {
+  enabled: boolean
+  host: string
+  port: number
+  username: string
+  from: string
+  hasPassword?: boolean
+  password?: string
+}
+
 export interface ValidatorState {
   validator?: unknown
   validationLevel?: string

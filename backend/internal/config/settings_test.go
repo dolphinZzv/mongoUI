@@ -280,3 +280,60 @@ func TestChartViewsPersist(t *testing.T) {
 		t.Fatalf("stale write error = %v, want conflict", err)
 	}
 }
+
+func TestAutomationSettingsEncrypted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	cipher, err := NewCipher(make([]byte, 32))
+	if err != nil {
+		t.Fatalf("cipher: %v", err)
+	}
+	s, err := LoadSettings(path, DefaultMCPSettings())
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	s.SetCipher(cipher)
+	if err := s.SetAlerts([]AlertRule{{
+		ID:            "a1",
+		Name:          "High errors",
+		ConnectionID:  "c",
+		Database:      "db",
+		Collection:    "errors",
+		Metric:        "count",
+		Operator:      "above",
+		Threshold:     10,
+		WebhookSecret: "secret",
+	}}); err != nil {
+		t.Fatalf("set alerts: %v", err)
+	}
+	if err := s.SetSMTP(SMTPSettings{Enabled: true, Host: "smtp", Password: "smtp-secret"}); err != nil {
+		t.Fatalf("set smtp: %v", err)
+	}
+	if err := s.SetRunbooks([]Runbook{{ID: "r1", Name: "Cleanup", Script: "db.x.find({})"}}); err != nil {
+		t.Fatalf("set runbooks: %v", err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if strings.Contains(string(raw), "smtp-secret") || strings.Contains(string(raw), `"secret"`) {
+		t.Fatalf("secrets were stored in plaintext")
+	}
+
+	reloaded, err := LoadSettings(path, DefaultMCPSettings())
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	reloaded.SetCipher(cipher)
+	alerts, err := reloaded.GetAlerts()
+	if err != nil || len(alerts) != 1 || alerts[0].WebhookSecret != "secret" {
+		t.Fatalf("alert round-trip: %#v %v", alerts, err)
+	}
+	smtp, err := reloaded.GetSMTP()
+	if err != nil || smtp.Password != "smtp-secret" {
+		t.Fatalf("smtp round-trip: %#v %v", smtp, err)
+	}
+	if runbooks := reloaded.GetRunbooks(); len(runbooks) != 1 || runbooks[0].Name != "Cleanup" {
+		t.Fatalf("runbook round-trip: %#v", runbooks)
+	}
+}

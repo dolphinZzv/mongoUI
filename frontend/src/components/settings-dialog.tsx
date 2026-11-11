@@ -20,6 +20,7 @@ import {
   Sparkles,
   SunIcon,
   Tag,
+  Workflow,
   Ticket,
   UserRound,
   Users,
@@ -43,6 +44,7 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { AISettingsPanel } from "@/components/settings/ai-settings-panel"
+import { AutomationPanel } from "@/components/settings/automation-panel"
 import { Panel } from "@/components/settings/panel"
 import { MCPSettingsPanel } from "@/components/settings/mcp-panel"
 import { UpdatesPanel } from "@/components/settings/updates-panel"
@@ -87,6 +89,7 @@ type SettingsSectionId =
   | "mcp"
   | "updates"
   | "ai"
+  | "automation"
   | "admin"
   | "feedback"
 
@@ -138,6 +141,7 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
       items.push(
         { id: "mcp", label: t("settings.section.mcp"), icon: <Server /> },
         { id: "updates", label: t("settings.section.updates"), icon: <RefreshCw /> },
+        { id: "automation", label: t("settings.section.automation"), icon: <Workflow /> },
       )
     }
     if (authEnabled && role === "admin") {
@@ -470,6 +474,8 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
               {section === "updates" && isAdmin ? <UpdatesPanel /> : null}
 
               {section === "ai" ? <AISettingsPanel /> : null}
+
+              {section === "automation" && isAdmin ? <AutomationPanel /> : null}
 
               {section === "admin" && authEnabled && role === "admin" ? (
                 <Panel title={t("settings.section.admin")} description={t("settings.adminDesc")}>

@@ -105,6 +105,49 @@ type ChartView struct {
 	UpdatedBy string          `json:"updatedBy,omitempty"`
 }
 
+// AlertRule is a server-side threshold alert. Secrets are encrypted at rest.
+type AlertRule struct {
+	ID              string  `json:"id"`
+	Name            string  `json:"name"`
+	ConnectionID    string  `json:"connectionId"`
+	Database        string  `json:"database"`
+	Collection      string  `json:"collection"`
+	Filter          string  `json:"filter"`
+	Metric          string  `json:"metric"` // count | value
+	Pipeline        string  `json:"pipeline,omitempty"`
+	ValueField      string  `json:"valueField,omitempty"`
+	Operator        string  `json:"operator"` // above | below
+	Threshold       float64 `json:"threshold"`
+	IntervalSeconds int     `json:"intervalSeconds"`
+	CooldownSeconds int     `json:"cooldownSeconds"`
+	WebhookURL      string  `json:"webhookUrl,omitempty"`
+	WebhookSecret   string  `json:"webhookSecret,omitempty"`
+	EmailTo         string  `json:"emailTo,omitempty"`
+	Enabled         bool    `json:"enabled"`
+}
+
+// Runbook is a scheduled mongosh-style script.
+type Runbook struct {
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	ConnectionID    string `json:"connectionId"`
+	Database        string `json:"database"`
+	Script          string `json:"script"`
+	IntervalSeconds int    `json:"intervalSeconds"`
+	TimeoutSeconds  int    `json:"timeoutSeconds"`
+	Enabled         bool   `json:"enabled"`
+}
+
+// SMTPSettings configures outbound alert email. Password is encrypted at rest.
+type SMTPSettings struct {
+	Enabled  bool   `json:"enabled"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Password string `json:"password,omitempty"`
+	From     string `json:"from"`
+}
+
 type Settings struct {
 	mu      sync.RWMutex
 	path    string
@@ -123,6 +166,10 @@ type Settings struct {
 	// ChartViewsVersion increments on every write so clients can detect a
 	// concurrent edit instead of silently overwriting each other.
 	ChartViewsVersion map[string]int64 `json:"chartViewsVersion,omitempty"`
+	// Alerts and Runbooks power the server-side automation scheduler.
+	Alerts   map[string]AlertRule `json:"alerts,omitempty"`
+	Runbooks map[string]Runbook   `json:"runbooks,omitempty"`
+	SMTP     SMTPSettings         `json:"smtp,omitempty"`
 }
 
 // ErrChartViewsConflict is returned when a chart-view write is based on a stale
@@ -139,6 +186,8 @@ func NewSettings(mcp MCPSettings) *Settings {
 		AIByUser:          map[string]AISettings{},
 		ChartViews:        map[string][]ChartView{},
 		ChartViewsVersion: map[string]int64{},
+		Alerts:            map[string]AlertRule{},
+		Runbooks:          map[string]Runbook{},
 	}
 }
 
@@ -175,6 +224,12 @@ func LoadSettings(path string, def MCPSettings) (*Settings, error) {
 	}
 	if s.ChartViewsVersion == nil {
 		s.ChartViewsVersion = map[string]int64{}
+	}
+	if s.Alerts == nil {
+		s.Alerts = map[string]AlertRule{}
+	}
+	if s.Runbooks == nil {
+		s.Runbooks = map[string]Runbook{}
 	}
 	// Older builds stored a single server-wide AI profile. Move it to the
 	// local (auth-disabled) slot; authenticated installs start per user, so a
@@ -260,6 +315,12 @@ func (s *Settings) SetAI(userID string, ai AISettings) error {
 	if s.ChartViewsVersion == nil {
 		s.ChartViewsVersion = map[string]int64{}
 	}
+	if s.Alerts == nil {
+		s.Alerts = map[string]AlertRule{}
+	}
+	if s.Runbooks == nil {
+		s.Runbooks = map[string]Runbook{}
+	}
 	if strings.TrimSpace(ai.Provider) == "" {
 		delete(s.AIByUser, key)
 	} else {
@@ -317,6 +378,12 @@ func (s *Settings) SetChartViews(scope string, views []ChartView, expected *int6
 	if s.ChartViewsVersion == nil {
 		s.ChartViewsVersion = map[string]int64{}
 	}
+	if s.Alerts == nil {
+		s.Alerts = map[string]AlertRule{}
+	}
+	if s.Runbooks == nil {
+		s.Runbooks = map[string]Runbook{}
+	}
 	current := s.ChartViewsVersion[scope]
 	if expected != nil && *expected != current {
 		s.mu.Unlock()
@@ -337,6 +404,112 @@ func (s *Settings) SetChartViews(scope string, views []ChartView, expected *int6
 		return next, err
 	}
 	return next, nil
+}
+
+// GetAlerts returns the alert rules with webhook secrets decrypted.
+func (s *Settings) GetAlerts() ([]AlertRule, error) {
+	s.mu.RLock()
+	rules := make([]AlertRule, 0, len(s.Alerts))
+	cipher := s.cipher
+	for _, rule := range s.Alerts {
+		rules = append(rules, rule)
+	}
+	s.mu.RUnlock()
+	if cipher == nil {
+		return rules, nil
+	}
+	for i := range rules {
+		var err error
+		if rules[i].WebhookSecret, err = cipher.Decrypt(rules[i].WebhookSecret); err != nil {
+			return nil, err
+		}
+	}
+	return rules, nil
+}
+
+// SetAlerts replaces the alert rules, encrypting webhook secrets.
+func (s *Settings) SetAlerts(rules []AlertRule) error {
+	s.mu.Lock()
+	cipher := s.cipher
+	next := make(map[string]AlertRule, len(rules))
+	for _, rule := range rules {
+		if cipher != nil {
+			var err error
+			if rule.WebhookSecret, err = cipher.Encrypt(rule.WebhookSecret); err != nil {
+				s.mu.Unlock()
+				return err
+			}
+		}
+		next[rule.ID] = rule
+	}
+	s.Alerts = next
+	s.mu.Unlock()
+	if s.path == "" {
+		return nil
+	}
+	return s.persist()
+}
+
+// GetRunbooks returns a copy of the scheduled runbooks.
+func (s *Settings) GetRunbooks() []Runbook {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]Runbook, 0, len(s.Runbooks))
+	for _, runbook := range s.Runbooks {
+		out = append(out, runbook)
+	}
+	return out
+}
+
+// SetRunbooks replaces the scheduled runbooks.
+func (s *Settings) SetRunbooks(runbooks []Runbook) error {
+	s.mu.Lock()
+	next := make(map[string]Runbook, len(runbooks))
+	for _, runbook := range runbooks {
+		next[runbook.ID] = runbook
+	}
+	s.Runbooks = next
+	s.mu.Unlock()
+	if s.path == "" {
+		return nil
+	}
+	return s.persist()
+}
+
+// GetSMTP returns SMTP settings with the password decrypted.
+func (s *Settings) GetSMTP() (SMTPSettings, error) {
+	s.mu.RLock()
+	cfg := s.SMTP
+	cipher := s.cipher
+	s.mu.RUnlock()
+	if cipher == nil || cfg.Password == "" {
+		return cfg, nil
+	}
+	password, err := cipher.Decrypt(cfg.Password)
+	if err != nil {
+		return SMTPSettings{}, err
+	}
+	cfg.Password = password
+	return cfg, nil
+}
+
+// SetSMTP replaces SMTP settings, encrypting the password.
+func (s *Settings) SetSMTP(cfg SMTPSettings) error {
+	s.mu.Lock()
+	cipher := s.cipher
+	if cipher != nil {
+		var err error
+		if cfg.Password, err = cipher.Encrypt(cfg.Password); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+	}
+	s.SMTP = cfg
+	s.mu.Unlock()
+	if s.path == "" {
+		return nil
+	}
+	return s.persist()
 }
 
 // GetAliases returns a copy of the shared database and collection aliases.

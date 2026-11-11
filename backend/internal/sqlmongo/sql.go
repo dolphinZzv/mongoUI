@@ -5,7 +5,8 @@
 // aggregation pipeline. Supported syntax:
 //
 //	SELECT [DISTINCT] (* | expr [AS alias], ...)
-//	FROM collection
+//	FROM collection [alias]
+//	[[INNER] JOIN | LEFT [OUTER] JOIN] collection [alias] ON left = right
 //	[WHERE condition]
 //	[GROUP BY expr, ...]
 //	[HAVING condition]
@@ -55,6 +56,7 @@ var keywords = map[string]bool{
 	"ASC": true, "DESC": true, "LIMIT": true, "OFFSET": true,
 	"AND": true, "OR": true, "NOT": true, "IN": true, "LIKE": true,
 	"IS": true, "NULL": true, "TRUE": true, "FALSE": true, "AS": true,
+	"JOIN": true, "INNER": true, "LEFT": true, "OUTER": true, "ON": true,
 }
 
 func isIdentStart(c byte) bool {
@@ -302,9 +304,20 @@ type OrderItem struct {
 	Desc bool
 }
 
+// Join is one equality JOIN clause.
+type Join struct {
+	Collection string
+	Alias      string
+	Left       Expr
+	Right      Expr
+	LeftJoin   bool
+}
+
 // Statement is the parsed query.
 type Statement struct {
 	Collection string
+	Alias      string
+	Joins      []Join
 	Distinct   bool
 	Select     []SelectItem
 	Where      Expr
@@ -397,6 +410,59 @@ func (p *parser) parseStatement() (*Statement, error) {
 		return nil, err
 	}
 	st.Collection = name
+	if p.peek().kind == tokIdent && !keywords[strings.ToUpper(p.peek().text)] {
+		st.Alias = p.next().text
+	}
+	for {
+		leftJoin := false
+		switch {
+		case p.acceptKeyword("JOIN"):
+		case p.acceptKeyword("INNER"):
+			if err := p.expectKeyword("JOIN"); err != nil {
+				return nil, err
+			}
+		case p.acceptKeyword("LEFT"):
+			p.acceptKeyword("OUTER")
+			if err := p.expectKeyword("JOIN"); err != nil {
+				return nil, err
+			}
+			leftJoin = true
+		default:
+			goto joinsDone
+		}
+		table, err := p.parseName()
+		if err != nil {
+			return nil, err
+		}
+		alias := table
+		if p.peek().kind == tokIdent && !keywords[strings.ToUpper(p.peek().text)] {
+			alias = p.next().text
+		}
+		if err := p.expectKeyword("ON"); err != nil {
+			return nil, err
+		}
+		left, err := p.parseValueExpr()
+		if err != nil {
+			return nil, err
+		}
+		op := p.peek()
+		if op.kind != tokOp || op.text != "=" {
+			return nil, p.errorf("JOIN ON only supports equality")
+		}
+		p.next()
+		right, err := p.parseValueExpr()
+		if err != nil {
+			return nil, err
+		}
+		st.Joins = append(st.Joins, Join{
+			Collection: table,
+			Alias:      alias,
+			Left:       left,
+			Right:      right,
+			LeftJoin:   leftJoin,
+		})
+	}
+joinsDone:
 
 	if p.acceptKeyword("WHERE") {
 		if st.Where, err = p.parseOr(); err != nil {

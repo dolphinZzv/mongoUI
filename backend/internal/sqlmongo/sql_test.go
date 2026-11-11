@@ -1,6 +1,7 @@
 package sqlmongo
 
 import (
+	"strings"
 	"testing"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -72,6 +73,50 @@ func TestQualifiedFromDatabase(t *testing.T) {
 	}
 	if q.Limit != 5 {
 		t.Fatalf("limit = %d", q.Limit)
+	}
+}
+
+func TestJoinTranslation(t *testing.T) {
+	q, err := Translate("SELECT u.name, o.total FROM users u JOIN orders o ON u._id = o.userId WHERE o.total > 10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !q.Aggregate {
+		t.Fatal("expected aggregate")
+	}
+	got := extJSON(t, bson.D{{Key: "p", Value: q.Pipeline}})
+	for _, want := range []string{
+		`"$lookup"`,
+		`"from":"orders"`,
+		`"localField":"_id"`,
+		`"foreignField":"userId"`,
+		`"as":"o"`,
+		`"$unwind"`,
+		`"path":"$o"`,
+		`"o.total":{"$gt":10}`,
+		`"name":"$name"`,
+		`"o_total":"$o.total"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("pipeline missing %s: %s", want, got)
+		}
+	}
+}
+
+func TestLeftJoinKeepsMissingMatches(t *testing.T) {
+	q, err := Translate("SELECT * FROM users u LEFT JOIN orders o ON u._id = o.userId")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := extJSON(t, bson.D{{Key: "p", Value: q.Pipeline}})
+	if !strings.Contains(got, `"preserveNullAndEmptyArrays":true`) {
+		t.Fatalf("left join should preserve missing matches: %s", got)
+	}
+}
+
+func TestCrossDatabaseJoinRejected(t *testing.T) {
+	if _, err := Translate("SELECT * FROM users u JOIN analytics.orders o ON u._id = o.userId"); err == nil {
+		t.Fatal("expected cross-database JOIN to be rejected")
 	}
 }
 

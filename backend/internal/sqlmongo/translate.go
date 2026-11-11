@@ -39,6 +39,37 @@ func Translate(input string) (*Query, error) {
 		return nil, err
 	}
 
+	// A table name/alias is only a SQL convenience; MongoDB fields stay at the
+	// root of the document, so strip "u." / "users." from main-table references.
+	mainAlias := st.Alias
+	if mainAlias == "" {
+		mainAlias = st.Collection
+	}
+	if mainAlias != "" {
+		for i := range st.Select {
+			st.Select[i].Expr = stripAlias(st.Select[i].Expr, mainAlias)
+		}
+		st.Where = stripAlias(st.Where, mainAlias)
+		for i := range st.GroupBy {
+			st.GroupBy[i] = stripAlias(st.GroupBy[i], mainAlias)
+		}
+		st.Having = stripAlias(st.Having, mainAlias)
+		for i := range st.OrderBy {
+			st.OrderBy[i].Expr = stripAlias(st.OrderBy[i].Expr, mainAlias)
+		}
+		for i := range st.Joins {
+			st.Joins[i].Left = stripAlias(st.Joins[i].Left, mainAlias)
+			st.Joins[i].Right = stripAlias(st.Joins[i].Right, mainAlias)
+		}
+	}
+	// The filter was built before the alias rewrite; rebuild it from the AST.
+	if mainAlias != "" {
+		var err error
+		if filter, err = buildFilter(st.Where); err != nil {
+			return nil, err
+		}
+	}
+
 	q := &Query{
 		Collection: st.Collection,
 		Filter:     filter,
@@ -53,12 +84,19 @@ func Translate(input string) (*Query, error) {
 		q.Collection = q.Collection[dot+1:]
 	}
 
-	useAggregate := st.Distinct || len(st.GroupBy) > 0 || hasAggregate(st) || hasAlias(st)
+	useAggregate := st.Distinct || len(st.GroupBy) > 0 || hasAggregate(st) || hasAlias(st) || len(st.Joins) > 0
 	if useAggregate {
 		q.Aggregate = true
 		pipeline, columns, err := buildAggregation(st, filter)
 		if err != nil {
 			return nil, err
+		}
+		if len(st.Joins) > 0 {
+			joinStages, err := buildJoinStages(st)
+			if err != nil {
+				return nil, err
+			}
+			pipeline = append(joinStages, pipeline...)
 		}
 		q.Pipeline = pipeline
 		q.Columns = columns
@@ -230,6 +268,16 @@ func quoteRegexByte(c byte) string {
 
 // --- find projection / sort -------------------------------------------------
 
+// outputName flattens dotted field names into result column names; the result
+// grid and API clients use top-level keys.
+func outputName(column, alias string) string {
+	name := alias
+	if name == "" {
+		name = column
+	}
+	return strings.ReplaceAll(name, ".", "_")
+}
+
 func buildProjection(items []SelectItem) (bson.D, []string, error) {
 	if len(items) == 1 && items[0].Star {
 		return nil, nil, nil
@@ -293,6 +341,97 @@ func buildOutputSort(items []OrderItem, names map[string]string) (bson.D, error)
 	return sort, nil
 }
 
+// stripAlias removes a table alias prefix from a column reference.
+func stripAlias(e Expr, alias string) Expr {
+	switch v := e.(type) {
+	case nil:
+		return nil
+	case *ColumnRef:
+		if strings.HasPrefix(v.Name, alias+".") {
+			return &ColumnRef{Name: strings.TrimPrefix(v.Name, alias+".")}
+		}
+		return v
+	case *FuncCall:
+		args := make([]Expr, len(v.Args))
+		for i, arg := range v.Args {
+			args[i] = stripAlias(arg, alias)
+		}
+		return &FuncCall{Name: v.Name, Args: args}
+	case *BinaryExpr:
+		return &BinaryExpr{Op: v.Op, Left: stripAlias(v.Left, alias), Right: stripAlias(v.Right, alias)}
+	case *LogicalExpr:
+		return &LogicalExpr{Op: v.Op, Left: stripAlias(v.Left, alias), Right: stripAlias(v.Right, alias)}
+	case *NotExpr:
+		return &NotExpr{Expr: stripAlias(v.Expr, alias)}
+	case *InExpr:
+		values := make([]Expr, len(v.Values))
+		for i, value := range v.Values {
+			values[i] = stripAlias(value, alias)
+		}
+		return &InExpr{Expr: stripAlias(v.Expr, alias), Values: values, Not: v.Not}
+	case *LikeExpr:
+		return &LikeExpr{Expr: stripAlias(v.Expr, alias), Pattern: v.Pattern, Not: v.Not}
+	case *IsNullExpr:
+		return &IsNullExpr{Expr: stripAlias(v.Expr, alias), Not: v.Not}
+	default:
+		return e
+	}
+}
+
+// buildJoinStages translates equality JOINs into $lookup + $unwind stages.
+// MongoDB can only $lookup within one database, so cross-database JOINs are
+// rejected with a clear error instead of silently querying the wrong collection.
+func buildJoinStages(st *Statement) ([]bson.D, error) {
+	var stages []bson.D
+	for _, join := range st.Joins {
+		if strings.Contains(join.Collection, ".") {
+			return nil, fmt.Errorf("cross-database JOIN is not supported; use separate queries or a pipeline")
+		}
+		alias := join.Alias
+		if alias == "" {
+			alias = join.Collection
+		}
+		if strings.Contains(alias, ".") {
+			return nil, fmt.Errorf("JOIN on collection %q needs an alias", join.Collection)
+		}
+		left, err := asColumn(join.Left)
+		if err != nil {
+			return nil, fmt.Errorf("JOIN ON left side: %w", err)
+		}
+		right, err := asColumn(join.Right)
+		if err != nil {
+			return nil, fmt.Errorf("JOIN ON right side: %w", err)
+		}
+		local, foreign := left, right
+		leftIsJoin := strings.HasPrefix(left, alias+".")
+		rightIsJoin := strings.HasPrefix(right, alias+".")
+		switch {
+		case leftIsJoin && !rightIsJoin:
+			local, foreign = right, strings.TrimPrefix(left, alias+".")
+		case rightIsJoin && !leftIsJoin:
+			foreign = strings.TrimPrefix(right, alias+".")
+		case leftIsJoin && rightIsJoin:
+			return nil, fmt.Errorf("JOIN ON must reference both tables")
+		default:
+			// Without an alias on the joined side the second operand is assumed
+			// to be the joined collection's field.
+			foreign = right
+		}
+		stages = append(stages, bson.D{{Key: "$lookup", Value: bson.D{
+			{Key: "from", Value: join.Collection},
+			{Key: "localField", Value: local},
+			{Key: "foreignField", Value: foreign},
+			{Key: "as", Value: alias},
+		}}})
+		unwind := bson.D{{Key: "path", Value: "$" + alias}}
+		if join.LeftJoin {
+			unwind = append(unwind, bson.E{Key: "preserveNullAndEmptyArrays", Value: true})
+		}
+		stages = append(stages, bson.D{{Key: "$unwind", Value: unwind}})
+	}
+	return stages, nil
+}
+
 // --- aggregation ------------------------------------------------------------
 
 func buildAggregation(st *Statement, filter bson.D) ([]bson.D, []string, error) {
@@ -300,6 +439,13 @@ func buildAggregation(st *Statement, filter bson.D) ([]bson.D, []string, error) 
 	case st.Distinct && !hasAggregate(st) && len(st.GroupBy) == 0:
 		return buildDistinct(st, filter)
 	case !hasAggregate(st) && len(st.GroupBy) == 0:
+		if len(st.Joins) > 0 && len(st.Select) == 1 && st.Select[0].Star {
+			var pipeline []bson.D
+			if len(filter) > 0 {
+				pipeline = append(pipeline, bson.D{{Key: "$match", Value: filter}})
+			}
+			return pipeline, nil, nil
+		}
 		return buildProjectOnly(st, filter)
 	default:
 		return buildGrouped(st, filter)
@@ -320,10 +466,7 @@ func buildProjectOnly(st *Statement, filter bson.D) ([]bson.D, []string, error) 
 		if err != nil {
 			return nil, nil, err
 		}
-		out := item.Alias
-		if out == "" {
-			out = col
-		}
+		out := outputName(col, item.Alias)
 		projection = append(projection, bson.E{Key: out, Value: "$" + col})
 		columns = append(columns, out)
 		names[col], names[out] = out, out
@@ -364,10 +507,7 @@ func buildDistinct(st *Statement, filter bson.D) ([]bson.D, []string, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		out := item.Alias
-		if out == "" {
-			out = col
-		}
+		out := outputName(col, item.Alias)
 		key := fmt.Sprintf("k%d", i)
 		keys = append(keys, bson.E{Key: key, Value: "$" + col})
 		projection = append(projection, bson.E{Key: out, Value: "$_id." + key})
@@ -548,10 +688,7 @@ func buildGrouped(st *Statement, filter bson.D) ([]bson.D, []string, error) {
 	for _, item := range st.Select {
 		if fc, ok := item.Expr.(*FuncCall); ok && isAggregateName(fc.Name) {
 			a := byCanonical[canonical(fc)]
-			out := item.Alias
-			if out == "" {
-				out = a.field
-			}
+			out := outputName(a.field, item.Alias)
 			projection = append(projection, bson.E{Key: out, Value: "$" + a.field})
 			columns = append(columns, out)
 			continue
@@ -564,10 +701,7 @@ func buildGrouped(st *Statement, filter bson.D) ([]bson.D, []string, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		out := item.Alias
-		if out == "" {
-			out = col
-		}
+		out := outputName(col, item.Alias)
 		projection = append(projection, bson.E{Key: out, Value: "$" + field})
 		columns = append(columns, out)
 	}

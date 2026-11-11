@@ -588,7 +588,7 @@ const en: Record<string, string> = {
   "sql.writeFirst": "Write a SQL query first",
   "sql.failed": "SQL query failed",
   "sql.help":
-    "SELECT with WHERE / IN / LIKE / IS NULL, ORDER BY, LIMIT, GROUP BY, HAVING, DISTINCT and COUNT / SUM / AVG / MIN / MAX. Use FROM other_database.collection for a cross-database query. Autocomplete covers keywords and collection / field names. Press Ctrl/⌘ + Enter to run.",
+    "SELECT with WHERE / IN / LIKE / IS NULL, ORDER BY, LIMIT, GROUP BY, HAVING, DISTINCT and COUNT / SUM / AVG / MIN / MAX. Same-database INNER / LEFT JOIN with table aliases is supported. Use FROM other_database.collection for a cross-database query. Press Ctrl/⌘ + Enter to run.",
 
   // script console
   "script.title": "MongoDB Script",

@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils"
 const KEYWORDS = [
   "SELECT", "DISTINCT", "FROM", "WHERE", "GROUP", "BY", "HAVING", "ORDER",
   "ASC", "DESC", "LIMIT", "OFFSET", "AND", "OR", "NOT", "IN", "LIKE", "IS",
-  "NULL", "TRUE", "FALSE", "AS",
+  "NULL", "TRUE", "FALSE", "AS", "JOIN", "INNER", "LEFT", "OUTER", "ON",
 ]
 
 const FUNCTIONS = ["COUNT", "SUM", "AVG", "MIN", "MAX"]
@@ -27,7 +27,7 @@ const FUNCTION_SET = new Set(FUNCTIONS)
 // Keywords after which an empty prefix still offers suggestions.
 const COMPLETE_AFTER = new Set([
   "SELECT", "FROM", "WHERE", "GROUP", "BY", "HAVING", "ORDER", "AND", "OR",
-  "NOT", "IN", "LIKE", "IS", "AS", "DISTINCT",
+  "NOT", "IN", "LIKE", "IS", "AS", "DISTINCT", "JOIN", "ON",
 ])
 
 const CLS = {

@@ -59,8 +59,10 @@ type RunbookState struct {
 type Manager struct {
 	settings *config.Settings
 	store    *config.Store
+	config   *Store
 	mgr      *mongoclient.Manager
 	client   *http.Client
+	lease    *Lease
 
 	mu       sync.Mutex
 	lastRun  map[string]time.Time
@@ -69,10 +71,15 @@ type Manager struct {
 	running  map[string]bool
 }
 
-func New(settings *config.Settings, store *config.Store, mgr *mongoclient.Manager) *Manager {
+func New(settings *config.Settings, store *config.Store, mgr *mongoclient.Manager, lease *Lease, automationStore *Store) *Manager {
+	if automationStore == nil {
+		automationStore = NewStore(settings, lease)
+	}
 	return &Manager{
+		lease:    lease,
 		settings: settings,
 		store:    store,
+		config:   automationStore,
 		mgr:      mgr,
 		client:   &http.Client{Timeout: 10 * time.Second},
 		lastRun:  map[string]time.Time{},
@@ -99,7 +106,10 @@ func (m *Manager) Start(ctx context.Context) {
 }
 
 func (m *Manager) tick(ctx context.Context) {
-	alerts, err := m.settings.GetAlerts()
+	if m.lease != nil && !m.lease.Acquire(ctx) {
+		return
+	}
+	alerts, err := m.config.GetAlerts()
 	if err == nil {
 		for _, rule := range alerts {
 			if !rule.Enabled || rule.IntervalSeconds <= 0 {
@@ -112,7 +122,7 @@ func (m *Manager) tick(ctx context.Context) {
 			go m.runAlert(ctx, rule)
 		}
 	}
-	for _, runbook := range m.settings.GetRunbooks() {
+	for _, runbook := range m.config.GetRunbooks() {
 		if !runbook.Enabled || runbook.IntervalSeconds <= 0 {
 			continue
 		}
@@ -145,6 +155,15 @@ func (m *Manager) release(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.running, id)
+}
+
+// AcquireNamed lets other background jobs (e.g. scheduled backups) share the
+// same leader election. Without a lease it always returns true.
+func (m *Manager) AcquireNamed(ctx context.Context, name string) bool {
+	if m.lease == nil {
+		return true
+	}
+	return m.lease.AcquireNamed(ctx, name)
 }
 
 // AlertStates returns a snapshot for the API.
@@ -361,7 +380,7 @@ func (m *Manager) sendWebhook(ctx context.Context, rule config.AlertRule, payloa
 }
 
 func (m *Manager) sendEmail(ctx context.Context, rule config.AlertRule, value float64) error {
-	cfg, err := m.settings.GetSMTP()
+	cfg, err := m.config.GetSMTP()
 	if err != nil {
 		return err
 	}
@@ -500,4 +519,10 @@ func (m *Manager) Test(ctx context.Context, rule config.AlertRule) error {
 }
 
 // LogStartup records the automation manager start for operators.
-func LogStartup() { log.Printf("automation scheduler started (tick %s)", tickInterval) }
+func LogStartup(leaderElection bool) {
+	if leaderElection {
+		log.Printf("automation scheduler started with Mongo lease (tick %s)", tickInterval)
+		return
+	}
+	log.Printf("automation scheduler started in single-instance mode (tick %s)", tickInterval)
+}

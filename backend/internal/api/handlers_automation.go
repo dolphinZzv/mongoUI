@@ -49,7 +49,7 @@ func (a *API) getAlerts(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAdmin(w, r) {
 		return
 	}
-	rules, err := a.settings.GetAlerts()
+	rules, err := a.automationStore.GetAlerts()
 	if err != nil {
 		serverError(w, err)
 		return
@@ -79,7 +79,7 @@ func (a *API) updateAlerts(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err)
 		return
 	}
-	existing, _ := a.settings.GetAlerts()
+	existing, _ := a.automationStore.GetAlerts()
 	secrets := map[string]string{}
 	for _, rule := range existing {
 		secrets[rule.ID] = rule.WebhookSecret
@@ -138,7 +138,7 @@ func (a *API) updateAlerts(w http.ResponseWriter, r *http.Request) {
 		}
 		rules = append(rules, rule)
 	}
-	if err := a.settings.SetAlerts(rules); err != nil {
+	if err := a.automationStore.SetAlerts(rules); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -175,7 +175,7 @@ func (a *API) getRunbooks(w http.ResponseWriter, r *http.Request) {
 	if a.automation != nil {
 		statuses = toAnyMap(a.automation.RunbookStates())
 	}
-	ok(w, map[string]any{"runbooks": a.settings.GetRunbooks(), "statuses": statuses})
+	ok(w, map[string]any{"runbooks": a.automationStore.GetRunbooks(), "statuses": statuses})
 }
 
 func (a *API) updateRunbooks(w http.ResponseWriter, r *http.Request) {
@@ -219,7 +219,7 @@ func (a *API) updateRunbooks(w http.ResponseWriter, r *http.Request) {
 		}
 		runbooks = append(runbooks, runbook)
 	}
-	if err := a.settings.SetRunbooks(runbooks); err != nil {
+	if err := a.automationStore.SetRunbooks(runbooks); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -235,7 +235,7 @@ func (a *API) runRunbookNow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := chi.URLParam(r, "id")
-	for _, runbook := range a.settings.GetRunbooks() {
+	for _, runbook := range a.automationStore.GetRunbooks() {
 		if runbook.ID == id {
 			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -253,7 +253,7 @@ func (a *API) getSMTP(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAdmin(w, r) {
 		return
 	}
-	cfg, err := a.settings.GetSMTP()
+	cfg, err := a.automationStore.GetSMTP()
 	if err != nil {
 		serverError(w, err)
 		return
@@ -277,7 +277,7 @@ func (a *API) updateSMTP(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err)
 		return
 	}
-	current, _ := a.settings.GetSMTP()
+	current, _ := a.automationStore.GetSMTP()
 	password := strings.TrimSpace(in.Password)
 	if password == "" {
 		password = current.Password
@@ -293,7 +293,7 @@ func (a *API) updateSMTP(w http.ResponseWriter, r *http.Request) {
 	if cfg.Port <= 0 {
 		cfg.Port = 587
 	}
-	if err := a.settings.SetSMTP(cfg); err != nil {
+	if err := a.automationStore.SetSMTP(cfg); err != nil {
 		serverError(w, err)
 		return
 	}

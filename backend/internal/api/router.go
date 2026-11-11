@@ -20,17 +20,18 @@ import (
 
 // API holds shared dependencies for all HTTP handlers.
 type API struct {
-	store      *config.Store
-	mgr        *mongoclient.Manager
-	uiEmbedded bool
-	version    string
-	mcpHandler http.Handler
-	auth       *auth.Manager
-	settings   *config.Settings
-	updater    *autoupdate.Updater
-	audit      *auditLog
-	backups    *backupManager
-	automation *automation.Manager
+	store           *config.Store
+	mgr             *mongoclient.Manager
+	uiEmbedded      bool
+	version         string
+	mcpHandler      http.Handler
+	auth            *auth.Manager
+	settings        *config.Settings
+	updater         *autoupdate.Updater
+	audit           *auditLog
+	backups         *backupManager
+	automation      *automation.Manager
+	automationStore *automation.Store
 }
 
 // New builds an API instance. mcpHandler, when non-nil, is mounted at /mcp;
@@ -48,6 +49,7 @@ func New(store *config.Store, mgr *mongoclient.Manager, uiEmbedded bool, version
 		dataDir = store.Dir()
 	}
 	api := &API{store: store, mgr: mgr, uiEmbedded: uiEmbedded, version: version, mcpHandler: mcpHandler, auth: authManager, settings: s, audit: newAuditLog(dataDir)}
+	api.automationStore = automation.NewStore(s, nil)
 	api.backups = newBackupManager(dataDir, api)
 	return api
 }
@@ -57,8 +59,11 @@ func New(store *config.Store, mgr *mongoclient.Manager, uiEmbedded bool, version
 // report that the updater is unavailable.
 // SetAutomation attaches the background automation manager used by the alert
 // and runbook endpoints.
-func (a *API) SetAutomation(m *automation.Manager) {
+func (a *API) SetAutomation(m *automation.Manager, store *automation.Store) {
 	a.automation = m
+	if store != nil {
+		a.automationStore = store
+	}
 }
 
 func (a *API) SetUpdater(u *autoupdate.Updater) {

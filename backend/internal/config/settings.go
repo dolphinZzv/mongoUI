@@ -406,6 +406,28 @@ func (s *Settings) SetChartViews(scope string, views []ChartView, expected *int6
 	return next, nil
 }
 
+// EncryptSecret encrypts a value with the master key (no-op without a cipher).
+func (s *Settings) EncryptSecret(value string) (string, error) {
+	s.mu.RLock()
+	cipher := s.cipher
+	s.mu.RUnlock()
+	if cipher == nil || value == "" {
+		return value, nil
+	}
+	return cipher.Encrypt(value)
+}
+
+// DecryptSecret decrypts a value encrypted by EncryptSecret.
+func (s *Settings) DecryptSecret(value string) (string, error) {
+	s.mu.RLock()
+	cipher := s.cipher
+	s.mu.RUnlock()
+	if cipher == nil || value == "" {
+		return value, nil
+	}
+	return cipher.Decrypt(value)
+}
+
 // GetAlerts returns the alert rules with webhook secrets decrypted.
 func (s *Settings) GetAlerts() ([]AlertRule, error) {
 	s.mu.RLock()

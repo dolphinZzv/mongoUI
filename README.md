@@ -368,11 +368,29 @@ curl -H "Authorization: Bearer moui_pat_xxx" https://your-host/api/connections
 | — | `MONGOUI_REPO` | `dolphinZzv/mongoUI` | 自更新检查与反馈 Issue 的目标仓库 |
 | — | `MONGOUI_FEEDBACK_REPO` | 同 `MONGOUI_REPO` | 单独指定反馈 Issue 的目标仓库 |
 | — | `MONGOUI_DISABLE_AUTOUPDATE` | 关 | 设为真值时禁用内置自动更新 |
+| — | `MONGOUI_COORDINATION_URI` | 空 | 多实例协调用 MongoDB URI；设置后告警/Runbook 配置存于此库，并通过租约选主 |
+| — | `MONGOUI_COORDINATION_DATABASE` | `mongoui` | 协调库名（存放 `locks` 与 `automation` 集合） |
+| — | `MONGOUI_ALLOW_PRIVATE_WEBHOOKS` | 关 | 允许 Webhook 指向内网/回环地址（默认拦截，防 SSRF） |
 | — | `MONGOUI_RESTART_AFTER_UPDATE` | 关 | 更新后干净退出以便服务管理器重启（`service` 安装时自动设置） |
 
 ```bash
 ./bin/mongoui -addr :9000 -data /var/lib/mongoui
 ```
+
+### 多实例部署
+
+默认是单实例模式。需要多个副本时，设置一个专用的协调 MongoDB：
+
+```bash
+export MONGOUI_COORDINATION_URI="mongodb://coordinator:27017"
+export MONGOUI_COORDINATION_DATABASE="mongoui"
+```
+
+- 告警规则、定时 Runbook、SMTP 配置存放在协调库的 `automation` 集合，所有实例共享
+- `locks` 集合保存 `automation` / `backups` 租约，15 秒续约、45 秒过期；同一时刻只有一个实例执行定时任务
+- 协调库不可用时进程会启动失败，避免多个实例同时执行任务
+- 自动更新仍按实例运行；多实例部署时建议在非主实例设置 `MONGOUI_DISABLE_AUTOUPDATE=1`
+- 每个实例仍需要自己的 `<data>` 目录；连接配置不共享，请通过统一的部署配置/挂载管理
 
 ### AI 过滤（BYOK / Google ADK）
 

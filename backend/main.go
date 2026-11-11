@@ -201,10 +201,20 @@ func main() {
 	}
 	automationCtx, automationCancel := context.WithCancel(context.Background())
 	defer automationCancel()
-	automationManager := automation.New(settings, store, mgr)
+	var automationLease *automation.Lease
+	if uri := strings.TrimSpace(os.Getenv("MONGOUI_COORDINATION_URI")); uri != "" {
+		lease, err := automation.NewLease(uri, os.Getenv("MONGOUI_COORDINATION_DATABASE"))
+		if err != nil {
+			log.Fatalf("coordination store: %v", err)
+		}
+		automationLease = lease
+		defer automationLease.Close()
+	}
+	automationStore := automation.NewStore(settings, automationLease)
+	automationManager := automation.New(settings, store, mgr, automationLease, automationStore)
 	automationManager.Start(automationCtx)
-	automation.LogStartup()
-	apiServer.SetAutomation(automationManager)
+	automation.LogStartup(automationLease != nil)
+	apiServer.SetAutomation(automationManager, automationStore)
 	handler := apiServer.Router(webHandler)
 
 	if (*tlsCert == "") != (*tlsKey == "") {

@@ -116,6 +116,9 @@ func (b *backupManager) loop() {
 		case <-b.stop:
 			return
 		case <-ticker.C:
+			if manager := b.api.automation; manager != nil && !manager.AcquireNamed(context.Background(), "backups") {
+				continue
+			}
 			b.runDue()
 		}
 	}

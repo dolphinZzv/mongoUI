@@ -1694,6 +1694,11 @@ export function DocumentsTab({
                     scope={`${connectionId}::${database}::${collection}`}
                     storageKey={`docs:${connectionId}:${database}:${collection}`}
                     currentFilter={filter}
+                    onDrilldown={(next) => {
+                      const text = JSON.stringify(next)
+                      setFilter(text)
+                      void load({ skip: 0, filter: text })
+                    }}
                     height={520}
                   />
                 </React.Suspense>

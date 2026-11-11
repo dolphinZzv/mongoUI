@@ -19,6 +19,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { QueryDuration } from "@/components/query-duration"
+import { RecentQueries } from "@/components/recent-queries"
+import { useRecentQueries } from "@/hooks/useRecentQueries"
 import { api } from "@/lib/api"
 import { copyToClipboard } from "@/lib/clipboard"
 import { useI18n } from "@/lib/i18n"
@@ -53,13 +55,26 @@ const EXAMPLES: { labelKey: string; pipeline: string }[] = [
   },
 ]
 
+function readStored(key: string, fallback: string): string {
+  try {
+    return localStorage.getItem(key) || fallback
+  } catch {
+    return fallback
+  }
+}
+
+const DEFAULT_PIPELINE = "[\n  { \"$limit\": 20 }\n]"
+
 export function AggregationTab({ connectionId, database, collection }: AggregationTabProps) {
   const { t } = useI18n()
-  const [pipeline, setPipeline] = React.useState("[\n  { \"$limit\": 20 }\n]")
-  const [limit, setLimit] = React.useState("")
-  const [documents, setDocuments] = React.useState<MongoDocument[]>([])
   const [sourceDatabase, setSourceDatabase] = React.useState(database)
   const [sourceCollection, setSourceCollection] = React.useState(collection)
+  const pipelineStorageKey = `mongoui-agg:${connectionId}:${sourceDatabase}:${sourceCollection}`
+  const [pipeline, setPipeline] = React.useState(() =>
+    readStored(pipelineStorageKey, DEFAULT_PIPELINE),
+  )
+  const [limit, setLimit] = React.useState("")
+  const [documents, setDocuments] = React.useState<MongoDocument[]>([])
   const [databases, setDatabases] = React.useState<string[]>([database])
   const [collections, setCollections] = React.useState<string[]>([collection])
   const columnPrefs = React.useMemo(
@@ -73,6 +88,14 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
   const [mode, setMode] = React.useState<"visual" | "json">("visual")
   const [explainOpen, setExplainOpen] = React.useState(false)
   const [explainPipeline, setExplainPipeline] = React.useState<unknown[] | null>(null)
+  const {
+    items: recentPipelines,
+    push: pushRecentPipeline,
+    clear: clearRecentPipelines,
+    favorites: favoritePipelines,
+    toggleFavorite: toggleFavoritePipeline,
+    removeFavorite: removeFavoritePipeline,
+  } = useRecentQueries(`agg:${connectionId}:${sourceDatabase}:${sourceCollection}`)
 
   const explainRequest = React.useMemo(
     () => (explainPipeline ? { type: "aggregate" as const, pipeline: explainPipeline } : null),
@@ -83,6 +106,20 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
     setSourceDatabase(database)
     setSourceCollection(collection)
   }, [database, collection])
+
+  React.useEffect(() => {
+    setPipeline(readStored(pipelineStorageKey, DEFAULT_PIPELINE))
+    setRan(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipelineStorageKey])
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(pipelineStorageKey, pipeline)
+    } catch {
+      /* storage may be unavailable */
+    }
+  }, [pipeline, pipelineStorageKey])
 
   React.useEffect(() => {
     let cancelled = false
@@ -146,6 +183,7 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
       setDocuments(res.documents)
       setDurationMs(res.durationMs)
       setRan(true)
+      pushRecentPipeline(pipeline)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("agg.failed"))
     } finally {
@@ -258,6 +296,14 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
               placeholder="none"
               className="h-8 w-20 font-mono text-xs"
               inputMode="numeric"
+            />
+            <RecentQueries
+              items={recentPipelines}
+              favorites={favoritePipelines}
+              onPick={setPipeline}
+              onClear={clearRecentPipelines}
+              onToggleFavorite={toggleFavoritePipeline}
+              onRemoveFavorite={removeFavoritePipeline}
             />
             <Button onClick={() => void run()} disabled={loading} size="sm">
               {loading ? <Loader2 className="animate-spin" /> : <Play />}

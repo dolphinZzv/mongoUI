@@ -29,6 +29,14 @@ function quoteIdent(name: string): string {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : "`" + name.replace(/`/g, "``") + "`"
 }
 
+function readStored(key: string, fallback: string): string {
+  try {
+    return localStorage.getItem(key) || fallback
+  } catch {
+    return fallback
+  }
+}
+
 function templates(collection: string): { labelKey: string; sql: string }[] {
   const c = quoteIdent(collection)
   return [
@@ -48,7 +56,9 @@ function templates(collection: string): { labelKey: string; sql: string }[] {
 
 export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
   const { t } = useI18n()
-  const [query, setQuery] = React.useState(`SELECT * FROM ${quoteIdent(collection)} LIMIT 50`)
+  const queryStorageKey = `mongoui-sql:${connectionId}:${database}:${collection}`
+  const defaultQuery = `SELECT * FROM ${quoteIdent(collection)} LIMIT 50`
+  const [query, setQuery] = React.useState(() => readStored(queryStorageKey, defaultQuery))
   const [limit, setLimit] = React.useState("")
   const [result, setResult] = React.useState<SQLResult | null>(null)
   const columnPrefs = React.useMemo(
@@ -63,6 +73,9 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
     items: recentSql,
     push: pushRecent,
     clear: clearRecent,
+    favorites: favoriteSql,
+    toggleFavorite: toggleFavoriteSql,
+    removeFavorite: removeFavoriteSql,
   } = useRecentQueries(`sql:${connectionId}:${database}`)
 
   // Complete collection and field names alongside the SQL keywords.
@@ -72,9 +85,33 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
       const words = new Set<string>()
       try {
         const collections = await api.listCollections(connectionId, database)
-        for (const c of collections) words.add(c.name)
+        for (const c of collections) {
+          words.add(c.name)
+          words.add(`${database}.${c.name}`)
+        }
       } catch {
         /* ignore: completion is best-effort */
+      }
+      try {
+        const databases = await api.listDatabases(connectionId)
+        for (const db of databases.databases) words.add(db.name)
+        // Keep cross-database completion bounded: fetch collection names for a
+        // reasonable number of databases without hammering large deployments.
+        await Promise.all(
+          databases.databases
+            .filter((db) => db.name !== database)
+            .slice(0, 20)
+            .map(async (db) => {
+              try {
+                const collections = await api.listCollections(connectionId, db.name)
+                for (const c of collections) words.add(`${db.name}.${c.name}`)
+              } catch {
+                /* ignore */
+              }
+            }),
+        )
+      } catch {
+        /* ignore */
       }
       try {
         const schema = await api.collectionSchema(connectionId, database, collection)
@@ -89,12 +126,21 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
     }
   }, [connectionId, database, collection])
 
-  // Reset the editor when the selected collection changes.
+  // Restore the last query for this collection, or start from the template.
   React.useEffect(() => {
-    setQuery(`SELECT * FROM ${quoteIdent(collection)} LIMIT 50`)
+    setQuery(readStored(queryStorageKey, defaultQuery))
     setResult(null)
     setRan(false)
-  }, [collection])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryStorageKey])
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(queryStorageKey, query)
+    } catch {
+      /* storage may be unavailable */
+    }
+  }, [query, queryStorageKey])
 
   const run = React.useCallback(async () => {
     if (!query.trim()) {
@@ -167,8 +213,11 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
             </Button>
             <RecentQueries
               items={recentSql}
+              favorites={favoriteSql}
               onPick={(value) => setQuery(value)}
               onClear={clearRecent}
+              onToggleFavorite={toggleFavoriteSql}
+              onRemoveFavorite={removeFavoriteSql}
             />
           </div>
         </div>

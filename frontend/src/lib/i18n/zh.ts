@@ -718,6 +718,8 @@ const zh: Record<string, string> = {
   "advisor.created": "索引已创建",
   "advisor.createFailed": "索引创建失败",
   "advisor.ops": "使用次数",
+  "advisor.plan": "执行计划",
+  "advisor.collscan": "全表扫描",
   "quality.title": "数据质量",
   "quality.desc": "编辑集合的 JSON Schema 校验规则，或扫描字段的类型/空值/重复问题。",
   "quality.validator": "校验规则",

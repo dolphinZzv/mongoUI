@@ -721,6 +721,8 @@ const en: Record<string, string> = {
   "advisor.created": "Index created",
   "advisor.createFailed": "Could not create the index",
   "advisor.ops": "Ops",
+  "advisor.plan": "Query plan",
+  "advisor.collscan": "collection scan",
   "quality.title": "Data quality",
   "quality.desc": "Edit the collection JSON Schema validator or scan a field for type/null/duplicate issues.",
   "quality.validator": "Validator",

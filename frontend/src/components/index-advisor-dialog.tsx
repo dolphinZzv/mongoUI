@@ -52,6 +52,7 @@ export function IndexAdvisorDialog({
   const [loading, setLoading] = React.useState(false)
   const [creating, setCreating] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [planStages, setPlanStages] = React.useState<string[]>([])
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -67,8 +68,45 @@ export function IndexAdvisorDialog({
   }, [connectionId, database, collection, t])
 
   React.useEffect(() => {
-    if (open) void load()
-  }, [open, load])
+    if (!open) return
+    void load()
+    let parsedFilter: unknown = {}
+    let parsedSort: unknown = undefined
+    try {
+      parsedFilter = JSON.parse(filter?.trim() || "{}")
+    } catch {
+      parsedFilter = {}
+    }
+    try {
+      parsedSort = sort?.trim() ? JSON.parse(sort) : undefined
+    } catch {
+      parsedSort = undefined
+    }
+    void api
+      .explain(connectionId, database, collection, {
+        type: "find",
+        filter: parsedFilter,
+        sort: parsedSort,
+      })
+      .then((result) => {
+        const stages: string[] = []
+        const visit = (node: unknown) => {
+          if (!node || typeof node !== "object") return
+          const record = node as Record<string, unknown>
+          if (typeof record.stage === "string") stages.push(record.stage)
+          visit(record.inputStage)
+          if (Array.isArray(record.inputStages)) record.inputStages.forEach(visit)
+          if (Array.isArray(record.shards)) record.shards.forEach(visit)
+        }
+        const planner = (result as Record<string, unknown>).queryPlanner as
+          | Record<string, unknown>
+          | undefined
+        visit(planner?.winningPlan)
+        setPlanStages([...new Set(stages)])
+      })
+      .catch(() => setPlanStages([]))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, connectionId, database, collection, filter, sort])
 
   const suggestion = React.useMemo(() => {
     const fields = new Set<string>()
@@ -153,6 +191,16 @@ export function IndexAdvisorDialog({
             <p className="font-medium">{t("advisor.duplicates", { count: duplicates.length })}</p>
             <p className="text-muted-foreground mt-1 font-mono">
               {duplicates.map((index) => index.name).join(", ")}
+            </p>
+          </div>
+        ) : null}
+
+        {planStages.length > 0 ? (
+          <div className="rounded-lg border p-3 text-xs">
+            <p className="font-medium">{t("advisor.plan")}</p>
+            <p className="text-muted-foreground mt-1 font-mono">
+              {planStages.join(" → ")}
+              {planStages.includes("COLLSCAN") ? ` · ${t("advisor.collscan")}` : ""}
             </p>
           </div>
         ) : null}

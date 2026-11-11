@@ -182,16 +182,6 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
         />
         <p className="text-muted-foreground text-xs">{t("sql.help")}</p>
 
-        {ran && result ? (
-          <details className="rounded-md border">
-            <summary className="text-muted-foreground hover:text-foreground cursor-pointer px-3 py-2 text-xs select-none">
-              {t("sql.generated")}
-            </summary>
-            <div className="border-t p-2">
-              <JsonView value={result.mql} maxHeight="16rem" />
-            </div>
-          </details>
-        ) : null}
       </div>
 
       <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">

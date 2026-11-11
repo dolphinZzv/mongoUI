@@ -67,6 +67,9 @@ func (a *API) runSQL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	db := chi.URLParam(r, "db")
+	if query.Database != "" {
+		db = query.Database
+	}
 	coll := client.Database(db).Collection(query.Collection)
 
 	ctx, cancel := withTimeout(r)

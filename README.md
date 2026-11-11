@@ -57,9 +57,9 @@ MongoUI 是一个用 Go + React 编写的 MongoDB 可视化管理工具。前端
 
 ### 分析与洞察
 
-- **SQL 查询**：用 SQL 查询 MongoDB，自动翻译为 find / aggregation，并展示生成的 MQL；支持 `WHERE / IN / LIKE / GROUP BY / HAVING / DISTINCT / 聚合函数`。
+- **SQL 查询**：用 SQL 查询 MongoDB，自动翻译为 find / aggregation；支持 `WHERE / IN / LIKE / GROUP BY / HAVING / DISTINCT / 聚合函数`，并可用 `FROM 其他库.集合` 跨库查询。
 - **脚本控制台**：右侧可折叠面板，直接运行 mongosh 风格脚本（`db.users.find(...)`、`updateMany`、`aggregate`、`createIndex` 等），支持多语句、`ObjectId()` / `ISODate()` / `NumberLong()` / `NumberDecimal()` 等构造器，结果以 JSON 查看；写操作同样受只读连接与账号角色限制，并计入审计。
-- **聚合管道**：多行 JSON 编辑器 + 常用模板，表格 / JSON 结果视图，一键复制为 `db.<c>.aggregate(...)`。
+- **聚合管道**：多行 JSON 编辑器 + 常用模板，表格 / JSON 结果视图；可切换源数据库 / 集合执行跨库管道，一键复制为 `db.getSiblingDB(...).<c>.aggregate(...)`。
 - **执行计划（Explain）**：对 find / 聚合运行 `explain`，展示关键指标；当命中全表扫描时给出**索引建议并可一键创建**，超过 100ms 的查询会标记为慢查询。
 - **查询结果可视化**：把结果切换为柱状 / 折线 / 面积 / 饼图，自选 X 轴与数值聚合，纯 SVG 实现、无额外依赖。
 - **全库搜索**：在一个数据库的所有集合中按「值」或「字段名」模糊搜索，给出每个集合的命中数与样例，快速定位数据位置。
@@ -214,7 +214,7 @@ make build        # 产出 bin/mongoui（内嵌前端）
 
 ### SQL 查询
 
-集合视图的 **SQL** 标签页支持用 SQL 查询 MongoDB（`Ctrl/⌘ + Enter` 运行），翻译为 find / aggregation 执行，并展示生成的 MQL：
+集合视图的 **SQL** 标签页支持用 SQL 查询 MongoDB（`Ctrl/⌘ + Enter` 运行），翻译为 find / aggregation 执行；也可以直接写跨库查询：
 
 ```sql
 SELECT status, COUNT(*) AS n, SUM(total) AS revenue
@@ -233,6 +233,7 @@ LIMIT 20
 - `ORDER BY ... [ASC|DESC]`、`LIMIT n [OFFSET m]`（也支持 MySQL 的 `LIMIT m, n`）
 - `GROUP BY` / `HAVING`，聚合函数 `COUNT / SUM / AVG / MIN / MAX`
 - 点号字段路径（如 `address.city`）
+- 跨库查询：`FROM analytics.events`（第一段作为数据库名）
 
 ### 导入 / 导出与集合复制
 

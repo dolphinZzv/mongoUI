@@ -779,6 +779,9 @@ func toolSQL(s *Server, args map[string]any) (string, error) {
 
 	ctx, cancel := opCtx()
 	defer cancel()
+	if parsed.Database != "" {
+		db = parsed.Database
+	}
 	coll := client.Database(db).Collection(parsed.Collection)
 	docs := []bson.D{}
 	var total int64

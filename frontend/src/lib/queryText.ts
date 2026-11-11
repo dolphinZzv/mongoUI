@@ -160,7 +160,14 @@ export function toFindJS(collection: string, options: QueryTextOptions): string 
 }
 
 /** Renders an aggregation pipeline as a mongosh `db.<collection>.aggregate(...)`. */
-export function toAggregateJS(collection: string, pipeline: string): string {
+export function toAggregateJS(
+  collection: string,
+  pipeline: string,
+  database?: string,
+): string {
   const text = pipeline.trim() || "[]"
-  return `db.${collection}.aggregate(${text})`
+  const target = database
+    ? `db.getSiblingDB(${JSON.stringify(database)}).${collection}`
+    : `db.${collection}`
+  return `${target}.aggregate(${text})`
 }

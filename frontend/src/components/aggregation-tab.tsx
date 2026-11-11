@@ -11,6 +11,13 @@ import { Label } from "@/components/ui/label"
 import { ResultTable } from "@/components/documents/result-table"
 import { JsonEditor } from "@/components/json-editor"
 import { JsonView } from "@/components/json-view"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { QueryDuration } from "@/components/query-duration"
 import { api } from "@/lib/api"
 import { copyToClipboard } from "@/lib/clipboard"
@@ -51,9 +58,13 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
   const [pipeline, setPipeline] = React.useState("[\n  { \"$limit\": 20 }\n]")
   const [limit, setLimit] = React.useState("")
   const [documents, setDocuments] = React.useState<MongoDocument[]>([])
+  const [sourceDatabase, setSourceDatabase] = React.useState(database)
+  const [sourceCollection, setSourceCollection] = React.useState(collection)
+  const [databases, setDatabases] = React.useState<string[]>([database])
+  const [collections, setCollections] = React.useState<string[]>([collection])
   const columnPrefs = React.useMemo(
-    () => readColumnPrefs(columnPrefsKey(connectionId, database, collection)),
-    [connectionId, database, collection],
+    () => readColumnPrefs(columnPrefsKey(connectionId, sourceDatabase, sourceCollection)),
+    [connectionId, sourceDatabase, sourceCollection],
   )
   const [durationMs, setDurationMs] = React.useState<number | undefined>()
   const [loading, setLoading] = React.useState(false)
@@ -68,6 +79,44 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
     [explainPipeline],
   )
 
+  React.useEffect(() => {
+    setSourceDatabase(database)
+    setSourceCollection(collection)
+  }, [database, collection])
+
+  React.useEffect(() => {
+    let cancelled = false
+    void api
+      .listDatabases(connectionId)
+      .then((result) => {
+        if (cancelled) return
+        const names = result.databases.map((item) => item.name)
+        setDatabases(names.length > 0 ? names : [database])
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [connectionId, database])
+
+  React.useEffect(() => {
+    let cancelled = false
+    void api
+      .listCollections(connectionId, sourceDatabase)
+      .then((result) => {
+        if (cancelled) return
+        const names = result.map((item) => item.name)
+        setCollections(names.length > 0 ? names : [sourceCollection])
+        setSourceCollection((previous) =>
+          names.includes(previous) ? previous : (names[0] ?? ""),
+        )
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [connectionId, sourceDatabase])
+
   const run = async () => {
     let parsed: unknown
     try {
@@ -80,13 +129,17 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
       toast.error(t("agg.mustBeArray"))
       return
     }
+    if (!sourceDatabase || !sourceCollection) {
+      toast.error(t("agg.sourceRequired"))
+      return
+    }
     setLoading(true)
     setDurationMs(undefined)
     try {
       const res = await api.aggregate(
         connectionId,
-        database,
-        collection,
+        sourceDatabase,
+        sourceCollection,
         parsed,
         limit.trim() ? Number(limit) : undefined,
       )
@@ -123,6 +176,39 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
       <div className="shrink-0 space-y-3 border-b p-3">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium">{t("agg.pipeline")}</span>
+          <div className="flex items-center gap-1">
+            <Select
+              value={sourceDatabase || undefined}
+              onValueChange={setSourceDatabase}
+            >
+              <SelectTrigger size="sm" className="w-36 font-mono text-xs">
+                <SelectValue placeholder={t("agg.database")} />
+              </SelectTrigger>
+              <SelectContent>
+                {databases.map((name) => (
+                  <SelectItem key={name} value={name}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="text-muted-foreground text-xs">/</span>
+            <Select
+              value={sourceCollection || undefined}
+              onValueChange={setSourceCollection}
+            >
+              <SelectTrigger size="sm" className="w-40 font-mono text-xs">
+                <SelectValue placeholder={t("agg.collection")} />
+              </SelectTrigger>
+              <SelectContent>
+                {collections.map((name) => (
+                  <SelectItem key={name} value={name}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="flex items-center gap-1 rounded-md border p-0.5">
             <button
               type="button"
@@ -184,7 +270,9 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
               size="sm"
               variant="outline"
               onClick={() =>
-                void copyToClipboard(toAggregateJS(collection, pipeline)).then((ok) =>
+                void copyToClipboard(
+                  toAggregateJS(sourceCollection, pipeline, sourceDatabase),
+                ).then((ok) =>
                   ok ? toast.success(t("common.copied")) : toast.error(t("common.copyFailed")),
                 )
               }
@@ -246,14 +334,14 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
           className="min-h-0 flex-1"
           documents={documents}
           columns={columns}
-          storageKey={`agg:${connectionId}:${database}:${collection}`}
+          storageKey={`agg:${connectionId}:${sourceDatabase}:${sourceCollection}`}
         />
       ) : documents.length > 0 && view === "table" ? (
         // The result grid owns its own scroller so sticky columns can pin to it.
         <ResultTable
           documents={documents}
           columns={columns}
-          storageKey={`agg:${connectionId}:${database}:${collection}`}
+          storageKey={`agg:${connectionId}:${sourceDatabase}:${sourceCollection}`}
           dictionaries={columnPrefs.dictionaries}
           renderers={columnPrefs.renderers}
         />
@@ -277,8 +365,8 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
         open={explainOpen}
         onOpenChange={setExplainOpen}
         connectionId={connectionId}
-        database={database}
-        collection={collection}
+        database={sourceDatabase}
+        collection={sourceCollection}
         request={explainRequest}
       />
     </div>

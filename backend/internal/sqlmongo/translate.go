@@ -14,6 +14,8 @@ import (
 // (but excluding) $skip/$limit, which the caller appends after enforcing its
 // own result limits.
 type Query struct {
+	// Database is set when FROM uses a qualified name such as analytics.events.
+	Database   string
 	Collection string
 	Aggregate  bool
 	Filter     bson.D
@@ -42,6 +44,13 @@ func Translate(input string) (*Query, error) {
 		Filter:     filter,
 		Skip:       st.Offset,
 		Limit:      st.Limit,
+	}
+	// FROM analytics.events targets another database. Collection names may
+	// contain dots, but the conventional db.collection form is unambiguous for
+	// the first separator.
+	if dot := strings.Index(q.Collection, "."); dot > 0 && dot < len(q.Collection)-1 {
+		q.Database = q.Collection[:dot]
+		q.Collection = q.Collection[dot+1:]
 	}
 
 	useAggregate := st.Distinct || len(st.GroupBy) > 0 || hasAggregate(st) || hasAlias(st)

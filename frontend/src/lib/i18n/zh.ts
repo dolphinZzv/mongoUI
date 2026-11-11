@@ -576,7 +576,6 @@ const zh: Record<string, string> = {
   "sql.template.filter": "过滤",
   "sql.limit": "限制",
   "sql.run": "运行",
-  "sql.generated": "生成的 MongoDB 查询",
   "sql.notRun": "尚未运行",
   "sql.rows": "{{count}} 行",
   "sql.rows_plural": "{{count}} 行",
@@ -586,7 +585,7 @@ const zh: Record<string, string> = {
   "sql.writeFirst": "请先编写 SQL 查询",
   "sql.failed": "SQL 查询失败",
   "sql.help":
-    "支持 SELECT + WHERE / IN / LIKE / IS NULL、ORDER BY、LIMIT、GROUP BY、HAVING、DISTINCT 以及 COUNT / SUM / AVG / MIN / MAX。自动补全覆盖关键字与集合 / 字段名。按 Ctrl/⌘ + Enter 运行。",
+    "支持 SELECT + WHERE / IN / LIKE / IS NULL、ORDER BY、LIMIT、GROUP BY、HAVING、DISTINCT 以及 COUNT / SUM / AVG / MIN / MAX。使用 FROM 其他库.集合 可跨库查询。自动补全覆盖关键字与集合 / 字段名。按 Ctrl/⌘ + Enter 运行。",
 
   // script console
   "script.title": "MongoDB 脚本",
@@ -614,6 +613,9 @@ const zh: Record<string, string> = {
 
   // aggregation tab
   "agg.pipeline": "管道",
+  "agg.database": "数据库",
+  "agg.collection": "集合",
+  "agg.sourceRequired": "请选择源数据库和集合",
   "agg.visual": "可视化",
   "agg.json": "JSON",
   "agg.addStage": "添加阶段",

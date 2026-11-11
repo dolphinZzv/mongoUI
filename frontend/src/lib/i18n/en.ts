@@ -579,7 +579,6 @@ const en: Record<string, string> = {
   "sql.template.filter": "Filter",
   "sql.limit": "Limit",
   "sql.run": "Run",
-  "sql.generated": "Generated MongoDB query",
   "sql.notRun": "Not run yet",
   "sql.rows": "{{count}} row",
   "sql.rows_plural": "{{count}} rows",
@@ -589,7 +588,7 @@ const en: Record<string, string> = {
   "sql.writeFirst": "Write a SQL query first",
   "sql.failed": "SQL query failed",
   "sql.help":
-    "SELECT with WHERE / IN / LIKE / IS NULL, ORDER BY, LIMIT, GROUP BY, HAVING, DISTINCT and COUNT / SUM / AVG / MIN / MAX. Autocomplete covers keywords and collection / field names. Press Ctrl/⌘ + Enter to run.",
+    "SELECT with WHERE / IN / LIKE / IS NULL, ORDER BY, LIMIT, GROUP BY, HAVING, DISTINCT and COUNT / SUM / AVG / MIN / MAX. Use FROM other_database.collection for a cross-database query. Autocomplete covers keywords and collection / field names. Press Ctrl/⌘ + Enter to run.",
 
   // script console
   "script.title": "MongoDB Script",
@@ -617,6 +616,9 @@ const en: Record<string, string> = {
 
   // aggregation tab
   "agg.pipeline": "Pipeline",
+  "agg.database": "Database",
+  "agg.collection": "Collection",
+  "agg.sourceRequired": "Choose a source database and collection",
   "agg.visual": "Visual",
   "agg.json": "JSON",
   "agg.addStage": "Add stage",

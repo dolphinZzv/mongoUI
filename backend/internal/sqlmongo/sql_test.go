@@ -62,6 +62,19 @@ func TestProjectionWhereOrderLimit(t *testing.T) {
 	}
 }
 
+func TestQualifiedFromDatabase(t *testing.T) {
+	q, err := Translate("SELECT * FROM analytics.events WHERE kind = 'click' LIMIT 5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.Database != "analytics" || q.Collection != "events" {
+		t.Fatalf("database/collection = %q/%q", q.Database, q.Collection)
+	}
+	if q.Limit != 5 {
+		t.Fatalf("limit = %d", q.Limit)
+	}
+}
+
 func TestWhereOperators(t *testing.T) {
 	cases := []struct {
 		sql  string

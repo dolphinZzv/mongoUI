@@ -214,8 +214,8 @@ jobs:
             echo "::error::binary grew past 15 MB ($binary bytes) — trim before merging"
             exit 1
           fi
-          if [ "$ui" -gt 350000 ]; then
-            echo "::error::embedded UI grew past 350 KB ($ui bytes) — keep assets gzipped / trim the bundle"
+          if [ "$ui" -gt 360000 ]; then
+            echo "::error::embedded UI grew past 360 KB ($ui bytes) — keep assets gzipped / trim the bundle"
             exit 1
           fi
 

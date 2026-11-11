@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { QueryDuration } from "@/components/query-duration"
+import { QueryLibrary } from "@/components/query-library"
 import { RecentQueries } from "@/components/recent-queries"
 import { useRecentQueries } from "@/hooks/useRecentQueries"
 import { api } from "@/lib/api"
@@ -296,6 +297,12 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
               placeholder="none"
               className="h-8 w-20 font-mono text-xs"
               inputMode="numeric"
+            />
+            <QueryLibrary
+              scope={`${connectionId}::${sourceDatabase}::${sourceCollection}`}
+              kind="aggregation"
+              text={pipeline}
+              onPick={setPipeline}
             />
             <RecentQueries
               items={recentPipelines}

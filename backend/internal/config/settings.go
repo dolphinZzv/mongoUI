@@ -166,28 +166,48 @@ type Settings struct {
 	// ChartViewsVersion increments on every write so clients can detect a
 	// concurrent edit instead of silently overwriting each other.
 	ChartViewsVersion map[string]int64 `json:"chartViewsVersion,omitempty"`
+	// SavedQueries holds team-shared SQL and aggregation snippets keyed by
+	// connection::database::collection.
+	SavedQueries        map[string][]SavedQuery `json:"savedQueries,omitempty"`
+	SavedQueriesVersion map[string]int64        `json:"savedQueriesVersion,omitempty"`
 	// Alerts and Runbooks power the server-side automation scheduler.
 	Alerts   map[string]AlertRule `json:"alerts,omitempty"`
 	Runbooks map[string]Runbook   `json:"runbooks,omitempty"`
 	SMTP     SMTPSettings         `json:"smtp,omitempty"`
 }
 
+// SavedQuery is a reusable SQL statement or aggregation pipeline.
+type SavedQuery struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	Text      string `json:"text"`
+	UpdatedAt string `json:"updatedAt,omitempty"`
+	UpdatedBy string `json:"updatedBy,omitempty"`
+}
+
 // ErrChartViewsConflict is returned when a chart-view write is based on a stale
 // version.
 var ErrChartViewsConflict = errors.New("chart views were changed by someone else")
+
+// ErrSavedQueriesConflict is returned when a saved-query write is based on a
+// stale version.
+var ErrSavedQueriesConflict = errors.New("saved queries were changed by someone else")
 
 // NewSettings returns an in-memory settings holder. Updates are not persisted
 // when no path has been configured.
 func NewSettings(mcp MCPSettings) *Settings {
 	return &Settings{
-		MCP:               mcp,
-		Update:            DefaultUpdateSettings(),
-		Aliases:           emptyAliases(),
-		AIByUser:          map[string]AISettings{},
-		ChartViews:        map[string][]ChartView{},
-		ChartViewsVersion: map[string]int64{},
-		Alerts:            map[string]AlertRule{},
-		Runbooks:          map[string]Runbook{},
+		MCP:                 mcp,
+		Update:              DefaultUpdateSettings(),
+		Aliases:             emptyAliases(),
+		AIByUser:            map[string]AISettings{},
+		ChartViews:          map[string][]ChartView{},
+		ChartViewsVersion:   map[string]int64{},
+		SavedQueries:        map[string][]SavedQuery{},
+		SavedQueriesVersion: map[string]int64{},
+		Alerts:              map[string]AlertRule{},
+		Runbooks:            map[string]Runbook{},
 	}
 }
 
@@ -224,6 +244,12 @@ func LoadSettings(path string, def MCPSettings) (*Settings, error) {
 	}
 	if s.ChartViewsVersion == nil {
 		s.ChartViewsVersion = map[string]int64{}
+	}
+	if s.SavedQueries == nil {
+		s.SavedQueries = map[string][]SavedQuery{}
+	}
+	if s.SavedQueriesVersion == nil {
+		s.SavedQueriesVersion = map[string]int64{}
 	}
 	if s.Alerts == nil {
 		s.Alerts = map[string]AlertRule{}
@@ -315,6 +341,12 @@ func (s *Settings) SetAI(userID string, ai AISettings) error {
 	if s.ChartViewsVersion == nil {
 		s.ChartViewsVersion = map[string]int64{}
 	}
+	if s.SavedQueries == nil {
+		s.SavedQueries = map[string][]SavedQuery{}
+	}
+	if s.SavedQueriesVersion == nil {
+		s.SavedQueriesVersion = map[string]int64{}
+	}
 	if s.Alerts == nil {
 		s.Alerts = map[string]AlertRule{}
 	}
@@ -378,6 +410,12 @@ func (s *Settings) SetChartViews(scope string, views []ChartView, expected *int6
 	if s.ChartViewsVersion == nil {
 		s.ChartViewsVersion = map[string]int64{}
 	}
+	if s.SavedQueries == nil {
+		s.SavedQueries = map[string][]SavedQuery{}
+	}
+	if s.SavedQueriesVersion == nil {
+		s.SavedQueriesVersion = map[string]int64{}
+	}
 	if s.Alerts == nil {
 		s.Alerts = map[string]AlertRule{}
 	}
@@ -396,6 +434,55 @@ func (s *Settings) SetChartViews(scope string, views []ChartView, expected *int6
 	}
 	next := current + 1
 	s.ChartViewsVersion[scope] = next
+	s.mu.Unlock()
+	if s.path == "" {
+		return next, nil
+	}
+	if err := s.persist(); err != nil {
+		return next, err
+	}
+	return next, nil
+}
+
+// GetSavedQueries returns a copy of the team queries for one scope.
+func (s *Settings) GetSavedQueries(scope string) []SavedQuery {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	queries := s.SavedQueries[scope]
+	out := make([]SavedQuery, len(queries))
+	copy(out, queries)
+	return out
+}
+
+// SavedQueriesRevision returns the current write version for a scope.
+func (s *Settings) SavedQueriesRevision(scope string) int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.SavedQueriesVersion[scope]
+}
+
+// SetSavedQueries replaces the team queries for one scope with optimistic
+// concurrency control.
+func (s *Settings) SetSavedQueries(scope string, queries []SavedQuery, expected *int64) (int64, error) {
+	s.mu.Lock()
+	if s.SavedQueries == nil {
+		s.SavedQueries = map[string][]SavedQuery{}
+	}
+	if s.SavedQueriesVersion == nil {
+		s.SavedQueriesVersion = map[string]int64{}
+	}
+	current := s.SavedQueriesVersion[scope]
+	if expected != nil && *expected != current {
+		s.mu.Unlock()
+		return current, ErrSavedQueriesConflict
+	}
+	if len(queries) == 0 {
+		delete(s.SavedQueries, scope)
+	} else {
+		s.SavedQueries[scope] = append([]SavedQuery(nil), queries...)
+	}
+	next := current + 1
+	s.SavedQueriesVersion[scope] = next
 	s.mu.Unlock()
 	if s.path == "" {
 		return next, nil

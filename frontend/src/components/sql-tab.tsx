@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { ResultTable } from "@/components/documents/result-table"
 import { JsonView } from "@/components/json-view"
 import { QueryDuration } from "@/components/query-duration"
+import { QueryLibrary } from "@/components/query-library"
 import { RecentQueries } from "@/components/recent-queries"
 import { SqlEditor } from "@/components/sql-editor"
 import { api } from "@/lib/api"
@@ -211,6 +212,12 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
               {loading ? <Loader2 className="animate-spin" /> : <Play />}
               {t("sql.run")}
             </Button>
+            <QueryLibrary
+              scope={`${connectionId}::${database}::${collection}`}
+              kind="sql"
+              text={query}
+              onPick={setQuery}
+            />
             <RecentQueries
               items={recentSql}
               favorites={favoriteSql}

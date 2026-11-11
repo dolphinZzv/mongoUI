@@ -118,6 +118,8 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 
 			r.Get("/chart-views", a.getChartViews)
 			r.Put("/chart-views", a.updateChartViews)
+			r.Get("/queries", a.getSavedQueries)
+			r.Put("/queries", a.updateSavedQueries)
 
 			r.Get("/alerts", a.getAlerts)
 			r.Put("/alerts", a.updateAlerts)

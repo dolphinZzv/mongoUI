@@ -8,6 +8,7 @@ import type {
   AlertRuntimeState,
   RunbookRule,
   RunbookRuntimeState,
+  SavedQuery,
   SMTPSettings,
   AISettingsInput,
   AITestResult,
@@ -453,6 +454,15 @@ export const api = {
   getSMTP: () => request<SMTPSettings>("/smtp"),
   saveSMTP: (settings: SMTPSettings) =>
     request<SMTPSettings>("/smtp", { method: "PUT", body: JSON.stringify(settings) }),
+  getSavedQueries: (scope: string) =>
+    request<{ version: number; queries: SavedQuery[] }>(
+      `/queries?scope=${encodeURIComponent(scope)}`,
+    ),
+  saveSavedQueries: (scope: string, queries: SavedQuery[], version: number) =>
+    request<{ version: number; queries: SavedQuery[] }>("/queries", {
+      method: "PUT",
+      body: JSON.stringify({ scope, version, queries }),
+    }),
   getChartViews: (scope: string) =>
     request<{ version: number; views: SavedChartView[] }>(
       `/chart-views?scope=${encodeURIComponent(scope)}`,

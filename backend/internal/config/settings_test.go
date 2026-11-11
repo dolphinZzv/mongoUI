@@ -337,3 +337,42 @@ func TestAutomationSettingsEncrypted(t *testing.T) {
 		t.Fatalf("runbook round-trip: %#v", runbooks)
 	}
 }
+
+func TestSavedQueriesPersistAndConflict(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	s, err := LoadSettings(path, DefaultMCPSettings())
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	scope := "conn::db::users"
+	version, err := s.SetSavedQueries(scope, []SavedQuery{{
+		ID:   "q1",
+		Name: "Active users",
+		Kind: "sql",
+		Text: "SELECT * FROM users WHERE active = true",
+	}}, nil)
+	if err != nil {
+		t.Fatalf("set queries: %v", err)
+	}
+	if version != 1 {
+		t.Fatalf("version = %d, want 1", version)
+	}
+	reloaded, err := LoadSettings(path, DefaultMCPSettings())
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	queries := reloaded.GetSavedQueries(scope)
+	if len(queries) != 1 || queries[0].Name != "Active users" || queries[0].Kind != "sql" {
+		t.Fatalf("unexpected queries: %#v", queries)
+	}
+	stale := int64(0)
+	if _, err := reloaded.SetSavedQueries(scope, nil, &stale); !errors.Is(err, ErrSavedQueriesConflict) {
+		t.Fatalf("stale write error = %v, want conflict", err)
+	}
+	if _, err := reloaded.SetSavedQueries(scope, nil, nil); err != nil {
+		t.Fatalf("clear queries: %v", err)
+	}
+	if got := reloaded.GetSavedQueries(scope); len(got) != 0 {
+		t.Fatalf("queries should be removed: %#v", got)
+	}
+}

@@ -410,6 +410,15 @@ export interface RunbookRuntimeState {
   history?: { at: string; status: string; durationMs: number; error?: string }[]
 }
 
+export interface SavedQuery {
+  id: string
+  name: string
+  kind: "sql" | "aggregation"
+  text: string
+  updatedAt?: string
+  updatedBy?: string
+}
+
 export interface SMTPSettings {
   enabled: boolean
   host: string

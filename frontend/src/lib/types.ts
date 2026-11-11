@@ -363,6 +363,20 @@ export interface AIFilterResult {
   model: string
 }
 
+export interface ValidatorState {
+  validator?: unknown
+  validationLevel?: string
+  validationAction?: string
+}
+
+export interface IndexStat {
+  name: string
+  key: Record<string, unknown>
+  host?: string
+  accesses?: { ops?: number; since?: string }
+  [key: string]: unknown
+}
+
 export interface IndexInfo {
   v?: number
   key: Record<string, unknown>

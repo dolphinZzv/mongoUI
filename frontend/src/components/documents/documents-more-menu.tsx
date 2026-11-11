@@ -1,4 +1,4 @@
-import { Activity, BarChart3, Braces, Code2, Copy, Download, Ellipsis, Upload } from "lucide-react"
+import { Activity, BarChart3, Braces, Code2, Copy, Download, Ellipsis, Lightbulb, Radio, ShieldCheck, Upload } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -20,6 +20,9 @@ interface DocumentsMoreMenuProps {
   onChart: () => void
   onCopyMongo: () => void
   onCopySql: () => void
+  onLiveTail: () => void
+  onIndexAdvisor: () => void
+  onDataQuality: () => void
 }
 
 /** The overflow menu of secondary document actions. */
@@ -33,6 +36,9 @@ export function DocumentsMoreMenu({
   onChart,
   onCopyMongo,
   onCopySql,
+  onLiveTail,
+  onIndexAdvisor,
+  onDataQuality,
 }: DocumentsMoreMenuProps) {
   const { t } = useI18n()
 
@@ -56,6 +62,15 @@ export function DocumentsMoreMenu({
         </DropdownMenuItem>
         <DropdownMenuItem disabled={readOnly} onSelect={onCopyCollection}>
           <Copy /> {t("copy.action")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onLiveTail}>
+          <Radio /> {t("docs.liveTail")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onIndexAdvisor}>
+          <Lightbulb /> {t("advisor.open")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onDataQuality}>
+          <ShieldCheck /> {t("docs.dataQuality")}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={!hasDocuments} onSelect={onChart}>
           <BarChart3 /> {t("chart.open")}

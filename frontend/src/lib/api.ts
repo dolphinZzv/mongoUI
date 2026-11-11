@@ -33,6 +33,8 @@ import type {
   FindResult,
   ImportResult,
   IndexInfo,
+  IndexStat,
+  ValidatorState,
   MCPSettings,
   MongoDocument,
   OIDCConfig,
@@ -222,6 +224,8 @@ export const api = {
       `/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/delete`,
       { method: "POST", body: JSON.stringify(req) },
     ),
+  watchUrl: (id: string, db: string, col: string, filter: string) =>
+    `/api/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/watch?filter=${encodeURIComponent(filter)}`,
   aggregate: (
     id: string,
     db: string,
@@ -433,6 +437,24 @@ export const api = {
     }),
 
   // indexes ---------------------------------------------------------------------
+  getValidator: (id: string, db: string, col: string) =>
+    request<ValidatorState>(
+      `/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/validator`,
+    ),
+  updateValidator: (
+    id: string,
+    db: string,
+    col: string,
+    input: { validator: unknown; validationLevel: string; validationAction: string },
+  ) =>
+    request<{ saved: boolean }>(
+      `/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/validator`,
+      { method: "PUT", body: JSON.stringify(input) },
+    ),
+  indexStats: (id: string, db: string, col: string) =>
+    request<{ indexes: IndexStat[] }>(
+      `/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/index-stats`,
+    ),
   listIndexes: (id: string, db: string, col: string) =>
     request<IndexInfo[]>(
       `/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/indexes`,

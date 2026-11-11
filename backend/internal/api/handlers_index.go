@@ -170,3 +170,33 @@ func (a *API) updateIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	ok(w, map[string]any{"updated": name})
 }
+
+// indexStats returns $indexStats for the collection, used by the index advisor.
+func (a *API) indexStats(w http.ResponseWriter, r *http.Request) {
+	coll, err := a.dbCollection(r)
+	if err != nil {
+		a.dbErr(w, err)
+		return
+	}
+	ctx, cancel := withTimeout(r)
+	defer cancel()
+
+	cursor, err := coll.Aggregate(ctx, mongo.Pipeline{bson.D{{Key: "$indexStats", Value: bson.D{}}}})
+	if err != nil {
+		a.dbErr(w, err)
+		return
+	}
+	defer cursor.Close(ctx)
+
+	var stats []bson.D
+	if err := cursor.All(ctx, &stats); err != nil {
+		a.dbErr(w, err)
+		return
+	}
+	raw, err := toExtJSON(stats)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	ok(w, map[string]any{"indexes": raw})
+}

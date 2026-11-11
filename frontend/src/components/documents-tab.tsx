@@ -119,6 +119,9 @@ export function DocumentsTab({
   const [copyOpen, setCopyOpen] = React.useState(false)
   const [explainOpen, setExplainOpen] = React.useState(false)
   const [dictionaryColumn, setDictionaryColumn] = React.useState<string | null>(null)
+  const [liveOpen, setLiveOpen] = React.useState(false)
+  const [advisorOpen, setAdvisorOpen] = React.useState(false)
+  const [qualityOpen, setQualityOpen] = React.useState(false)
   const [chartOpen, setChartOpen] = React.useState(Boolean(initialDocs?.chart))
   const [chartConfig, setChartConfig] = React.useState<ChartConfig | undefined>(
     initialDocs?.chart?.config,
@@ -1289,6 +1292,9 @@ export function DocumentsTab({
             onCopySql={() =>
               copyText(toSQL(collection, { filter, sort, projection, skip, limit }))
             }
+            onLiveTail={() => setLiveOpen(true)}
+            onIndexAdvisor={() => setAdvisorOpen(true)}
+            onDataQuality={() => setQualityOpen(true)}
           />
         </div>
 
@@ -1508,6 +1514,12 @@ export function DocumentsTab({
         explainRequest={explainRequest}
         copyOpen={copyOpen}
         onCopyOpenChange={setCopyOpen}
+        liveOpen={liveOpen}
+        onLiveOpenChange={setLiveOpen}
+        advisorOpen={advisorOpen}
+        onAdvisorOpenChange={setAdvisorOpen}
+        qualityOpen={qualityOpen}
+        onQualityOpenChange={setQualityOpen}
         chartOpen={chartOpen}
         onChartOpenChange={(open) => {
           setChartOpen(open)

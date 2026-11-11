@@ -8,6 +8,7 @@ export type ChartTimeBucket = "none" | "auto" | "day" | "week" | "month" | "quar
 export type ChartNumberFormat = "auto" | "plain" | "percent" | "currency"
 export type ChartTimeZone = "utc" | "local"
 export type ChartAxisScale = "none" | "k" | "m" | "b" | "bytes"
+export type ChartAlertOperator = "off" | "above" | "below"
 export type ChartXAxisFormat =
   | "auto"
   | "number"
@@ -57,6 +58,9 @@ export interface ChartConfig {
   refreshInterval: number
   /** Rolling time window in minutes applied to a temporal X field; 0 = all data. */
   liveWindowMinutes: number
+  /** Client-side threshold alert evaluated on every refresh. */
+  alertOperator: ChartAlertOperator
+  alertThreshold: number | null
 }
 
 export interface ChartSeries {
@@ -162,6 +166,13 @@ export function normalizeChartConfig(input: unknown): ChartConfig {
       raw.liveWindowMinutes > 0
         ? Math.min(Math.floor(raw.liveWindowMinutes), 10080)
         : 0,
+    alertOperator: ["off", "above", "below"].includes(raw.alertOperator as string)
+      ? (raw.alertOperator as ChartAlertOperator)
+      : "off",
+    alertThreshold:
+      typeof raw.alertThreshold === "number" && Number.isFinite(raw.alertThreshold)
+        ? raw.alertThreshold
+        : null,
   }
 }
 
@@ -263,6 +274,8 @@ export const DEFAULT_CHART_CONFIG: ChartConfig = {
   xAxisFormat: "auto",
   refreshInterval: 0,
   liveWindowMinutes: 0,
+  alertOperator: "off",
+  alertThreshold: null,
 }
 
 /** Distinct group values rendered as series; beyond this the largest win. */
@@ -1137,6 +1150,8 @@ export function suggestChartConfig(
     xAxisFormat: previous?.xAxisFormat ?? "auto",
     refreshInterval: previous?.refreshInterval ?? 0,
     liveWindowMinutes: previous?.liveWindowMinutes ?? 0,
+    alertOperator: previous?.alertOperator ?? "off",
+    alertThreshold: previous?.alertThreshold ?? null,
   }
 }
 

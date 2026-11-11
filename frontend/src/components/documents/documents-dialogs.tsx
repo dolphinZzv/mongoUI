@@ -2,6 +2,9 @@ import * as React from "react"
 
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { CellValueDialog } from "@/components/documents/cell-value-dialog"
+import { DataQualityDialog } from "@/components/data-quality-dialog"
+import { IndexAdvisorDialog } from "@/components/index-advisor-dialog"
+import { LiveTailDialog } from "@/components/live-tail-dialog"
 import { ColumnDictionaryDialog } from "@/components/documents/column-dictionary-dialog"
 import { DocumentDialog } from "@/components/document-dialog"
 import { JsonEditor } from "@/components/json-editor"
@@ -102,6 +105,12 @@ interface DocumentsDialogsProps {
   copyOpen: boolean
   onCopyOpenChange: (open: boolean) => void
 
+  liveOpen: boolean
+  onLiveOpenChange: (open: boolean) => void
+  advisorOpen: boolean
+  onAdvisorOpenChange: (open: boolean) => void
+  qualityOpen: boolean
+  onQualityOpenChange: (open: boolean) => void
   chartOpen: boolean
   onChartOpenChange: (open: boolean) => void
   chartConfig?: ChartConfig
@@ -164,6 +173,12 @@ export function DocumentsDialogs({
   explainRequest,
   copyOpen,
   onCopyOpenChange,
+  liveOpen,
+  onLiveOpenChange,
+  advisorOpen,
+  onAdvisorOpenChange,
+  qualityOpen,
+  onQualityOpenChange,
   chartOpen,
   onChartOpenChange,
   chartConfig,
@@ -348,6 +363,39 @@ export function DocumentsDialogs({
           onApplyFilter={onApplyChartFilter}
         />
       </LazyMount>
+      <LazyMount active={liveOpen}>
+        <LiveTailDialog
+          open={liveOpen}
+          onOpenChange={onLiveOpenChange}
+          connectionId={connectionId}
+          database={database}
+          collection={collection}
+          initialFilter={filter}
+        />
+      </LazyMount>
+
+      <LazyMount active={advisorOpen}>
+        <IndexAdvisorDialog
+          open={advisorOpen}
+          onOpenChange={onAdvisorOpenChange}
+          connectionId={connectionId}
+          database={database}
+          collection={collection}
+          filter={filter}
+          sort={sort}
+        />
+      </LazyMount>
+
+      <LazyMount active={qualityOpen}>
+        <DataQualityDialog
+          open={qualityOpen}
+          onOpenChange={onQualityOpenChange}
+          connectionId={connectionId}
+          database={database}
+          collection={collection}
+        />
+      </LazyMount>
+
       <LazyMount active={builderOpen}>
         <MongoQueryBuilder
           open={builderOpen}

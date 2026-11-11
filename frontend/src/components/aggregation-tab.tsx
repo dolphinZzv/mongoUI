@@ -3,6 +3,7 @@ import { Activity, BarChart3, Braces, Copy, Loader2, Play, Table2 } from "lucide
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { AggregationBuilder } from "@/components/aggregation/builder"
 import { ChartView } from "@/components/chart-view"
 import { ExplainDialog } from "@/components/explain-dialog"
 import { Input } from "@/components/ui/input"
@@ -14,6 +15,7 @@ import { QueryDuration } from "@/components/query-duration"
 import { api } from "@/lib/api"
 import { copyToClipboard } from "@/lib/clipboard"
 import { useI18n } from "@/lib/i18n"
+import { cn } from "@/lib/utils"
 import { columnPrefsKey, readColumnPrefs } from "@/lib/columnPrefs"
 import { collectColumns } from "@/lib/mongo"
 import { toAggregateJS } from "@/lib/queryText"
@@ -57,6 +59,7 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
   const [loading, setLoading] = React.useState(false)
   const [ran, setRan] = React.useState(false)
   const [view, setView] = React.useState<"table" | "json" | "chart">("table")
+  const [mode, setMode] = React.useState<"visual" | "json">("visual")
   const [explainOpen, setExplainOpen] = React.useState(false)
   const [explainPipeline, setExplainPipeline] = React.useState<unknown[] | null>(null)
 
@@ -120,6 +123,32 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
       <div className="shrink-0 space-y-3 border-b p-3">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium">{t("agg.pipeline")}</span>
+          <div className="flex items-center gap-1 rounded-md border p-0.5">
+            <button
+              type="button"
+              onClick={() => setMode("visual")}
+              className={cn(
+                "rounded px-2 py-1 text-xs transition-colors",
+                mode === "visual"
+                  ? "bg-accent text-accent-foreground font-medium"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {t("agg.visual")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("json")}
+              className={cn(
+                "rounded px-2 py-1 text-xs transition-colors",
+                mode === "json"
+                  ? "bg-accent text-accent-foreground font-medium"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {t("agg.json")}
+            </button>
+          </div>
           <div className="flex flex-wrap gap-1.5">
             {EXAMPLES.map((example) => (
               <button
@@ -164,13 +193,17 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
             </Button>
           </div>
         </div>
-        <JsonEditor
-          value={pipeline}
-          onChange={setPipeline}
-          rows={6}
-          className="min-h-[8rem]"
-          placeholder='[ { "$match": {} } ]'
-        />
+        {mode === "visual" ? (
+          <AggregationBuilder pipeline={pipeline} onChange={setPipeline} />
+        ) : (
+          <JsonEditor
+            value={pipeline}
+            onChange={setPipeline}
+            rows={6}
+            className="min-h-[8rem]"
+            placeholder='[ { "$match": {} } ]'
+          />
+        )}
       </div>
 
       <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">

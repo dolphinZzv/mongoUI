@@ -1,10 +1,11 @@
 import * as React from "react"
-import { Eraser, Loader2, Play, ShieldAlert, SquareTerminal, X } from "lucide-react"
+import { BookOpen, Eraser, Loader2, Play, ShieldAlert, SquareTerminal, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { JsonView } from "@/components/json-view"
+import { RunbooksDialog } from "@/components/runbooks-dialog"
 import { RecentQueries } from "@/components/recent-queries"
 import { Textarea } from "@/components/ui/textarea"
 import { api } from "@/lib/api"
@@ -54,6 +55,7 @@ export function ScriptPanel({ connectionId, database, collection, readOnly, onCl
   const [script, setScript] = React.useState(() => initialScript(collection))
   const [result, setResult] = React.useState<ScriptResult | null>(null)
   const [loading, setLoading] = React.useState(false)
+  const [runbooksOpen, setRunbooksOpen] = React.useState(false)
   const { items: recent, push, clear } = useRecentQueries(`script:${connectionId}:${database}`)
 
   const run = React.useCallback(async () => {
@@ -89,6 +91,15 @@ export function ScriptPanel({ connectionId, database, collection, readOnly, onCl
           {database}
           {collection ? ` / ${collection}` : ""}
         </span>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => setRunbooksOpen(true)}
+          title={t("runbook.title")}
+          aria-label={t("runbook.title")}
+        >
+          <BookOpen />
+        </Button>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -193,6 +204,14 @@ export function ScriptPanel({ connectionId, database, collection, readOnly, onCl
           </div>
         )}
       </div>
+      <RunbooksDialog
+        open={runbooksOpen}
+        onOpenChange={setRunbooksOpen}
+        connectionId={connectionId}
+        database={database}
+        collection={collection}
+        onPick={setScript}
+      />
     </div>
   )
 }

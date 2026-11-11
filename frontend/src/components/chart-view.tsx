@@ -637,6 +637,34 @@ export function ChartView({
     [data.series, hidden],
   )
 
+  const alertMax = React.useMemo(
+    () =>
+      series.length === 0
+        ? null
+        : Math.max(...series.flatMap((item) => item.values.map((value) => Math.abs(value)))),
+    [series],
+  )
+  const alertTriggered = React.useMemo(() => {
+    if (
+      config.alertOperator === "off" ||
+      config.alertThreshold === null ||
+      alertMax === null
+    ) {
+      return false
+    }
+    return config.alertOperator === "above"
+      ? alertMax > config.alertThreshold
+      : alertMax < config.alertThreshold
+  }, [alertMax, config.alertOperator, config.alertThreshold])
+
+  const alertRef = React.useRef(false)
+  React.useEffect(() => {
+    if (alertTriggered && !alertRef.current) {
+      toast.warning(t("chart.alertTriggered", { value: formatChartValue(alertMax ?? 0, config) }))
+    }
+    alertRef.current = alertTriggered
+  }, [alertTriggered, alertMax, config, t])
+
   const chartWidth = Math.max(width - 24, 320)
   const horizontal = config.type === "hbar"
   const scatterMode = config.type === "scatter"
@@ -1908,6 +1936,11 @@ export function ChartView({
               {t("chart.live")}
             </span>
           ) : null}
+          {alertTriggered ? (
+            <span className="rounded-full border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive">
+              {t("chart.alert")}
+            </span>
+          ) : null}
           {lastUpdated ? (
             <span className="text-muted-foreground">
               {t("chart.lastUpdated", {
@@ -2041,6 +2074,11 @@ export function ChartView({
           ) : null}
         </div>
 
+        {compact && alertTriggered ? (
+          <span className="bg-destructive/10 text-destructive absolute top-2 right-2 z-10 rounded-full border border-destructive/40 px-2 py-0.5 text-[10px] font-medium">
+            {t("chart.alert")}
+          </span>
+        ) : null}
         {compact && error ? (
           <p className="text-destructive mb-2 text-xs">{error}</p>
         ) : null}
@@ -2788,6 +2826,41 @@ export function ChartView({
             <p className="text-muted-foreground text-[11px]">{t("chart.liveHint")}</p>
           </div>
         ) : null}
+
+        <div className="grid gap-1.5">
+          <Label className="text-xs">{t("chart.alertOperator")}</Label>
+          <div className="flex items-center gap-2">
+            <Select
+              value={config.alertOperator}
+              onValueChange={(value) =>
+                update({ alertOperator: value as ChartConfig["alertOperator"] })
+              }
+            >
+              <SelectTrigger size="sm" className="w-28">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="off">{t("chart.alert.off")}</SelectItem>
+                <SelectItem value="above">{t("chart.alert.above")}</SelectItem>
+                <SelectItem value="below">{t("chart.alert.below")}</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              value={config.alertThreshold === null ? "" : String(config.alertThreshold)}
+              onChange={(event) => {
+                const raw = event.target.value.trim()
+                const next = Number(raw)
+                update({
+                  alertThreshold:
+                    raw === "" || !Number.isFinite(next) ? null : next,
+                })
+              }}
+              placeholder={t("chart.alertThreshold")}
+              inputMode="decimal"
+              className="h-8 w-24 text-xs"
+            />
+          </div>
+        </div>
 
         <label className="flex items-center gap-2 pb-2 text-xs">
           <Switch

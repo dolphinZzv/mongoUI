@@ -9,7 +9,7 @@ export interface ColumnDictionaryEntry {
 
 export type ColumnDictionaries = Record<string, ColumnDictionaryEntry[]>
 
-export type ColumnRender = "default" | "dictionary" | "checkbox" | "switch" | "date"
+export type ColumnRender = "default" | "dictionary" | "checkbox" | "switch" | "date" | "duration"
 
 export type ColumnRenderers = Record<string, ColumnRender>
 
@@ -75,7 +75,14 @@ function dictionaryMap(value: unknown): ColumnDictionaries {
 function rendererMap(value: unknown): ColumnRenderers {
   if (typeof value !== "object" || value === null) return {}
   const result: ColumnRenderers = {}
-  const allowed = new Set<ColumnRender>(["default", "dictionary", "checkbox", "switch", "date"])
+  const allowed = new Set<ColumnRender>([
+    "default",
+    "dictionary",
+    "checkbox",
+    "switch",
+    "date",
+    "duration",
+  ])
   for (const [column, raw] of Object.entries(value as Record<string, unknown>)) {
     if (typeof raw === "string" && allowed.has(raw as ColumnRender)) {
       result[column] = raw as ColumnRender

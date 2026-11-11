@@ -1,4 +1,5 @@
 import { intlTimeZone, LOCAL_TIME_ZONE } from "@/lib/dateTime"
+import { formatDuration } from "@/lib/utils"
 
 /** Convert integer/BSON numeric/date-like values into a Date for display. */
 export function toDisplayDate(value: unknown): Date | null {
@@ -52,6 +53,26 @@ function numberFromExtendedJSON(record: Record<string, unknown>): number {
     }
   }
   return Number.NaN
+}
+
+/** Convert numeric, numeric-string or BSON numeric values into milliseconds. */
+export function durationMilliseconds(value: unknown): number | null {
+  let numeric = Number.NaN
+  if (typeof value === "number") {
+    numeric = value
+  } else if (typeof value === "string" && value.trim() !== "") {
+    numeric = Number(value)
+  } else if (value && typeof value === "object") {
+    numeric = numberFromExtendedJSON(value as Record<string, unknown>)
+  }
+  return Number.isFinite(numeric) ? numeric : null
+}
+
+/** Render a millisecond duration as a compact, human-readable string. */
+export function formatDurationValue(value: unknown): string | null {
+  const ms = durationMilliseconds(value)
+  if (ms === null) return null
+  return ms < 0 ? `-${formatDuration(-ms)}` : formatDuration(ms)
 }
 
 /** Human-readable date/time for a timestamp or BSON date in the chosen zone. */

@@ -5,7 +5,10 @@ import {
   Braces,
   Ban,
   ChevronDown,
+  Columns3,
+  LineChart,
   ListFilter,
+  Maximize2,
   Pin,
   PinOff,
   Play,
@@ -50,12 +53,21 @@ import { useI18n } from "@/lib/i18n"
 import { copyToClipboard } from "@/lib/clipboard"
 import { collectColumns, documentId, formatValue, prettyJSON, valueType } from "@/lib/mongo"
 import type { ChartShareState, DocsQueryState } from "@/lib/router"
-import type { ChartConfig } from "@/lib/chart"
+import {
+  isTemporalColumn,
+  suggestChartConfig,
+  toNumeric,
+  type ChartConfig,
+} from "@/lib/chart"
 import { cn } from "@/lib/utils"
 import type { ExplainRequest, MongoDocument } from "@/lib/types"
 
 /** Fallback width of the leading row-select column (Tailwind `w-10`). */
 const CHECKBOX_COLUMN_WIDTH = 40
+
+const ChartView = React.lazy(() =>
+  import("@/components/chart-view").then((module) => ({ default: module.ChartView })),
+)
 
 interface DocumentsTabProps {
   connectionId: string
@@ -129,6 +141,11 @@ export function DocumentsTab({
   const [chartFilter, setChartFilter] = React.useState(
     initialDocs?.chart?.filter ?? initialDocs?.filter ?? "{}",
   )
+  const [visualizeOpen, setVisualizeOpen] = React.useState(false)
+  const [visualizeConfig, setVisualizeConfig] = React.useState<ChartConfig | undefined>()
+  const [selectedColumns, setSelectedColumns] = React.useState<Set<string>>(new Set())
+  const [chartPaneWidth, setChartPaneWidth] = React.useState(460)
+  const splitRef = React.useRef<HTMLDivElement>(null)
   const [builderOpen, setBuilderOpen] = React.useState(false)
   const [cellMenu, setCellMenu] = React.useState<{
     x: number
@@ -324,6 +341,127 @@ export function DocumentsTab({
     }
     return types
   }, [allColumns, documents])
+
+  const buildVisualizeConfig = React.useCallback(
+    (selected: string[]): ChartConfig => {
+      const base = suggestChartConfig(documents, allColumns)
+      const fields = selected.filter((column) => allColumns.includes(column))
+      const temporal = fields.find(
+        (column) => isTemporalColumn(documents, column) || fieldTypes[column] === "date",
+      )
+      const numeric = fields.filter((column) =>
+        documents.some((doc) => toNumeric(doc[column]) !== null),
+      )
+      if (temporal) {
+        return {
+          ...base,
+          type: "line",
+          x: temporal,
+          y: numeric,
+          aggregate: numeric.length > 0 ? "sum" : "count",
+          timeBucket: base.timeBucket === "none" ? "auto" : base.timeBucket,
+          sort: "asc",
+          title: fields.join(", "),
+        }
+      }
+      const categorical = fields.filter(
+        (column) => column !== temporal && !numeric.includes(column),
+      )
+      const x =
+        categorical[0] ??
+        (base.x && !fields.includes(base.x)
+          ? base.x
+          : allColumns.find((column) => !fields.includes(column) && column !== "_id") ?? "_id")
+      return {
+        ...base,
+        type: "line",
+        x,
+        y: numeric,
+        aggregate: numeric.length > 0 ? "sum" : "count",
+        timeBucket: "none",
+        title: fields.join(", "),
+      }
+    },
+    [documents, allColumns, fieldTypes],
+  )
+
+  const showVisualization = React.useCallback(
+    (columnsToPlot: string[]) => {
+      setSelectedColumns(new Set(columnsToPlot))
+      setVisualizeConfig(buildVisualizeConfig(columnsToPlot))
+      setVisualizeOpen(true)
+    },
+    [buildVisualizeConfig],
+  )
+
+  const handleSelectColumn = React.useCallback(
+    (column: string, additive: boolean) => {
+      const next = new Set(additive ? selectedColumns : [])
+      if (additive && next.has(column)) {
+        next.delete(column)
+      } else {
+        next.add(column)
+      }
+      setSelectedColumns(next)
+      if (next.size > 0) {
+        setVisualizeConfig(buildVisualizeConfig([...next]))
+        setVisualizeOpen(true)
+      }
+    },
+    [selectedColumns, buildVisualizeConfig],
+  )
+
+  const handleVisualizeColumn = React.useCallback(
+    (column: string) => showVisualization([column]),
+    [showVisualization],
+  )
+
+  const openVisualize = React.useCallback(() => {
+    if (visualizeOpen) {
+      setVisualizeOpen(false)
+      return
+    }
+    if (selectedColumns.size > 0) {
+      setVisualizeConfig(buildVisualizeConfig([...selectedColumns]))
+    } else if (activeCell?.column) {
+      showVisualization([activeCell.column])
+      return
+    } else {
+      setVisualizeConfig({ ...suggestChartConfig(documents, allColumns), type: "line" })
+    }
+    setVisualizeOpen(true)
+  }, [activeCell, allColumns, buildVisualizeConfig, documents, selectedColumns, showVisualization, visualizeOpen])
+
+  const openChartWithCurrent = React.useCallback(() => {
+    setChartFilter(filter)
+    setChartConfig(visualizeConfig)
+    setChartOpen(true)
+  }, [filter, visualizeConfig])
+
+  const startChartResize = React.useCallback((event: React.PointerEvent) => {
+    event.preventDefault()
+    const container = splitRef.current
+    if (!container) return
+    const rect = container.getBoundingClientRect()
+    const move = (next: PointerEvent) => {
+      const width = Math.min(rect.width - 280, Math.max(320, rect.right - next.clientX))
+      setChartPaneWidth(width)
+    }
+    const stop = () => {
+      window.removeEventListener("pointermove", move)
+      window.removeEventListener("pointerup", stop)
+    }
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", stop)
+  }, [])
+
+  React.useEffect(() => {
+    setSelectedColumns((previous) => {
+      if (previous.size === 0) return previous
+      const next = new Set([...previous].filter((column) => allColumns.includes(column)))
+      return next.size === previous.size ? previous : next
+    })
+  }, [allColumns])
 
   // Persist column preferences (debounced: widths change on every mousemove).
   React.useEffect(() => {
@@ -1085,6 +1223,14 @@ export function DocumentsTab({
     }
   }
 
+  const chartFilterValue = React.useMemo<unknown>(() => {
+    try {
+      return JSON.parse(filter.trim() || "{}")
+    } catch {
+      return null
+    }
+  }, [filter])
+
   const explainRequest = React.useMemo<Omit<ExplainRequest, "verbosity"> | null>(() => {
     try {
       return {
@@ -1252,12 +1398,14 @@ export function DocumentsTab({
             variant="outline"
             size="sm"
             className="h-9"
-            onClick={openChart}
-            title={t("chart.open")}
-            aria-label={t("chart.open")}
+            onClick={openVisualize}
+            title={visualizeOpen ? t("docs.closeVisualization") : t("chart.open")}
+            aria-label={visualizeOpen ? t("docs.closeVisualization") : t("chart.open")}
           >
             <BarChart3 />
-            <span className="hidden lg:inline">{t("chart.openShort")}</span>
+            <span className="hidden lg:inline">
+              {visualizeOpen ? t("docs.closeVisualization") : t("chart.openShort")}
+            </span>
           </Button>
           <div className="bg-border mx-1 h-5 w-px shrink-0" />
           <Button
@@ -1360,8 +1508,37 @@ export function DocumentsTab({
         {loading ? <AsyncProgress active label={t("docs.loading")} /> : null}
       </div>
 
-      <DocumentsResults
-        loading={loading}
+      <div ref={splitRef} className="relative flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          {selectedColumns.size > 0 ? (
+            <div className="bg-primary/5 flex flex-wrap items-center gap-2 border-b px-3 py-1.5 text-xs">
+              <Columns3 className="text-primary size-3.5 shrink-0" />
+              <span className="min-w-0 truncate">
+                {t("docs.selectedColumns", { count: selectedColumns.size })}
+                <span className="text-muted-foreground ml-1 font-mono">
+                  {[...selectedColumns].join(", ")}
+                </span>
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-auto h-6"
+                onClick={() => showVisualization([...selectedColumns])}
+              >
+                <LineChart /> {t("docs.visualize")}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6"
+                onClick={() => setSelectedColumns(new Set())}
+              >
+                {t("docs.clearColumnSelection")}
+              </Button>
+            </div>
+          ) : null}
+          <DocumentsResults
+            loading={loading}
         error={error}
         total={total}
         documents={documents}
@@ -1374,6 +1551,7 @@ export function DocumentsTab({
         frozen={frozen}
         dragging={dragging}
         selected={selected}
+        selectedColumns={selectedColumns}
         allMatching={allMatching}
         allSelected={allSelected}
         filterActive={filterActive}
@@ -1404,6 +1582,8 @@ export function DocumentsTab({
         moveColumn={moveColumn}
         toggleColumnPinned={toggleColumnPinned}
         setColumnHidden={setColumnHidden}
+        onSelectColumn={handleSelectColumn}
+        onVisualizeColumn={handleVisualizeColumn}
         showOnlyColumn={showOnlyColumn}
         resetColumns={resetColumns}
         copyToClipboard={copyToClipboard}
@@ -1440,6 +1620,75 @@ export function DocumentsTab({
         onGoToPage={(next) => void load({ skip: Math.max(0, (next - 1) * limit) })}
         onDeleteMatching={() => setConfirm({ type: "filter" })}
       />
+        </div>
+
+        {visualizeOpen ? (
+          <>
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              title={t("docs.dragToResize")}
+              onPointerDown={startChartResize}
+              className="bg-border hover:bg-primary/40 hidden w-1 shrink-0 cursor-col-resize lg:block"
+            />
+            <aside
+              className="bg-background absolute inset-0 z-30 flex w-full flex-col border-l lg:static lg:z-auto lg:w-[var(--chart-pane-width)] lg:min-w-[320px] lg:max-w-[70%]"
+              style={{ "--chart-pane-width": `${chartPaneWidth}px` } as React.CSSProperties}
+            >
+              <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
+                <BarChart3 className="text-primary size-4 shrink-0" />
+                <span className="text-sm font-medium">{t("docs.visualization")}</span>
+                <span className="text-muted-foreground min-w-0 truncate text-[11px]">
+                  {[...selectedColumns].join(", ")}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="ml-auto"
+                  onClick={openChartWithCurrent}
+                  title={t("docs.openChartDialog")}
+                  aria-label={t("docs.openChartDialog")}
+                >
+                  <Maximize2 />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setVisualizeOpen(false)}
+                  title={t("docs.closeVisualization")}
+                  aria-label={t("docs.closeVisualization")}
+                >
+                  <X />
+                </Button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-auto p-2">
+                <React.Suspense
+                  fallback={
+                    <p className="text-muted-foreground p-4 text-xs">{t("common.loading")}</p>
+                  }
+                >
+                  <ChartView
+                    documents={documents}
+                    columns={allColumns}
+                    fieldTypes={fieldTypes}
+                    connectionId={connectionId}
+                    database={database}
+                    collection={collection}
+                    filter={chartFilterValue ?? {}}
+                    filterValid={chartFilterValue !== null}
+                    initialConfig={visualizeConfig}
+                    onConfigChange={setVisualizeConfig}
+                    scope={`${connectionId}::${database}::${collection}`}
+                    storageKey={`docs:${connectionId}:${database}:${collection}`}
+                    currentFilter={filter}
+                    height={520}
+                  />
+                </React.Suspense>
+              </div>
+            </aside>
+          </>
+        ) : null}
+      </div>
 
       {cellMenu && cellDoc ? (
         <CellContextMenu

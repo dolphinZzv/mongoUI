@@ -11,12 +11,15 @@ import {
   Check,
   CheckSquare,
   ChevronDown,
+  Columns3,
   Copy,
+  LineChart,
   Pencil,
   Pin,
   PinOff,
   Rows3,
   SlidersHorizontal,
+  Timer,
   ToggleLeft,
   Trash2,
 } from "lucide-react"
@@ -52,7 +55,7 @@ import {
 } from "@/components/ui/table"
 import type { FrozenColumns } from "@/hooks/useFrozenColumns"
 import { useI18n } from "@/lib/i18n"
-import { columnRenderMode, type ColumnPrefs } from "@/lib/columnPrefs"
+import { columnRenderMode, type ColumnPrefs, type ColumnRender } from "@/lib/columnPrefs"
 import { documentId, prettyJSON } from "@/lib/mongo"
 import { cn } from "@/lib/utils"
 import type { MongoDocument } from "@/lib/types"
@@ -74,6 +77,7 @@ interface DocumentsResultsProps {
   frozen: FrozenColumns
   dragging: boolean
   selected: Set<string>
+  selectedColumns: Set<string>
   allMatching: boolean
   allSelected: boolean
   filterActive: boolean
@@ -103,7 +107,7 @@ interface DocumentsResultsProps {
   >
   setSort: React.Dispatch<React.SetStateAction<string>>
   setDictionaryColumn: React.Dispatch<React.SetStateAction<string | null>>
-  setColumnRenderer: (column: string, renderer: "default" | "dictionary" | "checkbox" | "switch" | "date") => void
+  setColumnRenderer: (column: string, renderer: ColumnRender) => void
   setActiveCell: React.Dispatch<React.SetStateAction<{ row: number; column: string } | null>>
 
   toggleOne: (id: string, checked: boolean) => void
@@ -113,6 +117,8 @@ interface DocumentsResultsProps {
   moveColumn: (column: string, delta: 1 | -1) => void
   toggleColumnPinned: (column: string) => void
   setColumnHidden: (column: string, hidden: boolean) => void
+  onSelectColumn: (column: string, additive: boolean) => void
+  onVisualizeColumn: (column: string) => void
   showOnlyColumn: (column: string) => void
   resetColumns: () => void
   copyToClipboard: (text: string) => Promise<boolean>
@@ -146,6 +152,7 @@ export function DocumentsResults({
   frozen,
   dragging,
   selected,
+  selectedColumns,
   allMatching,
   allSelected,
   filterActive,
@@ -176,6 +183,8 @@ export function DocumentsResults({
   moveColumn,
   toggleColumnPinned,
   setColumnHidden,
+  onSelectColumn,
+  onVisualizeColumn,
   showOnlyColumn,
   resetColumns,
   copyToClipboard,
@@ -267,6 +276,7 @@ export function DocumentsResults({
                 const isPinned = pinnedSet.has(column)
                 const left = frozen.offsets[column]
                 const isLastPinned = isPinned && pinnedColumns[pinnedColumns.length - 1] === column
+                const isColumnSelected = selectedColumns.has(column)
                 const renderMode = columnRenderMode(
                   prefs.renderers,
                   prefs.dictionaries,
@@ -281,6 +291,7 @@ export function DocumentsResults({
                       "group font-mono text-xs",
                       isPinned ? "cell-frozen sticky z-30" : "relative",
                       isLastPinned && frozen.scrolled && PINNED_EDGE_SHADOW,
+                      isColumnSelected && "bg-primary/10 text-foreground",
                     )}
                     style={{
                       ...(width ? { width, minWidth: width, maxWidth: width } : {}),
@@ -290,7 +301,17 @@ export function DocumentsResults({
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
-                        onClick={() => toggleSort(column)}
+                        onClick={(event) => {
+                          if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) {
+                            event.preventDefault()
+                            onSelectColumn(
+                              column,
+                              event.metaKey || event.ctrlKey || event.shiftKey,
+                            )
+                            return
+                          }
+                          toggleSort(column)
+                        }}
                         title={
                           direction
                             ? direction === 1
@@ -298,9 +319,16 @@ export function DocumentsResults({
                               : t("docs.sortedDesc")
                             : t("docs.sortBy", { column })
                         }
-                        className="hover:text-foreground flex min-w-0 flex-1 items-center gap-1 rounded"
+                        aria-pressed={isColumnSelected}
+                        className={cn(
+                          "hover:text-foreground flex min-w-0 flex-1 items-center gap-1 rounded",
+                          isColumnSelected && "text-primary",
+                        )}
                       >
                         <span className="truncate">{column}</span>
+                        {isColumnSelected ? (
+                          <Columns3 className="text-primary size-3 shrink-0" />
+                        ) : null}
                         {renderMode === "dictionary" ? (
                           <BookOpen className="text-primary size-3 shrink-0" />
                         ) : renderMode === "checkbox" ? (
@@ -330,6 +358,16 @@ export function DocumentsResults({
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start" className="w-52">
+                          <DropdownMenuItem onSelect={() => onSelectColumn(column, true)}>
+                            <Columns3 />{" "}
+                            {isColumnSelected
+                              ? t("docs.deselectColumn")
+                              : t("docs.selectColumn")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => onVisualizeColumn(column)}>
+                            <LineChart /> {t("docs.visualizeColumn")}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
                           <DropdownMenuItem onSelect={() => toggleSort(column)}>
                             {direction === 1 ? t("docs.sortDesc") : t("docs.sortAsc")}
                           </DropdownMenuItem>
@@ -367,6 +405,14 @@ export function DocumentsResults({
                               <DropdownMenuItem onSelect={() => setColumnRenderer(column, "date")}>
                                 <CalendarDays /> {t("docs.render.date")}
                                 {renderMode === "date" ? <Check className="ml-auto size-4" /> : null}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onSelect={() => setColumnRenderer(column, "duration")}
+                              >
+                                <Timer /> {t("docs.render.duration")}
+                                {renderMode === "duration" ? (
+                                  <Check className="ml-auto size-4" />
+                                ) : null}
                               </DropdownMenuItem>
                             </DropdownMenuSubContent>
                           </DropdownMenuSub>
@@ -497,6 +543,7 @@ export function DocumentsResults({
                     const left = frozen.offsets[column]
                     const isLastPinned =
                       isPinned && pinnedColumns[pinnedColumns.length - 1] === column
+                    const isColumnSelected = selectedColumns.has(column)
                     const isEditing =
                       inlineEdit?.row === index && inlineEdit.column === column
                     const isActiveCell =
@@ -511,6 +558,7 @@ export function DocumentsResults({
                           "max-w-[320px]",
                           !isEditing && "truncate",
                           previewable && "cursor-pointer",
+                          isColumnSelected && "bg-primary/5",
                           isActiveCell && "bg-primary/10 ring-primary/60 ring-1 ring-inset",
                           isPinned && "cell-frozen sticky z-10",
                           isLastPinned && frozen.scrolled && PINNED_EDGE_SHADOW,

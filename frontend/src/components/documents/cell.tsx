@@ -4,7 +4,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { findDictionaryEntry } from "@/lib/columnDictionary"
-import { formatDateValue } from "@/lib/columnRender"
+import { formatDateValue, formatDurationValue } from "@/lib/columnRender"
 import { useDateTimeZone } from "@/lib/dateTime"
 import type { ColumnDictionaryEntry, ColumnRender } from "@/lib/columnPrefs"
 import { classForType, formatValue, prettyJSON, valueType } from "@/lib/mongo"
@@ -66,6 +66,25 @@ export function CellValue({
     : undefined
   if (renderer === "date") {
     const formatted = formatDateValue(value, locale, timeZone)
+    if (formatted) {
+      return (
+        <span
+          data-cell-value
+          className={cn(
+            "block max-w-full truncate text-xs tabular-nums",
+            expandable &&
+              "cursor-pointer hover:underline hover:decoration-dotted hover:underline-offset-2",
+          )}
+          title={text}
+          onClick={handleExpand}
+        >
+          {formatted}
+        </span>
+      )
+    }
+  }
+  if (renderer === "duration") {
+    const formatted = formatDurationValue(value)
     if (formatted) {
       return (
         <span

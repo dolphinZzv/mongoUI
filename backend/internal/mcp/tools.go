@@ -782,6 +782,15 @@ func toolSQL(s *Server, args map[string]any) (string, error) {
 	if parsed.Database != "" {
 		db = parsed.Database
 	}
+	if parsed.CrossDB {
+		docs, total, err := sqlmongo.ExecuteCrossDB(ctx, client, db, parsed, limit, skip)
+		if err != nil {
+			return "", err
+		}
+		return jsonText(map[string]any{
+			"documents": docs, "count": len(docs), "total": total, "columns": parsed.Columns,
+		})
+	}
 	coll := client.Database(db).Collection(parsed.Collection)
 	docs := []bson.D{}
 	var total int64

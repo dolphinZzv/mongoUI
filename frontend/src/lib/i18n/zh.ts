@@ -597,7 +597,7 @@ const zh: Record<string, string> = {
   "sql.writeFirst": "请先编写 SQL 查询",
   "sql.failed": "SQL 查询失败",
   "sql.help":
-    "支持 SELECT + WHERE / IN / LIKE / IS NULL、ORDER BY、LIMIT、GROUP BY、HAVING、DISTINCT 以及 COUNT / SUM / AVG / MIN / MAX；支持同库 INNER / LEFT JOIN 与表别名。使用 FROM 其他库.集合 可跨库查询。按 Ctrl/⌘ + Enter 运行。",
+    "支持 SELECT + WHERE / IN / LIKE / IS NULL、ORDER BY、LIMIT、GROUP BY、HAVING、DISTINCT 以及 COUNT / SUM / AVG / MIN / MAX；支持 INNER / LEFT JOIN 与表别名，跨库等值 JOIN 支持 SELECT / WHERE / ORDER BY / LIMIT。使用 FROM 其他库.集合 可跨库查询。按 Ctrl/⌘ + Enter 运行。",
 
   // script console
   "script.title": "MongoDB 脚本",

@@ -114,9 +114,16 @@ func TestLeftJoinKeepsMissingMatches(t *testing.T) {
 	}
 }
 
-func TestCrossDatabaseJoinRejected(t *testing.T) {
-	if _, err := Translate("SELECT * FROM users u JOIN analytics.orders o ON u._id = o.userId"); err == nil {
-		t.Fatal("expected cross-database JOIN to be rejected")
+func TestCrossDatabaseJoinPlan(t *testing.T) {
+	q, err := Translate("SELECT u.name, o.total FROM users u JOIN analytics.orders o ON u._id = o.userId")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !q.CrossDB || len(q.Joins) != 1 || len(q.Columns) != 2 || q.Columns[1] != "o_total" {
+		t.Fatalf("unexpected cross-db plan: %#v", q)
+	}
+	if _, err := Translate("SELECT u.region, COUNT(*) AS n FROM users u JOIN analytics.orders o ON u._id = o.userId GROUP BY u.region"); err == nil {
+		t.Fatal("expected cross-database aggregation to be rejected")
 	}
 }
 

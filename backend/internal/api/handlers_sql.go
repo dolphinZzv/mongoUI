@@ -78,7 +78,13 @@ func (a *API) runSQL(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	docs := []bson.D{}
 	var total int64
-	if query.Aggregate {
+	if query.CrossDB {
+		docs, total, err = sqlmongo.ExecuteCrossDB(ctx, client, db, query, limit, skip)
+		if err != nil {
+			a.dbErr(w, err)
+			return
+		}
+	} else if query.Aggregate {
 		pipeline := make(mongo.Pipeline, 0, len(query.Pipeline)+2)
 		pipeline = append(pipeline, query.Pipeline...)
 		if skip > 0 {

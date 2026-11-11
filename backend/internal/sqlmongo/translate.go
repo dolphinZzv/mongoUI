@@ -25,6 +25,14 @@ type Query struct {
 	Limit      int64
 	Pipeline   []bson.D
 	Columns    []string
+	// CrossDB is set when a JOIN targets another database. The caller must use
+	// ExecuteCrossDB instead of running Pipeline.
+	CrossDB   bool
+	MainAlias string
+	Joins     []Join
+	Select    []SelectItem
+	Where     Expr
+	OrderBy   []OrderItem
 }
 
 // Translate parses and translates a SQL SELECT statement.
@@ -82,6 +90,38 @@ func Translate(input string) (*Query, error) {
 	if dot := strings.Index(q.Collection, "."); dot > 0 && dot < len(q.Collection)-1 {
 		q.Database = q.Collection[:dot]
 		q.Collection = q.Collection[dot+1:]
+	}
+
+	crossDB := false
+	for _, join := range st.Joins {
+		if strings.Contains(join.Collection, ".") {
+			crossDB = true
+			break
+		}
+	}
+	if crossDB {
+		if st.Distinct || len(st.GroupBy) > 0 || hasAggregate(st) || st.Having != nil {
+			return nil, fmt.Errorf("cross-database JOIN supports SELECT, WHERE, ORDER BY and LIMIT only")
+		}
+		columns := []string{}
+		if !(len(st.Select) == 1 && st.Select[0].Star) {
+			for _, item := range st.Select {
+				col, err := asColumn(item.Expr)
+				if err != nil {
+					return nil, fmt.Errorf("cross-database JOIN projection: %w", err)
+				}
+				columns = append(columns, outputName(col, item.Alias))
+			}
+		}
+		q.Aggregate = true
+		q.CrossDB = true
+		q.MainAlias = st.Alias
+		q.Joins = st.Joins
+		q.Select = st.Select
+		q.Where = st.Where
+		q.OrderBy = st.OrderBy
+		q.Columns = columns
+		return q, nil
 	}
 
 	useAggregate := st.Distinct || len(st.GroupBy) > 0 || hasAggregate(st) || hasAlias(st) || len(st.Joins) > 0

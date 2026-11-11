@@ -516,7 +516,7 @@ const en: Record<string, string> = {
   "docs.visualizeColumn": "Visualize column",
   "docs.visualization": "Visualization",
   "docs.visualize": "Visualize",
-  "docs.selectedColumns": "{{count}} columns selected",
+  "docs.selectedColumns": "Columns selected: {{count}}",
   "docs.clearColumnSelection": "Clear",
   "docs.openChartDialog": "Open full chart",
   "docs.closeVisualization": "Close visualization",

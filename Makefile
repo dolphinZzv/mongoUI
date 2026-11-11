@@ -16,7 +16,7 @@ install: ## Install front-end dependencies
 	cd frontend && pnpm install
 
 frontend: ## Build the front-end and stage it for embedding
-	cd frontend && VITE_APP_VERSION=$(VERSION) pnpm run build
+	cd frontend && VITE_APP_VERSION=$(patsubst v%,%,$(VERSION)) pnpm run build
 	find backend/web/dist -mindepth 1 ! -name .gitkeep -delete
 	cp -r frontend/dist/. backend/web/dist/
 	./scripts/gzip-assets.sh backend/web/dist

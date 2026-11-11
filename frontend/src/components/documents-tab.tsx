@@ -144,7 +144,7 @@ export function DocumentsTab({
   const [visualizeOpen, setVisualizeOpen] = React.useState(false)
   const [visualizeConfig, setVisualizeConfig] = React.useState<ChartConfig | undefined>()
   const [selectedColumns, setSelectedColumns] = React.useState<Set<string>>(new Set())
-  const [chartPaneWidth, setChartPaneWidth] = React.useState(460)
+  const [chartPaneWidth, setChartPaneWidth] = React.useState(600)
   const splitRef = React.useRef<HTMLDivElement>(null)
   const [builderOpen, setBuilderOpen] = React.useState(false)
   const [cellMenu, setCellMenu] = React.useState<{
@@ -359,26 +359,39 @@ export function DocumentsTab({
           x: temporal,
           y: numeric,
           aggregate: numeric.length > 0 ? "sum" : "count",
-          timeBucket: base.timeBucket === "none" ? "auto" : base.timeBucket,
+          timeBucket: "auto",
           sort: "asc",
+          limit: 500,
+          others: false,
+          xAxisFormat: "date",
           title: fields.join(", "),
         }
       }
       const categorical = fields.filter(
         (column) => column !== temporal && !numeric.includes(column),
       )
+      const timeField = allColumns.find(
+        (column) => isTemporalColumn(documents, column) || fieldTypes[column] === "date",
+      )
       const x =
         categorical[0] ??
-        (base.x && !fields.includes(base.x)
-          ? base.x
-          : allColumns.find((column) => !fields.includes(column) && column !== "_id") ?? "_id")
+        (numeric.length > 0 && timeField
+          ? timeField
+          : base.x && !fields.includes(base.x)
+            ? base.x
+            : allColumns.find((column) => !fields.includes(column) && column !== "_id") ?? "_id")
+      const temporalX = isTemporalColumn(documents, x) || fieldTypes[x] === "date"
       return {
         ...base,
         type: "line",
         x,
         y: numeric,
         aggregate: numeric.length > 0 ? "sum" : "count",
-        timeBucket: "none",
+        timeBucket: temporalX ? "auto" : "none",
+        sort: temporalX ? "asc" : base.sort,
+        limit: temporalX ? 500 : base.limit,
+        others: temporalX ? false : base.others,
+        xAxisFormat: temporalX ? "date" : base.xAxisFormat,
         title: fields.join(", "),
       }
     },

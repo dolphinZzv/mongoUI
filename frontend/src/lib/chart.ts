@@ -191,7 +191,8 @@ export function resolveTimeBucket(
   if (times.length < 2) return "day"
   const span = times[times.length - 1] - times[0]
   const day = 86_400_000
-  if (span <= 90 * day) return "day"
+  if (span <= 21 * day) return "day"
+  if (span <= 180 * day) return "week"
   if (span <= 730 * day) return "month"
   return "year"
 }

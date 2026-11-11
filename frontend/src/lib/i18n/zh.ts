@@ -515,7 +515,7 @@ const zh: Record<string, string> = {
   "docs.visualizeColumn": "可视化此列",
   "docs.visualization": "数据可视化",
   "docs.visualize": "可视化",
-  "docs.selectedColumns": "已选择 {{count}} 列",
+  "docs.selectedColumns": "已选择列：{{count}}",
   "docs.clearColumnSelection": "清除",
   "docs.openChartDialog": "打开完整图表",
   "docs.closeVisualization": "关闭可视化",

@@ -174,6 +174,14 @@ describe("time buckets", () => {
     ]
     expect(resolveTimeBucket(docs, "at", "auto")).toBe("year")
   })
+
+  it("uses weekly buckets for a two-month span", () => {
+    const docs = [
+      { at: { $date: "2024-01-01T00:00:00Z" } },
+      { at: { $date: "2024-03-01T00:00:00Z" } },
+    ]
+    expect(resolveTimeBucket(docs, "at", "auto")).toBe("week")
+  })
 })
 
 describe("formatting and config", () => {

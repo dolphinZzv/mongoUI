@@ -29,6 +29,50 @@ export interface ColumnPrefs {
 export const COLUMN_MIN_WIDTH = 80
 export const COLUMN_MAX_WIDTH = 800
 
+export type ColumnDropPosition = "before" | "after"
+
+/**
+ * Reorder `source` next to `target` and return the new explicit column order.
+ * Pinned and unpinned columns form independent groups (pinned columns always
+ * render first), so a drop across the boundary is ignored. Hidden or unknown
+ * columns keep their previous tail position.
+ */
+export function reorderVisibleColumns(
+  order: string[],
+  visible: string[],
+  all: string[],
+  pinned: readonly string[],
+  source: string,
+  target: string,
+  position: ColumnDropPosition,
+): string[] {
+  if (source === target) return order
+  const pinnedSet = new Set(pinned)
+  if (pinnedSet.has(source) !== pinnedSet.has(target)) return order
+
+  const isPinned = pinnedSet.has(source)
+  const group = visible.filter((column) => pinnedSet.has(column) === isPinned)
+  const from = group.indexOf(source)
+  if (from < 0 || group.indexOf(target) < 0) return order
+
+  const next = group.slice()
+  next.splice(from, 1)
+  const targetIndex = next.indexOf(target)
+  next.splice(targetIndex + (position === "after" ? 1 : 0), 0, source)
+
+  const pinnedOrder = isPinned ? next : visible.filter((column) => pinnedSet.has(column))
+  const restOrder = isPinned ? visible.filter((column) => !pinnedSet.has(column)) : next
+  const ordered = [...pinnedOrder, ...restOrder]
+  const seen = new Set(ordered)
+  const rest: string[] = []
+  for (const column of [...order, ...all]) {
+    if (seen.has(column)) continue
+    seen.add(column)
+    rest.push(column)
+  }
+  return [...ordered, ...rest]
+}
+
 /** `_id` is frozen to the left by default. */
 export const DEFAULT_PINNED_COLUMNS = ["_id"]
 

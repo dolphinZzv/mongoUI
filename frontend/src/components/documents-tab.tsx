@@ -43,7 +43,9 @@ import {
   DEFAULT_PINNED_COLUMNS,
   columnPrefsKey,
   readColumnPrefs,
+  reorderVisibleColumns,
   writeColumnPrefs,
+  type ColumnDropPosition,
   type ColumnPrefs,
   type ColumnRender,
 } from "@/lib/columnPrefs"
@@ -559,6 +561,24 @@ export function DocumentsTab({
       })
     },
     [columns, pinnedSet, allColumns],
+  )
+
+  const reorderColumn = React.useCallback(
+    (source: string, target: string, position: ColumnDropPosition) => {
+      setPrefs((prev) => {
+        const order = reorderVisibleColumns(
+          prev.order,
+          displayColumns,
+          allColumns,
+          prev.pinned,
+          source,
+          target,
+          position,
+        )
+        return order === prev.order ? prev : { ...prev, order }
+      })
+    },
+    [allColumns, displayColumns],
   )
 
   const startResize = React.useCallback((column: string, event: React.MouseEvent) => {
@@ -1593,6 +1613,7 @@ export function DocumentsTab({
         toggleSort={toggleSort}
         startResize={startResize}
         moveColumn={moveColumn}
+        reorderColumn={reorderColumn}
         toggleColumnPinned={toggleColumnPinned}
         setColumnHidden={setColumnHidden}
         onSelectColumn={handleSelectColumn}

@@ -54,8 +54,14 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import type { FrozenColumns } from "@/hooks/useFrozenColumns"
+import { useColumnDrag } from "@/hooks/useColumnDrag"
 import { useI18n } from "@/lib/i18n"
-import { columnRenderMode, type ColumnPrefs, type ColumnRender } from "@/lib/columnPrefs"
+import {
+  columnRenderMode,
+  type ColumnDropPosition,
+  type ColumnPrefs,
+  type ColumnRender,
+} from "@/lib/columnPrefs"
 import { documentId, prettyJSON } from "@/lib/mongo"
 import { cn } from "@/lib/utils"
 import type { MongoDocument } from "@/lib/types"
@@ -115,6 +121,7 @@ interface DocumentsResultsProps {
   toggleSort: (column: string) => void
   startResize: (column: string, event: React.MouseEvent) => void
   moveColumn: (column: string, delta: 1 | -1) => void
+  reorderColumn: (source: string, target: string, position: ColumnDropPosition) => void
   toggleColumnPinned: (column: string) => void
   setColumnHidden: (column: string, hidden: boolean) => void
   onSelectColumn: (column: string, additive: boolean) => void
@@ -181,6 +188,7 @@ export function DocumentsResults({
   toggleSort,
   startResize,
   moveColumn,
+  reorderColumn,
   toggleColumnPinned,
   setColumnHidden,
   onSelectColumn,
@@ -202,6 +210,16 @@ export function DocumentsResults({
   openUpdateDialog,
 }: DocumentsResultsProps) {
   const { t } = useI18n()
+  const canDropColumn = React.useCallback(
+    (source: string, target: string) =>
+      source !== target && pinnedSet.has(source) === pinnedSet.has(target),
+    [pinnedSet],
+  )
+  const { dragSource: dragColumn, dropTarget, headerProps } = useColumnDrag({
+    canDrop: canDropColumn,
+    onDrop: reorderColumn,
+  })
+
   return (
       <div className="relative min-h-0 flex-1">
         <div className="sr-only" role="status" aria-live="polite">
@@ -286,12 +304,16 @@ export function DocumentsResults({
                   <TableHead
                     key={column}
                     data-column={column}
+                    data-dragging={dragColumn === column ? "true" : undefined}
                     scope="col"
+                    title={t("docs.dragColumn")}
+                    {...headerProps(column)}
                     className={cn(
-                      "group font-mono text-xs",
+                      "group cursor-grab font-mono text-xs active:cursor-grabbing",
                       isPinned ? "cell-frozen sticky z-30" : "relative",
                       isLastPinned && frozen.scrolled && PINNED_EDGE_SHADOW,
                       isColumnSelected && "bg-primary/10 text-foreground",
+                      dragColumn === column && "opacity-50",
                     )}
                     style={{
                       ...(width ? { width, minWidth: width, maxWidth: width } : {}),
@@ -455,9 +477,19 @@ export function DocumentsResults({
                     <div
                       role="separator"
                       aria-orientation="vertical"
+                      data-column-resize
                       onMouseDown={(event) => startResize(column, event)}
                       className="hover:bg-primary/40 absolute inset-y-0 right-0 w-1 cursor-col-resize"
                     />
+                    {dropTarget?.column === column && dragColumn ? (
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "bg-primary pointer-events-none absolute inset-y-0 z-40 w-0.5",
+                          dropTarget.position === "before" ? "left-0" : "right-0",
+                        )}
+                      />
+                    ) : null}
                   </TableHead>
                 )
               })}

@@ -10,12 +10,20 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useFrozenColumns } from "@/hooks/useFrozenColumns"
+import { useColumnDrag } from "@/hooks/useColumnDrag"
 import { useI18n } from "@/lib/i18n"
-import { readResultPinned, resultPinnedKey, writeResultPinned } from "@/lib/resultTablePrefs"
+import {
+  readResultTablePrefs,
+  resultTablePrefsKey,
+  writeResultTablePrefs,
+  type ResultTablePrefs,
+} from "@/lib/resultTablePrefs"
 import { cn } from "@/lib/utils"
 import {
   columnRenderMode,
+  reorderVisibleColumns,
   type ColumnDictionaries,
+  type ColumnDropPosition,
   type ColumnRenderers,
 } from "@/lib/columnPrefs"
 import type { MongoDocument } from "@/lib/types"
@@ -29,6 +37,26 @@ import { CellValueDialog } from "@/components/documents/cell-value-dialog"
 /** Inset shadow marking the right edge of the frozen region once scrolled. */
 const PINNED_EDGE_SHADOW = "cell-frozen-edge"
 
+/** Apply a saved order to the columns present in this result. */
+function orderColumns(columns: string[], order: string[]): string[] {
+  const present = new Set(columns)
+  const seen = new Set<string>()
+  const ordered: string[] = []
+  for (const column of order) {
+    if (present.has(column) && !seen.has(column)) {
+      ordered.push(column)
+      seen.add(column)
+    }
+  }
+  for (const column of columns) {
+    if (!seen.has(column)) {
+      ordered.push(column)
+      seen.add(column)
+    }
+  }
+  return ordered
+}
+
 interface ResultTableProps {
   documents: MongoDocument[]
   columns: string[]
@@ -41,8 +69,9 @@ interface ResultTableProps {
 
 /**
  * Read-only result grid shared by the SQL, aggregation and script views.
- * Columns can be pinned to the left edge so they stay visible while scrolling
- * horizontally; the choice is remembered per `storageKey`.
+ * Columns can be dragged into a new order and pinned to the left edge so they
+ * stay visible while scrolling horizontally; both choices are remembered per
+ * `storageKey`.
  */
 export function ResultTable({
   documents,
@@ -52,8 +81,10 @@ export function ResultTable({
   renderers,
 }: ResultTableProps) {
   const { t } = useI18n()
-  const prefsKey = resultPinnedKey(storageKey)
-  const [pinned, setPinned] = React.useState<string[]>(() => readResultPinned(prefsKey))
+  const prefsKey = resultTablePrefsKey(storageKey)
+  const [prefs, setPrefs] = React.useState<ResultTablePrefs>(() =>
+    readResultTablePrefs(prefsKey),
+  )
   const [valuePreview, setValuePreview] = React.useState<{
     column: string
     value: unknown
@@ -61,31 +92,65 @@ export function ResultTable({
 
   // Reload the stored choice when the caller switches collection/tab.
   React.useEffect(() => {
-    setPinned(readResultPinned(prefsKey))
+    setPrefs(readResultTablePrefs(prefsKey))
   }, [prefsKey])
 
   React.useEffect(() => {
-    writeResultPinned(prefsKey, pinned)
-  }, [prefsKey, pinned])
+    writeResultTablePrefs(prefsKey, prefs)
+  }, [prefsKey, prefs])
 
+  const orderedColumns = React.useMemo(
+    () => orderColumns(columns, prefs.order),
+    [columns, prefs.order],
+  )
   // Only pin columns that are actually present in this result.
   const pinnedColumns = React.useMemo(
-    () => columns.filter((column) => pinned.includes(column)),
-    [columns, pinned],
+    () => orderedColumns.filter((column) => prefs.pinned.includes(column)),
+    [orderedColumns, prefs.pinned],
   )
   const displayColumns = React.useMemo(() => {
     const pinnedSet = new Set(pinnedColumns)
-    return [...pinnedColumns, ...columns.filter((column) => !pinnedSet.has(column))]
-  }, [columns, pinnedColumns])
+    return [...pinnedColumns, ...orderedColumns.filter((column) => !pinnedSet.has(column))]
+  }, [orderedColumns, pinnedColumns])
 
   const frozen = useFrozenColumns(pinnedColumns)
   const pinnedSet = React.useMemo(() => new Set(pinnedColumns), [pinnedColumns])
 
   const togglePinned = (column: string) => {
-    setPinned((prev) =>
-      prev.includes(column) ? prev.filter((item) => item !== column) : [...prev, column],
-    )
+    setPrefs((prev) => ({
+      ...prev,
+      pinned: prev.pinned.includes(column)
+        ? prev.pinned.filter((item) => item !== column)
+        : [...prev.pinned, column],
+    }))
   }
+
+  const canDropColumn = React.useCallback(
+    (source: string, target: string) =>
+      source !== target && pinnedSet.has(source) === pinnedSet.has(target),
+    [pinnedSet],
+  )
+  const reorderColumn = React.useCallback(
+    (source: string, target: string, position: ColumnDropPosition) => {
+      setPrefs((prev) => {
+        const order = reorderVisibleColumns(
+          prev.order,
+          displayColumns,
+          orderedColumns,
+          prev.pinned,
+          source,
+          target,
+          position,
+        )
+        return order === prev.order ? prev : { ...prev, order }
+      })
+    },
+    [displayColumns, orderedColumns],
+  )
+  const { dragSource, dropTarget, headerProps } = useColumnDrag({
+    canDrop: canDropColumn,
+    onDrop: reorderColumn,
+  })
 
   return (
     <>
@@ -106,11 +171,15 @@ export function ResultTable({
                   <TableHead
                     key={column}
                     data-column={column}
+                    data-dragging={dragSource === column ? "true" : undefined}
                     scope="col"
+                    title={t("docs.dragColumn")}
+                    {...headerProps(column)}
                     className={cn(
-                      "group font-mono text-xs",
+                      "group cursor-grab font-mono text-xs active:cursor-grabbing",
                       isPinned ? "cell-frozen sticky z-30" : "relative",
                       isLastPinned && frozen.scrolled && PINNED_EDGE_SHADOW,
+                      dragSource === column && "opacity-50",
                     )}
                     style={isPinned && left !== undefined ? { left } : undefined}
                   >
@@ -132,6 +201,15 @@ export function ResultTable({
                         {isPinned ? <PinOff className="size-3" /> : <Pin className="size-3" />}
                       </button>
                     </div>
+                    {dropTarget?.column === column && dragSource ? (
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "bg-primary pointer-events-none absolute inset-y-0 z-40 w-0.5",
+                          dropTarget.position === "before" ? "left-0" : "right-0",
+                        )}
+                      />
+                    ) : null}
                   </TableHead>
                 )
               })}

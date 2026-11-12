@@ -199,7 +199,7 @@ describe("formatting and config", () => {
 
   it("normalises stale or tampered configs", () => {
     const normalized = normalizeChartConfig({ type: "nope", limit: -5, timeBucket: "x" })
-    expect(normalized.type).toBe("bar")
+    expect(normalized.type).toBe("line")
     expect(normalized.limit).toBe(20)
     expect(normalized.timeBucket).toBe("none")
     expect(normalized.timeZone).toBe("utc")

@@ -106,7 +106,7 @@ const BUCKET_VALUES: ChartTimeBucket[] = ["none", "auto", "day", "week", "month"
 export function normalizeChartConfig(input: unknown): ChartConfig {
   const raw = (input && typeof input === "object" ? input : {}) as Partial<ChartConfig>
   return {
-    type: CHART_TYPE_VALUES.includes(raw.type as ChartType) ? (raw.type as ChartType) : "bar",
+    type: CHART_TYPE_VALUES.includes(raw.type as ChartType) ? (raw.type as ChartType) : "line",
     x: typeof raw.x === "string" ? raw.x : "",
     y: Array.isArray(raw.y) ? raw.y.filter((field): field is string => typeof field === "string") : [],
     aggregate: AGGREGATE_VALUES.includes(raw.aggregate as ChartAggregate)
@@ -253,7 +253,7 @@ export const CHART_COLORS = [
 ]
 
 export const DEFAULT_CHART_CONFIG: ChartConfig = {
-  type: "bar",
+  type: "line",
   x: "",
   y: [],
   aggregate: "count",
@@ -1129,7 +1129,7 @@ export function suggestChartConfig(
     : "none"
 
   return {
-    type: previous?.type ?? (temporal ? "line" : "bar"),
+    type: previous?.type ?? "line",
     x,
     y,
     aggregate,

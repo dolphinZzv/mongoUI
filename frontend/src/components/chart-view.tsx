@@ -1,55 +1,15 @@
 import * as React from "react"
-import {
-  AreaChart as AreaIcon,
-  AlertTriangle,
-  BarChart3,
-  Bookmark,
-  Copy,
-  Crop,
-  Download,
-  Loader2,
-  LineChart,
-  Maximize2,
-  Minimize2,
-  PieChart,
-  Plus,
-  RefreshCw,
-  RotateCcw,
-  Search,
-  Share2,
-  Sparkles,
-  SlidersHorizontal,
-  Table2,
-  Trash2,
-} from "lucide-react"
+import { Minimize2 } from "lucide-react"
 import { toast } from "sonner"
 
+import { ChartConfigPanel } from "@/components/chart-config-panel"
+import { ChartDataTable } from "@/components/chart-data-table"
+import { ChartLegend } from "@/components/chart-legend"
+import { createChartRenderers } from "@/components/chart-renderers"
+import { ChartToolbar } from "@/components/chart-toolbar"
+import { ChartTooltip, type ChartTooltipState } from "@/components/chart-tooltip"
+import { ChartViewsDialog } from "@/components/chart-views-dialog"
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { ApiError, api, isAbortError } from "@/lib/api"
 import { copyToClipboard } from "@/lib/clipboard"
 import { useI18n } from "@/lib/i18n"
@@ -71,16 +31,9 @@ import {
   niceScale,
   suggestChartConfig,
   toNumeric,
-  type ChartAggregate,
-  type ChartAxisScale,
   type ChartConfig,
   type ChartData,
-  type ChartSort,
-  type ChartTimeBucket,
-  type ChartTimeZone,
-  type ChartType,
   type SavedChartView,
-  type ScatterPoint,
 } from "@/lib/chart"
 import { cn } from "@/lib/utils"
 import { valueType } from "@/lib/mongo"
@@ -120,13 +73,6 @@ interface ChartViewProps {
   onDrilldown?: (filter: Record<string, unknown>) => void
   /** Push the chart's current filter back to the documents tab. */
   onApplyFilter?: () => void
-}
-
-interface TooltipState {
-  x: number
-  y: number
-  title: string
-  rows: { name: string; value: string; color: string }[]
 }
 
 function useElementWidth<T extends HTMLElement>() {
@@ -172,25 +118,6 @@ function readSavedViews(key: string): SavedChartView[] {
     return []
   }
 }
-
-const CHART_TYPES: { value: ChartType; labelKey: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { value: "bar", labelKey: "chart.type.bar", icon: BarChart3 },
-  { value: "hbar", labelKey: "chart.type.hbar", icon: BarChart3 },
-  { value: "line", labelKey: "chart.type.line", icon: LineChart },
-  { value: "area", labelKey: "chart.type.area", icon: AreaIcon },
-  { value: "pie", labelKey: "chart.type.pie", icon: PieChart },
-  { value: "scatter", labelKey: "chart.type.scatter", icon: BarChart3 },
-  { value: "combo", labelKey: "chart.type.combo", icon: LineChart },
-]
-
-const TIME_BUCKETS: { value: ChartTimeBucket; labelKey: string }[] = [
-  { value: "none", labelKey: "chart.bucket.none" },
-  { value: "day", labelKey: "chart.bucket.day" },
-  { value: "week", labelKey: "chart.bucket.week" },
-  { value: "month", labelKey: "chart.bucket.month" },
-  { value: "quarter", labelKey: "chart.bucket.quarter" },
-  { value: "year", labelKey: "chart.bucket.year" },
-]
 
 function escapeCSV(value: string): string {
   return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
@@ -258,7 +185,7 @@ export function ChartView({
     return restored ?? suggestChartConfig(documents, columns)
   })
   const lastEmitted = React.useRef(JSON.stringify(config))
-  const [tooltip, setTooltip] = React.useState<TooltipState | null>(null)
+  const [tooltip, setTooltip] = React.useState<ChartTooltipState | null>(null)
   const [hidden, setHidden] = React.useState<Set<string>>(new Set())
   const [showTable, setShowTable] = React.useState(false)
   const [refreshToken, setRefreshToken] = React.useState(0)
@@ -757,9 +684,14 @@ export function ChartView({
 
   const toggleY = (field: string) => {
     setConfig((prev) => {
-      if (prev.y.includes(field)) return { ...prev, y: prev.y.filter((item) => item !== field) }
-      if (prev.group || prev.type === "scatter") return { ...prev, y: [field] }
-      return { ...prev, y: [...prev.y, field] }
+      if (prev.y.includes(field)) {
+        return { ...prev, y: prev.y.filter((item) => item !== field) }
+      }
+      const y = prev.group || prev.type === "scatter" ? [field] : [...prev.y, field]
+      // Picking a value field makes Count meaningless; switch to Sum in place.
+      const aggregate =
+        prev.aggregate === "count" && prev.type !== "scatter" ? "sum" : prev.aggregate
+      return { ...prev, y, aggregate }
     })
   }
 
@@ -1068,578 +1000,50 @@ export function ChartView({
     }
   }
 
-  const renderAxes = () => (
-    <g>
-      {scale.ticks.map((tick) => {
-        const y = yFor(tick)
-        return (
-          <g key={tick}>
-            <line
-              x1={margin.left}
-              x2={margin.left + plotWidth}
-              y1={y}
-              y2={y}
-              className="stroke-border"
-              strokeDasharray="3 3"
-            />
-            <text
-              x={margin.left - 8}
-              y={y + 3}
-              textAnchor="end"
-              className="fill-muted-foreground text-[10px]"
-            >
-              {formatTick(tick)}
-            </text>
-          </g>
-        )
-      })}
-      <line
-        x1={margin.left}
-        x2={margin.left + plotWidth}
-        y1={yFor(0)}
-        y2={yFor(0)}
-        className="stroke-border"
-      />
-    </g>
-  )
-
-  const renderXLabels = () => {
-    const band = plotWidth / Math.max(1, data.categories.length)
-    const step = Math.max(1, Math.ceil((data.categories.length * 60) / plotWidth))
-    const maxChars = Math.max(6, Math.floor(band / 6))
-    return (
-      <g>
-        {data.categories.map((category, index) => {
-          if (index % step !== 0) return null
-          const x = margin.left + (index + 0.5) * band
-          return (
-            <text
-              key={index}
-              x={x}
-              y={margin.top + plotHeight + 14}
-              textAnchor="end"
-              transform={`rotate(-35, ${x}, ${margin.top + plotHeight + 14})`}
-              className="fill-muted-foreground text-[10px]"
-            >
-              {category.length > maxChars ? `${category.slice(0, maxChars - 1)}…` : category}
-            </text>
-          )
-        })}
-      </g>
-    )
-  }
-
-  const renderBars = () => {
-    const band = plotWidth / Math.max(1, data.categories.length)
-    const count = series.length
-    const groupPad = band * 0.18
-    const groupWidth = Math.max(1, band - groupPad * 2)
-    const barWidth = groupWidth / Math.max(1, count)
-    const baseline = yFor(0)
-
-    if (stacked) {
-      return (
-        <g>
-          {data.categories.map((category, ci) => {
-            const total = series.reduce(
-              (sum, item) => sum + Math.max(0, item.values[ci] ?? 0),
-              0,
-            )
-            let offset = 0
-            return series.map((item, si) => {
-              const raw = Math.max(0, item.values[ci] ?? 0)
-              const value = percentStacked ? (total > 0 ? raw / total : 0) : raw
-              const top = yFor(offset + value)
-              const bottom = yFor(offset)
-              offset += value
-              return (
-                <rect
-                  key={`${ci}-${si}`}
-                  x={margin.left + ci * band + groupPad}
-                  y={top}
-                  width={Math.max(1, groupWidth)}
-                  height={Math.max(0, bottom - top)}
-                  fill={CHART_COLORS[data.series.indexOf(item) % CHART_COLORS.length]}
-                  className="cursor-pointer transition-opacity hover:opacity-80"
-                  onMouseMove={(event) =>
-                    showTooltip(
-                      event,
-                      category,
-                      series.map((entry) => ({
-                        name: entry.name,
-                        value: entry.values[ci] ?? 0,
-                      })),
-                    )
-                  }
-                  onMouseLeave={hideTooltip}
-                  onPointerDown={(event) => categoryTooltip(event, category, ci)}
-                  onClick={() => drill(ci)}
-                />
-              )
-            })
-          })}
-        </g>
-      )
-    }
-
-    return (
-      <g>
-        {data.categories.map((category, ci) =>
-          series.map((item, si) => {
-            const value = item.values[ci] ?? 0
-            const x = margin.left + ci * band + groupPad + si * barWidth
-            const y = value >= 0 ? yFor(value) : baseline
-            const h = Math.max(0, Math.abs(yFor(value) - baseline))
-            const color = CHART_COLORS[data.series.indexOf(item) % CHART_COLORS.length]
-            return (
-              <g key={`${ci}-${si}`}>
-                <rect
-                  x={x}
-                  y={y}
-                  width={Math.max(1, barWidth - (count > 1 ? 1.5 : 2))}
-                  height={h}
-                  fill={color}
-                  rx={2}
-                  className="cursor-pointer transition-opacity hover:opacity-80"
-                  onMouseMove={(event) =>
-                    showTooltip(
-                      event,
-                      category,
-                      series.map((entry) => ({
-                        name: entry.name,
-                        value: entry.values[ci] ?? 0,
-                      })),
-                    )
-                  }
-                  onMouseLeave={hideTooltip}
-                  onPointerDown={(event) => categoryTooltip(event, category, ci)}
-                  onClick={() => drill(ci)}
-                />
-                {config.showValues && barWidth > 22 && h > 12 ? (
-                  <text
-                    x={x + Math.max(1, barWidth) / 2}
-                    y={Math.min(y, baseline) - 4}
-                    textAnchor="middle"
-                    className="fill-muted-foreground text-[9px]"
-                  >
-                    {formatChartValue(value, config)}
-                  </text>
-                ) : null}
-              </g>
-            )
-          }),
-        )}
-      </g>
-    )
-  }
-
-  const renderHBars = () => {
-    const band = plotHeight / Math.max(1, data.categories.length)
-    const count = series.length
-    const groupPad = band * 0.18
-    const groupHeight = Math.max(1, band - groupPad * 2)
-    const barHeight = groupHeight / Math.max(1, count)
-    const baseline = xForValue(0)
-
-    return (
-      <g>
-        {data.categories.map((category, ci) =>
-          series.map((item, si) => {
-            const value = item.values[ci] ?? 0
-            const y = margin.top + ci * band + groupPad + si * barHeight
-            const x = value >= 0 ? xForValue(value) : baseline
-            const w = Math.max(0, Math.abs(xForValue(value) - baseline))
-            const color = CHART_COLORS[data.series.indexOf(item) % CHART_COLORS.length]
-            return (
-              <g key={`${ci}-${si}`}>
-                <rect
-                  x={Math.min(x, baseline)}
-                  y={y}
-                  width={w}
-                  height={Math.max(1, barHeight - (count > 1 ? 1.5 : 2))}
-                  fill={color}
-                  rx={2}
-                  className="cursor-pointer transition-opacity hover:opacity-80"
-                  onMouseMove={(event) =>
-                    showTooltip(
-                      event,
-                      category,
-                      series.map((entry) => ({
-                        name: entry.name,
-                        value: entry.values[ci] ?? 0,
-                      })),
-                    )
-                  }
-                  onMouseLeave={hideTooltip}
-                  onPointerDown={(event) => categoryTooltip(event, category, ci)}
-                  onClick={() => drill(ci)}
-                />
-                {config.showValues && w > 30 ? (
-                  <text
-                    x={Math.min(x, baseline) + w + 4}
-                    y={y + barHeight / 2 + 3}
-                    className="fill-muted-foreground text-[9px]"
-                  >
-                    {formatChartValue(value, config)}
-                  </text>
-                ) : null}
-              </g>
-            )
-          }),
-        )}
-      </g>
-    )
-  }
-
-  const linePath = (values: number[]) => {
-    const band = plotWidth / Math.max(1, data.categories.length)
-    return values
-      .map((value, index) => {
-        const x = margin.left + (index + 0.5) * band
-        return `${index === 0 ? "M" : "L"}${x},${yFor(value)}`
-      })
-      .join(" ")
-  }
-
-  const renderLines = (area: boolean) => {
-    const band = plotWidth / Math.max(1, data.categories.length)
-    const baseline = yFor(0)
-    return (
-      <g>
-        {area
-          ? series.map((item, si) => (
-              <path
-                key={`area-${si}`}
-                d={`${linePath(item.values)} L${margin.left + data.categories.length * band},${baseline} L${margin.left},${baseline} Z`}
-                fill={CHART_COLORS[data.series.indexOf(item) % CHART_COLORS.length]}
-                opacity={0.18}
-              />
-            ))
-          : null}
-        {series.map((item, si) => (
-          <path
-            key={`line-${si}`}
-            d={linePath(item.values)}
-            fill="none"
-            stroke={CHART_COLORS[data.series.indexOf(item) % CHART_COLORS.length]}
-            strokeWidth={2}
-            strokeLinejoin="round"
-            strokeLinecap="round"
-          />
-        ))}
-        {series.map((item, si) =>
-          item.values.map((value, index) => (
-            <circle
-              key={`dot-${si}-${index}`}
-              cx={margin.left + (index + 0.5) * band}
-              cy={yFor(value)}
-              r={3}
-              fill={CHART_COLORS[data.series.indexOf(item) % CHART_COLORS.length]}
-              className="cursor-pointer hover:opacity-80"
-              onMouseMove={(event) =>
-                showTooltip(
-                  event,
-                  data.categories[index],
-                  series.map((entry) => ({
-                    name: entry.name,
-                    value: entry.values[index] ?? 0,
-                  })),
-                )
-              }
-              onMouseLeave={hideTooltip}
-              onPointerDown={(event) => categoryTooltip(event, data.categories[index], index)}
-              onClick={() => drill(index)}
-            />
-          )),
-        )}
-      </g>
-    )
-  }
-
-  const renderCombo = () => {
-    const band = plotWidth / Math.max(1, data.categories.length)
-    const barWidth = Math.max(1, band * 0.46)
-    const baseline = yFor(0)
-    const bar = comboBar[0]
-    return (
-      <g>
-        {bar
-          ? data.categories.map((category, index) => {
-              const value = bar.values[index] ?? 0
-              const y = value >= 0 ? yFor(value) : baseline
-              const h = Math.abs(yFor(value) - baseline)
-              const color = CHART_COLORS[data.series.indexOf(bar) % CHART_COLORS.length]
-              return (
-                <g key={`combo-bar-${index}`}>
-                  <rect
-                    x={margin.left + index * band + (band - barWidth) / 2}
-                    y={y}
-                    width={barWidth}
-                    height={h}
-                    fill={color}
-                    rx={2}
-                    className="cursor-pointer hover:opacity-80"
-                    onMouseMove={(event) => categoryTooltip(event, category, index)}
-                    onMouseLeave={hideTooltip}
-                    onPointerDown={(event) => categoryTooltip(event, category, index)}
-                    onClick={() => drill(index)}
-                  />
-                  {config.showValues && barWidth > 22 && h > 12 ? (
-                    <text
-                      x={margin.left + index * band + band / 2}
-                      y={Math.min(y, baseline) - 4}
-                      textAnchor="middle"
-                      className="fill-muted-foreground text-[9px]"
-                    >
-                      {formatChartValue(value, config)}
-                    </text>
-                  ) : null}
-                </g>
-              )
-            })
-          : null}
-        {comboLines.map((item) => {
-          const color = CHART_COLORS[data.series.indexOf(item) % CHART_COLORS.length]
-          return (
-            <g key={`combo-line-${item.name}`}>
-              <path
-                d={item.values
-                  .map(
-                    (value, index) =>
-                      `${index === 0 ? "M" : "L"}${margin.left + (index + 0.5) * band},${yForRight(value)}`,
-                  )
-                  .join(" ")}
-                fill="none"
-                stroke={color}
-                strokeWidth={2}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-              {item.values.map((value, index) => (
-                <circle
-                  key={`combo-dot-${index}`}
-                  cx={margin.left + (index + 0.5) * band}
-                  cy={yForRight(value)}
-                  r={3}
-                  fill={color}
-                  className="cursor-pointer hover:opacity-80"
-                  onMouseMove={(event) =>
-                    categoryTooltip(event, data.categories[index], index)
-                  }
-                  onMouseLeave={hideTooltip}
-                  onPointerDown={(event) =>
-                    categoryTooltip(event, data.categories[index], index)
-                  }
-                  onClick={() => drill(index)}
-                />
-              ))}
-            </g>
-          )
-        })}
-      </g>
-    )
-  }
-
-  const renderRightAxis = () => (
-    <g>
-      {rightScale.ticks.map((tick) => (
-        <text
-          key={`right-${tick}`}
-          x={margin.left + plotWidth + 8}
-          y={yForRight(tick) + 3}
-          textAnchor="start"
-          className="fill-muted-foreground text-[10px]"
-        >
-          {formatTick(tick)}
-        </text>
-      ))}
-    </g>
-  )
-
-  const renderPie = () => {
-    // A pie needs one measure; multiple value fields would be summed, which is
-    // easy to misread, so only the first visible series is used.
-    const measure = series[0]
-    if (!measure) return null
-    const totals = data.categories.map((_, index) => Math.max(0, measure.values[index] ?? 0))
-    const total = totals.reduce((a, b) => a + b, 0)
-    if (total <= 0) return null
-    const cx = margin.left + plotWidth / 2
-    const cy = margin.top + plotHeight / 2
-    const radius = Math.max(20, Math.min(plotWidth, plotHeight) / 2 - 8)
-    let angle = -Math.PI / 2
-
-    return (
-      <g>
-        {data.categories.map((category, index) => {
-          const fraction = totals[index] / total
-          const start = angle
-          const end = angle + fraction * Math.PI * 2
-          angle = end
-          const large = end - start > Math.PI ? 1 : 0
-          const x1 = cx + radius * Math.cos(start)
-          const y1 = cy + radius * Math.sin(start)
-          const x2 = cx + radius * Math.cos(end)
-          const y2 = cy + radius * Math.sin(end)
-          const d = `M${cx},${cy} L${x1},${y1} A${radius},${radius} 0 ${large} 1 ${x2},${y2} Z`
-          const mid = (start + end) / 2
-          const labelX = cx + radius * 0.68 * Math.cos(mid)
-          const labelY = cy + radius * 0.68 * Math.sin(mid)
-          return (
-            <g key={index}>
-              <path
-                d={d}
-                fill={CHART_COLORS[index % CHART_COLORS.length]}
-                stroke="var(--background)"
-                strokeWidth={1}
-                className="cursor-pointer transition-opacity hover:opacity-80"
-                onMouseMove={(event) => {
-                  const percent = total > 0 ? ((totals[index] / total) * 100).toFixed(1) : "0.0"
-                  showTooltip(event, category, [
-                    {
-                      name: measure.name,
-                      value: totals[index],
-                      display: `${formatChartValue(totals[index], config)} (${percent}%)`,
-                      color: CHART_COLORS[index % CHART_COLORS.length],
-                    },
-                  ])
-                }}
-                onMouseLeave={hideTooltip}
-                onClick={() => drill(index)}
-                onPointerDown={(event) => {
-                  const percent = total > 0 ? ((totals[index] / total) * 100).toFixed(1) : "0.0"
-                  showTooltip(event, category, [
-                    {
-                      name: measure.name,
-                      value: totals[index],
-                      display: `${formatChartValue(totals[index], config)} (${percent}%)`,
-                      color: CHART_COLORS[index % CHART_COLORS.length],
-                    },
-                  ])
-                }}
-              />
-              {config.showValues && fraction >= 0.05 ? (
-                <text
-                  x={labelX}
-                  y={labelY}
-                  textAnchor="middle"
-                  className="fill-background text-[10px] font-medium"
-                >
-                  {(fraction * 100).toFixed(0)}%
-                </text>
-              ) : null}
-            </g>
-          )
-        })}
-      </g>
-    )
-  }
-
-  const renderScatterAxes = () => (
-    <g>
-      {scatterBounds.y.ticks.map((tick) => (
-        <g key={`y-${tick}`}>
-          <line
-            x1={margin.left}
-            x2={margin.left + plotWidth}
-            y1={scatterY(tick)}
-            y2={scatterY(tick)}
-            className="stroke-border"
-            strokeDasharray="3 3"
-          />
-          <text
-            x={margin.left - 8}
-            y={scatterY(tick) + 3}
-            textAnchor="end"
-            className="fill-muted-foreground text-[10px]"
-          >
-            {formatTick(tick)}
-          </text>
-        </g>
-      ))}
-      {scatterBounds.x.ticks.map((tick) => (
-        <g key={`x-${tick}`}>
-          <line
-            x1={scatterX(tick)}
-            x2={scatterX(tick)}
-            y1={margin.top}
-            y2={margin.top + plotHeight}
-            className="stroke-border"
-            strokeDasharray="3 3"
-          />
-          <text
-            x={scatterX(tick)}
-            y={margin.top + plotHeight + 14}
-            textAnchor="middle"
-            className="fill-muted-foreground text-[10px]"
-          >
-            {formatTick(tick)}
-          </text>
-        </g>
-      ))}
-    </g>
-  )
-
   const scatterGroups = React.useMemo(() => {
     if (!scatter) return []
     return [...new Set(scatter.points.map((point) => point.group).filter(Boolean))]
   }, [scatter])
 
-  const renderScatter = () => {
-    if (!scatter) return null
-    return (
-      <g>
-        {scatter.points.map((point: ScatterPoint, index) => {
-          const groupIndex = point.group ? scatterGroups.indexOf(point.group) : 0
-          return (
-            <circle
-              key={index}
-              cx={scatterX(point.x)}
-              cy={scatterY(point.y)}
-              r={4}
-              fill={CHART_COLORS[groupIndex % CHART_COLORS.length]}
-              opacity={0.7}
-              className="cursor-pointer hover:opacity-100"
-              onMouseMove={(event) =>
-                showTooltip(event, point.label, [
-                  {
-                    name: scatter.xField,
-                    value: point.x,
-                    display: formatChartValue(point.x, config),
-                    color: CHART_COLORS[groupIndex % CHART_COLORS.length],
-                  },
-                  {
-                    name: scatter.yField,
-                    value: point.y,
-                    display: formatChartValue(point.y, config),
-                    color: CHART_COLORS[groupIndex % CHART_COLORS.length],
-                  },
-                ])
-              }
-              onMouseLeave={hideTooltip}
-              onClick={() => drillValue(scatter.xField, point.x)}
-              onPointerDown={(event) =>
-                showTooltip(event, point.label, [
-                  {
-                    name: scatter.xField,
-                    value: point.x,
-                    display: formatChartValue(point.x, config),
-                    color: CHART_COLORS[groupIndex % CHART_COLORS.length],
-                  },
-                  {
-                    name: scatter.yField,
-                    value: point.y,
-                    display: formatChartValue(point.y, config),
-                    color: CHART_COLORS[groupIndex % CHART_COLORS.length],
-                  },
-                ])
-              }
-            />
-          )
-        })}
-      </g>
-    )
-  }
+  const {
+    axes: renderAxes,
+    xLabels: renderXLabels,
+    bars: renderBars,
+    hBars: renderHBars,
+    lines: renderLines,
+    combo: renderCombo,
+    rightAxis: renderRightAxis,
+    pie: renderPie,
+    scatterAxes: renderScatterAxes,
+    scatterPoints: renderScatter,
+  } = createChartRenderers({
+    config,
+    data,
+    series,
+    margin,
+    plotWidth,
+    plotHeight,
+    scale,
+    yFor,
+    xForValue,
+    rightScale,
+    yForRight,
+    formatTick,
+    stacked,
+    percentStacked,
+    comboBar,
+    comboLines,
+    scatter,
+    scatterGroups,
+    scatterBounds,
+    scatterX,
+    scatterY,
+    showTooltip,
+    hideTooltip,
+    categoryTooltip,
+    drill,
+    drillValue,
+  })
 
   const csv = () => {
     const exportSeries = baseData.series.filter((item) => !hidden.has(item.name))
@@ -1723,43 +1127,6 @@ export function ChartView({
     }
   }
 
-  const legendItems = () => {
-    if (config.type === "pie" || config.type === "scatter") {
-      return (config.type === "pie" ? data.categories : scatterGroups).map((name, index) => (
-        <span
-          key={name}
-          className="text-muted-foreground flex items-center gap-1.5 text-xs"
-        >
-          <span
-            className="inline-block size-2.5 rounded-sm"
-            style={{ background: CHART_COLORS[index % CHART_COLORS.length] }}
-          />
-          <span className="text-foreground max-w-[12rem] truncate" title={name}>
-            {name}
-          </span>
-        </span>
-      ))
-    }
-    return data.series.map((item, index) => (
-      <button
-        key={item.name}
-        type="button"
-        onClick={() => toggleSeries(item.name)}
-        aria-pressed={!hidden.has(item.name)}
-        title={t("chart.toggleSeries")}
-        className={cn(
-          "text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-xs",
-          hidden.has(item.name) && "opacity-40 line-through",
-        )}
-      >
-        <span
-          className="inline-block size-2.5 rounded-sm"
-          style={{ background: CHART_COLORS[index % CHART_COLORS.length] }}
-        />
-        <span className="text-foreground max-w-[12rem] truncate">{item.name}</span>
-      </button>
-    ))
-  }
 
   const errorHint = (() => {
     if (!error) return null
@@ -1816,263 +1183,51 @@ export function ChartView({
         </Button>
       ) : null}
       <div ref={ref} className="scrollbar-thin relative min-h-0 flex-1 overflow-auto p-3">
-        <div
-          className={cn(
-            "mb-2 flex flex-wrap items-center gap-2 text-[11px]",
-            (compact || isFullscreen) && "hidden",
-          )}
-        >
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setRefreshToken((value) => value + 1)}
-            disabled={loading || !serverMode}
-            title={t("common.refresh")}
-          >
-            <RefreshCw className={cn(loading && "animate-spin")} />
-            <span className="hidden sm:inline">{t("common.refresh")}</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setConfig(suggestChartConfig([...documents, ...probeDocs], fieldNames))
-              setHidden(new Set())
-            }}
-            title={t("chart.recommend")}
-          >
-            <Sparkles />
-            <span className="hidden lg:inline">{t("chart.recommend")}</span>
-          </Button>
-          <Button variant="outline" size="sm" onClick={reset} title={t("chart.reset")}>
-            <RotateCcw />
-            <span className="hidden sm:inline">{t("chart.reset")}</span>
-          </Button>
-          {onShare ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onShare(config)}
-              title={t("chart.copyLink")}
-            >
-              <Share2 />
-              <span className="hidden lg:inline">{t("chart.copyLink")}</span>
-            </Button>
-          ) : null}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setViewsOpen(true)}
-            title={t("chart.views")}
-            disabled={!viewsKey}
-          >
-            <Bookmark />
-            <span className="hidden lg:inline">{t("chart.views")}</span>
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" title={t("chart.export")}>
-                <Download />
-                <span className="hidden sm:inline">{t("chart.export")}</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem onSelect={() => void copyCSV()}>
-                <Copy /> {t("chart.copyCSV")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={downloadCSV}>
-                <Download /> {t("chart.downloadCSV")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => void copyJSON()}>
-                <Copy /> {t("chart.copyJSON")}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={exportSVG}>
-                <Download /> {t("chart.downloadSVG")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => void exportPNG()}>
-                <Download /> {t("chart.downloadPNG")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button
-            variant={showTable ? "secondary" : "outline"}
-            size="sm"
-            onClick={() => setShowTable((value) => !value)}
-            title={t("chart.dataTable")}
-          >
-            <Table2 />
-          </Button>
-          {onApplyFilter ? (
-            <Button variant="outline" size="sm" onClick={() => onApplyFilter()}>
-              {t("chart.applyToDocuments")}
-            </Button>
-          ) : null}
-        </div>
-
-          <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5">
-            {serverMode ? t("chart.serverData") : t("chart.pageData")}
-          </span>
-          <Select
-            value={String(config.refreshInterval)}
-            onValueChange={(value) => update({ refreshInterval: Number(value) })}
-          >
-            <SelectTrigger size="sm" className="h-6 w-24 text-[11px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="0">{t("chart.refreshOff")}</SelectItem>
-              <SelectItem value="5">5s</SelectItem>
-              <SelectItem value="10">10s</SelectItem>
-              <SelectItem value="30">30s</SelectItem>
-              <SelectItem value="60">1m</SelectItem>
-              <SelectItem value="300">5m</SelectItem>
-            </SelectContent>
-          </Select>
-          {config.refreshInterval > 0 ? (
-            <span className="flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
-              <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
-              {t("chart.live")}
-            </span>
-          ) : null}
-          {alertTriggered ? (
-            <span className="rounded-full border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive">
-              {t("chart.alert")}
-            </span>
-          ) : null}
-          {lastUpdated ? (
-            <span className="text-muted-foreground">
-              {t("chart.lastUpdated", {
-                time: new Date(lastUpdated).toLocaleTimeString(
-                  locale === "zh" ? "zh-CN" : "en-US",
-                ),
-              })}
-            </span>
-          ) : null}
-          <Button
-            variant={configOpen ? "secondary" : "outline"}
-            size="sm"
-            className="h-6 px-2 text-[11px]"
-            onClick={() => setConfigOpen((value) => !value)}
-          >
-            <SlidersHorizontal className="size-3" /> {t("chart.configure")}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 px-2 text-[11px]"
-            onClick={toggleFullscreen}
-            title={t("chart.fullscreen")}
-          >
-            <Maximize2 className="size-3" />
-          </Button>
-          {temporalX && !scatterMode ? (
-            <Button
-              variant={brushMode ? "secondary" : "outline"}
-              size="sm"
-              className="h-6 px-2 text-[11px]"
-              onClick={() => {
-                setBrushMode((value) => !value)
-                setBrush(null)
-              }}
-              title={t("chart.brush")}
-            >
-              <Crop className="size-3" /> {t("chart.brush")}
-            </Button>
-          ) : null}
-          {zoom ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 px-2 text-[11px]"
-              onClick={() => setZoom(null)}
-            >
-              {t("chart.resetZoom")}
-            </Button>
-          ) : null}
-          {brushMode ? (
-            <span className="text-muted-foreground">{t("chart.brushHint")}</span>
-          ) : null}
-          {config.aggregate === "none" && serverMode ? (
-            <span className="text-muted-foreground">
-              {t("chart.rawHint", {
-                shown: data.categories.length,
-                total: rawTotal ?? data.categories.length,
-              })}
-            </span>
-          ) : null}
-          {config.aggregate === "none" && serverMode ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 px-2 text-[11px]"
-              onClick={() => update({ limit: Math.min(Math.max(config.limit * 2, 40), 500) })}
-            >
-              {t("chart.showMore")}
-            </Button>
-          ) : null}
-          {config.aggregate === "none" && serverMode ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 px-2 text-[11px]"
-              onClick={() => update({ aggregate: config.y.length > 0 ? "sum" : "count" })}
-            >
-              {t("chart.useAggregate")}
-            </Button>
-          ) : null}
-          {crowded ? (
-            <span className="text-muted-foreground flex flex-wrap items-center gap-1">
-              <AlertTriangle className="size-3 text-amber-500" />
-              {t("chart.crowded")}
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 px-2 text-[11px]"
-                onClick={() => update({ others: true })}
-              >
-                {t("chart.mergeOthers")}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 px-2 text-[11px]"
-                onClick={() => update({ type: "hbar" })}
-              >
-                {t("chart.type.hbar")}
-              </Button>
-            </span>
-          ) : null}
-          {downsampled ? (
-            <span className="text-muted-foreground">
-              {t("chart.downsampled", { shown: data.categories.length })}
-            </span>
-          ) : null}
-          {loading ? (
-            <span className="text-muted-foreground flex items-center gap-1">
-              <Loader2 className="size-3 animate-spin" /> {t("common.loading")}
-            </span>
-          ) : null}
-          {error ? (
-            <span className="text-destructive flex flex-wrap items-center gap-2">
-              <span className="max-w-[32rem] truncate" title={error}>
-                {error}
-              </span>
-              {errorHint ? (
-                <span className="text-muted-foreground">· {errorHint}</span>
-              ) : null}
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 px-2 text-[11px]"
-                onClick={() => setRefreshToken((value) => value + 1)}
-              >
-                {t("common.retry")}
-              </Button>
-            </span>
-          ) : null}
-        </div>
+        <ChartToolbar
+          compact={compact}
+          isFullscreen={isFullscreen}
+          loading={loading}
+          serverMode={serverMode}
+          config={config}
+          update={update}
+          showTable={showTable}
+          configOpen={configOpen}
+          alertTriggered={alertTriggered}
+          lastUpdated={lastUpdated}
+          temporalX={temporalX}
+          scatterMode={scatterMode}
+          brushMode={brushMode}
+          zoomed={zoom !== null}
+          categoryCount={data.categories.length}
+          rawTotal={rawTotal}
+          crowded={crowded}
+          downsampled={downsampled}
+          error={error}
+          errorHint={errorHint}
+          viewsEnabled={Boolean(viewsKey)}
+          onRefresh={() => setRefreshToken((value) => value + 1)}
+          onRecommend={() => {
+            setConfig(suggestChartConfig([...documents, ...probeDocs], fieldNames))
+            setHidden(new Set())
+          }}
+          onReset={reset}
+          onShare={onShare ?? undefined}
+          onOpenViews={() => setViewsOpen(true)}
+          onCopyCSV={() => void copyCSV()}
+          onDownloadCSV={downloadCSV}
+          onCopyJSON={() => void copyJSON()}
+          onExportSVG={exportSVG}
+          onExportPNG={() => void exportPNG()}
+          onToggleTable={() => setShowTable((value) => !value)}
+          onApplyFilter={onApplyFilter ? () => onApplyFilter() : undefined}
+          onToggleConfig={() => setConfigOpen((value) => !value)}
+          onToggleFullscreen={toggleFullscreen}
+          onToggleBrush={() => {
+            setBrushMode((value) => !value)
+            setBrush(null)
+          }}
+          onResetZoom={() => setZoom(null)}
+        />
 
         {compact && alertTriggered ? (
           <span className="bg-destructive/10 text-destructive absolute top-2 right-2 z-10 rounded-full border border-destructive/40 px-2 py-0.5 text-[10px] font-medium">
@@ -2333,620 +1488,61 @@ export function ChartView({
               ) : null}
             </svg>
 
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">{legendItems()}</div>
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+              <ChartLegend
+                type={config.type}
+                categories={data.categories}
+                scatterGroups={scatterGroups}
+                series={data.series}
+                hidden={hidden}
+                onToggleSeries={toggleSeries}
+              />
+            </div>
 
             {showTable ? (
-              <div className="scrollbar-thin mt-3 max-h-64 overflow-auto rounded-lg border">
-                <table className="w-full text-xs">
-                  <thead className="bg-muted/50 sticky top-0">
-                    <tr>
-                      <th className="px-2 py-1 text-left font-medium">{config.x || "—"}</th>
-                      {series.map((item) => (
-                        <th key={item.name} className="px-2 py-1 text-right font-medium">
-                          {item.name}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.categories.map((category, index) => (
-                      <tr key={`${category}-${index}`} className="border-t">
-                        <td className="max-w-[18rem] truncate px-2 py-1" title={category}>
-                          {category}
-                        </td>
-                        {series.map((item) => (
-                          <td key={item.name} className="px-2 py-1 text-right font-mono">
-                            {formatChartValue(item.values[index] ?? 0, config)}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <ChartDataTable
+                config={config}
+                categories={data.categories}
+                series={data.series}
+              />
             ) : null}
+
           </>
         )}
 
-        <Dialog open={viewsOpen} onOpenChange={setViewsOpen}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>{t("chart.views")}</DialogTitle>
-              <DialogDescription>{t("chart.viewsDesc")}</DialogDescription>
-            </DialogHeader>
-            <div className="max-h-56 space-y-1 overflow-auto">
-              {allViews.length === 0 ? (
-                <p className="text-muted-foreground text-sm">{t("chart.noViews")}</p>
-              ) : (
-                allViews.map((view) => (
-                  <div
-                    key={`${view.shared ? "team" : "local"}-${view.id}`}
-                    className="hover:bg-accent/50 flex items-center gap-2 rounded-md border px-2 py-1.5"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => applyView(view)}
-                      className="min-w-0 flex-1 text-left text-sm"
-                      title={view.name}
-                    >
-                      <span className="block truncate">{view.name}</span>
-                      <span className="text-muted-foreground text-[10px]">
-                        {view.shared ? t("chart.teamView") : t("chart.localView")}
-                        {view.pinned ? ` · ${t("chart.pinnedView")}` : ""}
-                        {view.updatedBy ? ` · ${view.updatedBy}` : ""}
-                      </span>
-                    </button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={t("chart.deleteView")}
-                      onClick={() => void deleteView(view)}
-                    >
-                      <Trash2 />
-                    </Button>
-                  </div>
-                ))
-              )}
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">{t("chart.viewName")}</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  value={viewName}
-                  onChange={(event) => setViewName(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault()
-                      saveView()
-                    }
-                  }}
-                  placeholder={t("chart.viewNamePlaceholder")}
-                />
-                <Button onClick={() => void saveView()} disabled={!viewName.trim()}>
-                  <Plus /> {t("common.save")}
-                </Button>
-              </div>
-              {scope ? (
-                <label className="flex items-center gap-2 text-xs">
-                  <Switch checked={shareView} onCheckedChange={setShareView} />
-                  {t("chart.shareTeam")}
-                </label>
-              ) : null}
-              {scope && shareView ? (
-                <label className="flex items-center gap-2 text-xs">
-                  <Switch checked={pinView} onCheckedChange={setPinView} />
-                  {t("chart.pinOverview")}
-                </label>
-              ) : null}
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setViewsOpen(false)}>
-                {t("common.close")}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <ChartViewsDialog
+          open={viewsOpen}
+          onOpenChange={setViewsOpen}
+          views={allViews}
+          scope={scope}
+          viewName={viewName}
+          onViewNameChange={setViewName}
+          shareView={shareView}
+          onShareViewChange={setShareView}
+          pinView={pinView}
+          onPinViewChange={setPinView}
+          onSave={() => void saveView()}
+          onApply={applyView}
+          onDelete={(view) => void deleteView(view)}
+        />
 
-        {tooltip ? (
-          <div
-            className="bg-popover text-popover-foreground pointer-events-none absolute z-20 min-w-[8rem] rounded-md border p-2 text-xs shadow-md"
-            style={{
-              left: Math.min(tooltip.x + 12, Math.max(0, chartWidth - 180)),
-              top: Math.max(0, tooltip.y - 8),
-            }}
-          >
-            <div className="mb-1 max-w-[16rem] truncate font-medium" title={tooltip.title}>
-              {tooltip.title}
-            </div>
-            {tooltip.rows.map((row) => (
-              <div key={row.name} className="flex items-center justify-between gap-3">
-                <span className="flex items-center gap-1.5">
-                  <span
-                    className="inline-block size-2 rounded-full"
-                    style={{ background: row.color }}
-                  />
-                  <span className="text-muted-foreground max-w-[9rem] truncate">{row.name}</span>
-                </span>
-                <span className="font-mono">{row.value}</span>
-              </div>
-            ))}
-          </div>
-        ) : null}
+        {tooltip ? <ChartTooltip tooltip={tooltip} chartWidth={chartWidth} /> : null}
+
       </div>
       {configOpen && !compact && !isFullscreen ? (
-      <div className="max-h-[45%] shrink-0 overflow-y-auto border-t p-3">
-        <div className="flex flex-wrap items-end gap-3">
-        <div className="grid gap-1.5">
-          <Label className="text-xs">{t("chart.type")}</Label>
-          <Select
-            value={config.type}
-            onValueChange={(value) => {
-              const type = value as ChartType
-              const leavingScatter = config.type === "scatter" && type !== "scatter"
-              update({
-                type,
-                group: type === "pie" ? "" : config.group,
-                y: type === "pie" || type === "scatter" ? config.y.slice(0, 1) : config.y,
-                aggregate:
-                  type === "scatter"
-                    ? "none"
-                    : leavingScatter && config.aggregate === "none"
-                      ? config.y.length > 0
-                        ? "none"
-                        : "count"
-                      : config.aggregate,
-              })
-            }}
-          >
-            <SelectTrigger size="sm" className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {CHART_TYPES.map(({ value, labelKey, icon: Icon }) => (
-                <SelectItem key={value} value={value}>
-                  <span className="flex items-center gap-2">
-                    <Icon className="size-3.5" /> {t(labelKey)}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label className="text-xs">{t("chart.xAxis")}</Label>
-          <Select
-            value={config.x || " "}
-            onValueChange={(value) => {
-              const x = value.trim()
-              update({ x, group: config.group === x ? "" : config.group })
-            }}
-          >
-            <SelectTrigger size="sm" className="w-44">
-              <SelectValue placeholder={t("chart.pickField")} />
-            </SelectTrigger>
-            <SelectContent>
-              {xOptions.filter(fieldMatches).map((column) => (
-                <SelectItem key={column} value={column || " "}>
-                  {column}
-                  {typeOf(column) ? ` · ${typeOf(column)}` : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label className="text-xs">{t("chart.xAxisFormat")}</Label>
-          <Select
-            value={config.xAxisFormat}
-            onValueChange={(value) => update({ xAxisFormat: value as ChartConfig["xAxisFormat"] })}
-          >
-            <SelectTrigger size="sm" className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto">{t("chart.xformat.auto")}</SelectItem>
-              <SelectItem value="number">{t("chart.xformat.number")}</SelectItem>
-              <SelectItem value="compact">{t("chart.xformat.compact")}</SelectItem>
-              <SelectItem value="percent">{t("chart.xformat.percent")}</SelectItem>
-              <SelectItem value="date">{t("chart.xformat.date")}</SelectItem>
-              <SelectItem value="datetime">{t("chart.xformat.datetime")}</SelectItem>
-              <SelectItem value="year">{t("chart.xformat.year")}</SelectItem>
-              <SelectItem value="month">{t("chart.xformat.month")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label className="text-xs">{t("chart.aggregation")}</Label>
-          <Select
-            value={config.aggregate}
-            onValueChange={(value) => update({ aggregate: value as ChartAggregate })}
-            disabled={config.type === "scatter"}
-          >
-            <SelectTrigger size="sm" className="w-28">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="count">{t("chart.agg.count")}</SelectItem>
-              <SelectItem value="sum">{t("chart.agg.sum")}</SelectItem>
-              <SelectItem value="avg">{t("chart.agg.avg")}</SelectItem>
-              <SelectItem value="min">{t("chart.agg.min")}</SelectItem>
-              <SelectItem value="max">{t("chart.agg.max")}</SelectItem>
-              <SelectItem value="none">{t("chart.agg.none")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label className="text-xs">{t("chart.group")}</Label>
-          <Select
-            value={config.group || "__none__"}
-            onValueChange={(value) => {
-              const group = value === "__none__" ? "" : value
-              update({
-                group,
-                y: group ? config.y.slice(0, 1) : config.y,
-                // Grouping needs an aggregation; leave Raw mode automatically.
-                aggregate:
-                  group && config.aggregate === "none"
-                    ? config.y.length > 0
-                      ? "sum"
-                      : "count"
-                    : config.aggregate,
-              })
-            }}
-            disabled={config.type === "pie"}
-          >
-            <SelectTrigger size="sm" className="w-44" title={t("chart.groupHint")}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">{t("chart.groupNone")}</SelectItem>
-              {fieldNames
-                .filter((column) => column !== config.x && fieldMatches(column))
-                .map((column) => (
-                  <SelectItem key={column} value={column}>
-                    {column}
-                    {typeOf(column) ? ` · ${typeOf(column)}` : ""}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {temporalX && config.type !== "scatter" && config.aggregate !== "none" ? (
-          <div className="grid gap-1.5">
-            <Label className="text-xs">{t("chart.bucket")}</Label>
-            <Select
-              value={config.timeBucket}
-              onValueChange={(value) => update({ timeBucket: value as ChartTimeBucket })}
-            >
-              <SelectTrigger size="sm" className="w-28" title={t("chart.bucketHint")}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {TIME_BUCKETS.map(({ value, labelKey }) => (
-                  <SelectItem key={value} value={value}>
-                    {t(labelKey)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        ) : null}
-
-        {temporalX && config.type !== "scatter" && config.aggregate !== "none" ? (
-          <div className="grid gap-1.5">
-            <Label className="text-xs">{t("chart.timezone")}</Label>
-            <Select
-              value={config.timeZone}
-              onValueChange={(value) => update({ timeZone: value as ChartTimeZone })}
-            >
-              <SelectTrigger size="sm" className="w-28">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="utc">{t("chart.timezone.utc")}</SelectItem>
-                <SelectItem value="local">{t("chart.timezone.local")}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        ) : null}
-
-        <div className="grid gap-1.5">
-          <Label className="text-xs">{t("chart.sort")}</Label>
-          <Select value={config.sort} onValueChange={(value) => update({ sort: value as ChartSort })}>
-            <SelectTrigger size="sm" className="w-28">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">{t("chart.sort.none")}</SelectItem>
-              <SelectItem value="desc">{t("chart.sort.desc")}</SelectItem>
-              <SelectItem value="asc">{t("chart.sort.asc")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label className="text-xs">{t("chart.limit")}</Label>
-          <Input
-            value={String(config.limit)}
-            onChange={(event) => {
-              const next = Number(event.target.value)
-              update({ limit: Number.isFinite(next) && next > 0 ? Math.min(next, 500) : 20 })
-            }}
-            className="h-8 w-20 font-mono text-xs"
-            inputMode="numeric"
-          />
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label className="text-xs">{t("chart.titleLabel")}</Label>
-          <Input
-            value={config.title}
-            onChange={(event) => update({ title: event.target.value })}
-            placeholder={t("chart.titlePlaceholder")}
-            className="h-8 w-44 text-xs"
-          />
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label className="text-xs">{t("chart.numberFormat")}</Label>
-          <Select
-            value={config.numberFormat}
-            onValueChange={(value) => update({ numberFormat: value as ChartConfig["numberFormat"] })}
-          >
-            <SelectTrigger size="sm" className="w-28">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto">{t("chart.format.auto")}</SelectItem>
-              <SelectItem value="plain">{t("chart.format.plain")}</SelectItem>
-              <SelectItem value="percent">{t("chart.format.percent")}</SelectItem>
-              <SelectItem value="currency">{t("chart.format.currency")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label className="text-xs">{t("chart.yAxisScale")}</Label>
-          <Select
-            value={config.yAxisScale}
-            onValueChange={(value) => update({ yAxisScale: value as ChartAxisScale })}
-          >
-            <SelectTrigger size="sm" className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">{t("chart.scale.none")}</SelectItem>
-              <SelectItem value="k">{t("chart.scale.k")}</SelectItem>
-              <SelectItem value="m">{t("chart.scale.m")}</SelectItem>
-              <SelectItem value="b">{t("chart.scale.b")}</SelectItem>
-              <SelectItem value="bytes">{t("chart.scale.bytes")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label className="text-xs">{t("chart.unit")}</Label>
-          <Input
-            value={config.unit}
-            onChange={(event) => update({ unit: event.target.value })}
-            placeholder="%, $, kg"
-            className="h-8 w-20 text-xs"
-          />
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label className="text-xs">{t("chart.decimals")}</Label>
-          <Input
-            value={config.decimals === null ? "" : String(config.decimals)}
-            onChange={(event) => {
-              const raw = event.target.value.trim()
-              const next = Number(raw)
-              update({
-                decimals:
-                  raw === "" || !Number.isFinite(next)
-                    ? null
-                    : Math.max(0, Math.min(6, Math.floor(next))),
-              })
-            }}
-            placeholder="auto"
-            inputMode="numeric"
-            className="h-8 w-16 text-xs"
-          />
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label className="text-xs">{t("chart.referenceLine")}</Label>
-          <Input
-            value={config.referenceLine === null ? "" : String(config.referenceLine)}
-            onChange={(event) => {
-              const raw = event.target.value.trim()
-              const next = Number(raw)
-              update({ referenceLine: raw === "" || !Number.isFinite(next) ? null : next })
-            }}
-            placeholder="—"
-            inputMode="decimal"
-            className="h-8 w-20 text-xs"
-          />
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label className="text-xs">{t("chart.autoRefresh")}</Label>
-          <Select
-            value={String(config.refreshInterval)}
-            onValueChange={(value) => update({ refreshInterval: Number(value) })}
-          >
-            <SelectTrigger size="sm" className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="0">{t("chart.refreshOff")}</SelectItem>
-              <SelectItem value="5">5s</SelectItem>
-              <SelectItem value="10">10s</SelectItem>
-              <SelectItem value="30">30s</SelectItem>
-              <SelectItem value="60">1m</SelectItem>
-              <SelectItem value="300">5m</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {temporalX && config.type !== "scatter" && config.aggregate !== "none" ? (
-          <div className="grid gap-1.5">
-            <Label className="text-xs">{t("chart.liveWindow")}</Label>
-            <Select
-              value={String(config.liveWindowMinutes)}
-              onValueChange={(value) => {
-                const minutes = Number(value)
-                update({
-                  liveWindowMinutes: minutes,
-                  refreshInterval:
-                    minutes > 0 && config.refreshInterval === 0
-                      ? 5
-                      : config.refreshInterval,
-                })
-              }}
-            >
-              <SelectTrigger size="sm" className="w-36">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="0">{t("chart.window.all")}</SelectItem>
-                <SelectItem value="1">{t("chart.window.1m")}</SelectItem>
-                <SelectItem value="5">{t("chart.window.5m")}</SelectItem>
-                <SelectItem value="15">{t("chart.window.15m")}</SelectItem>
-                <SelectItem value="60">{t("chart.window.1h")}</SelectItem>
-                <SelectItem value="1440">{t("chart.window.24h")}</SelectItem>
-                <SelectItem value="10080">{t("chart.window.7d")}</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-muted-foreground text-[11px]">{t("chart.liveHint")}</p>
-          </div>
-        ) : null}
-
-        <div className="grid gap-1.5">
-          <Label className="text-xs">{t("chart.alertOperator")}</Label>
-          <div className="flex items-center gap-2">
-            <Select
-              value={config.alertOperator}
-              onValueChange={(value) =>
-                update({ alertOperator: value as ChartConfig["alertOperator"] })
-              }
-            >
-              <SelectTrigger size="sm" className="w-28">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="off">{t("chart.alert.off")}</SelectItem>
-                <SelectItem value="above">{t("chart.alert.above")}</SelectItem>
-                <SelectItem value="below">{t("chart.alert.below")}</SelectItem>
-              </SelectContent>
-            </Select>
-            <Input
-              value={config.alertThreshold === null ? "" : String(config.alertThreshold)}
-              onChange={(event) => {
-                const raw = event.target.value.trim()
-                const next = Number(raw)
-                update({
-                  alertThreshold:
-                    raw === "" || !Number.isFinite(next) ? null : next,
-                })
-              }}
-              placeholder={t("chart.alertThreshold")}
-              inputMode="decimal"
-              className="h-8 w-24 text-xs"
-            />
-          </div>
-        </div>
-
-        <label className="flex items-center gap-2 pb-2 text-xs">
-          <Switch
-            checked={config.others}
-            onCheckedChange={(checked) => update({ others: checked })}
-          />
-          {t("chart.mergeOthers")}
-        </label>
-
-        {config.type === "bar" ? (
-          <label className="flex items-center gap-2 pb-2 text-xs">
-            <Switch
-              checked={config.stacked}
-              onCheckedChange={(checked) => update({ stacked: checked })}
-            />
-            {t("chart.stacked")}
-          </label>
-        ) : null}
-        {config.type === "bar" && config.stacked ? (
-          <label className="flex items-center gap-2 pb-2 text-xs">
-            <Switch
-              checked={config.percentStacked}
-              onCheckedChange={(checked) => update({ percentStacked: checked })}
-            />
-            {t("chart.percentStacked")}
-          </label>
-        ) : null}
-
-        <label className="flex items-center gap-2 pb-2 text-xs">
-          <Switch
-            checked={config.showValues}
-            onCheckedChange={(checked) => update({ showValues: checked })}
-          />
-          {t("chart.showValues")}
-        </label>
-
-        <div className="grid w-full gap-1.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <Label className="text-xs">{t("chart.yAxis")}</Label>
-            <div className="relative">
-              <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3 -translate-y-1/2" />
-              <Input
-                value={fieldQuery}
-                onChange={(event) => setFieldQuery(event.target.value)}
-                placeholder={t("chart.searchFields")}
-                className="h-7 w-44 pl-7 text-xs"
-              />
-            </div>
-          </div>
-          {numericColumns.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-1.5">
-              {numericColumns.filter(fieldMatches).map((column) => {
-                const active = config.y.includes(column)
-                return (
-                  <button
-                    key={column}
-                    type="button"
-                    aria-pressed={active}
-                    title={`${column}${typeOf(column) ? ` · ${typeOf(column)}` : ""}`}
-                    onClick={() => {
-                      toggleY(column)
-                      if (!active && config.aggregate === "count" && config.type !== "scatter") {
-                        update({ aggregate: "sum" })
-                      }
-                    }}
-                    className={cn(
-                      "rounded-full border px-2.5 py-0.5 font-mono text-xs transition-colors",
-                      active
-                        ? "border-primary bg-primary/10 text-foreground"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent",
-                    )}
-                  >
-                    {column}
-                  </button>
-                )
-              })}
-              {config.aggregate === "count" && config.type !== "scatter" ? (
-                <span className="text-muted-foreground text-[11px]">{t("chart.countHint")}</span>
-              ) : null}
-            </div>
-          ) : (
-            <p className="text-muted-foreground text-xs">{t("chart.noNumeric")}</p>
-          )}
-        </div>
-        </div>
-      </div>
+        <ChartConfigPanel
+          config={config}
+          update={update}
+          temporalX={temporalX}
+          xOptions={xOptions}
+          fieldNames={fieldNames}
+          numericColumns={numericColumns}
+          typeOf={typeOf}
+          toggleY={toggleY}
+          fieldQuery={fieldQuery}
+          onFieldQueryChange={setFieldQuery}
+          fieldMatches={fieldMatches}
+        />
       ) : null}
     </div>
   )

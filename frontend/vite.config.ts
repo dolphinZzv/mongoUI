@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { readFileSync } from "node:fs"
 import path from "node:path"
 import { defineConfig } from "vite"
@@ -42,6 +43,9 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  test: {
+    include: ["src/**/*.test.{ts,tsx}"],
   },
   build: {
     outDir: "dist",

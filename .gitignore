@@ -23,3 +23,9 @@ backend/web/dist/*
 .idea/
 .vscode/
 *.local
+
+# Playwright
+frontend/playwright-report/
+frontend/test-results/
+frontend/e2e/.auth.json
+frontend/e2e/.state.json

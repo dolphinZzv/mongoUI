@@ -396,7 +396,7 @@ export function ChartView({
           )
           if (controller.signal.aborted) return
           setRawDocs(res.documents)
-          setRawTotal(res.total)
+          setRawTotal(res.total ?? res.documents.length)
           setRows(null)
           setLastUpdated(Date.now())
         } else {

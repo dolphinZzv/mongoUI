@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -383,5 +384,98 @@ db.getCollection("scripts").distinct("active")
 	}
 	if dataOf(t, env)["wrote"] != false {
 		t.Fatalf("expected wrote=false for read-only script")
+	}
+}
+
+func TestIntegrationFindTotalAndCursorPagination(t *testing.T) {
+	handler, db := integrationAPI(t)
+	base := "/api/connections"
+	status, env := doJSON(t, handler, http.MethodGet, base+"/", "")
+	if status != http.StatusOK {
+		t.Fatalf("list connections: status %d", status)
+	}
+	connID := env["data"].([]any)[0].(map[string]any)["id"].(string)
+	collPath := fmt.Sprintf("%s/%s/databases/%s/collections/paged/find", base, connID, db)
+
+	status, _ = doJSON(t, handler, http.MethodPost,
+		fmt.Sprintf("%s/%s/databases/%s/collections/paged/insert", base, connID, db),
+		`{"documents":[
+			{"_id":1,"name":"a"},
+			{"_id":2,"name":"b"},
+			{"_id":3,"name":"c"},
+			{"_id":4,"name":"d"},
+			{"_id":5,"name":"e"}
+		]}`)
+	if status != http.StatusOK {
+		t.Fatalf("insert: status %d", status)
+	}
+
+	find := func(body string) map[string]any {
+		t.Helper()
+		status, env := doJSON(t, handler, http.MethodPost, collPath, body)
+		if status != http.StatusOK {
+			t.Fatalf("find %s: status %d body %#v", body, status, env)
+		}
+		return dataOf(t, env)
+	}
+	ids := func(data map[string]any) []int {
+		t.Helper()
+		raw, ok := data["documents"].([]any)
+		if !ok {
+			t.Fatalf("documents is not an array: %#v", data)
+		}
+		result := make([]int, 0, len(raw))
+		for _, item := range raw {
+			result = append(result, int(item.(map[string]any)["_id"].(float64)))
+		}
+		return result
+	}
+
+	first := find(`{"sort":{"_id":1},"limit":2,"includeTotal":false}`)
+	if got := ids(first); !reflect.DeepEqual(got, []int{1, 2}) {
+		t.Fatalf("first page = %v, want [1 2]", got)
+	}
+	if first["hasMore"] != true {
+		t.Fatalf("first page hasMore = %#v, want true", first["hasMore"])
+	}
+	if _, found := first["total"]; found {
+		t.Fatalf("includeTotal=false must omit total: %#v", first)
+	}
+
+	next, err := json.Marshal(first["nextCursor"])
+	if err != nil {
+		t.Fatalf("marshal next cursor: %v", err)
+	}
+	second := find(fmt.Sprintf(`{"sort":{"_id":1},"limit":2,"includeTotal":false,"after":%s}`, next))
+	if got := ids(second); !reflect.DeepEqual(got, []int{3, 4}) {
+		t.Fatalf("second page = %v, want [3 4]", got)
+	}
+	if second["hasMore"] != true {
+		t.Fatalf("second page hasMore = %#v, want true", second["hasMore"])
+	}
+
+	prev, err := json.Marshal(second["prevCursor"])
+	if err != nil {
+		t.Fatalf("marshal prev cursor: %v", err)
+	}
+	back := find(fmt.Sprintf(`{"sort":{"_id":1},"limit":2,"includeTotal":false,"before":%s}`, prev))
+	if got := ids(back); !reflect.DeepEqual(got, []int{1, 2}) {
+		t.Fatalf("previous page = %v, want [1 2]", got)
+	}
+
+	withTotal := find(`{"sort":{"_id":1},"limit":2}`)
+	if withTotal["total"] != float64(5) {
+		t.Fatalf("total = %#v, want 5", withTotal["total"])
+	}
+	if withTotal["totalEstimated"] != true {
+		t.Fatalf("empty filter should use estimated count: %#v", withTotal)
+	}
+
+	filtered := find(`{"filter":{"name":"e"},"sort":{"_id":1},"limit":2}`)
+	if filtered["total"] != float64(1) {
+		t.Fatalf("filtered total = %#v, want 1", filtered["total"])
+	}
+	if filtered["totalEstimated"] != false {
+		t.Fatalf("filtered count must not be estimated: %#v", filtered)
 	}
 }

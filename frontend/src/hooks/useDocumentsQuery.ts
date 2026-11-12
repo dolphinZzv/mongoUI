@@ -5,22 +5,11 @@ import { api, isAbortError } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { DOCS_QUERY_DEFAULTS, type ChartShareState, type DocsQueryState } from "@/lib/router"
 import type { FindResult } from "@/lib/types"
+import { jsonError } from "@/lib/jsonText"
 
 /** Signature of the parts that only change when the user runs a query. */
 function appliedQueryKey(filter: string, sort: string, projection: string): string {
   return [filter, sort, projection].map((part) => part.trim()).join("\u0000")
-}
-
-/** First JSON parse error, or null when the text is valid (or empty). */
-function jsonError(value: string): string | null {
-  const text = value.trim()
-  if (!text) return null
-  try {
-    JSON.parse(text)
-    return null
-  } catch (err) {
-    return err instanceof Error ? err.message : String(err)
-  }
 }
 
 /** Canonical JSON for comparing a sort/projection against the defaults. */
@@ -95,6 +84,9 @@ export interface DocumentsQuery {
     filter?: string
     sort?: string
     projection?: string
+    includeTotal?: boolean
+    after?: unknown
+    before?: unknown
   }) => Promise<void>
   cancelLoad: () => void
   clearFilter: () => void
@@ -138,6 +130,9 @@ export function useDocumentsQuery({
   const [error, setError] = React.useState<string | null>(null)
   const abortRef = React.useRef<AbortController | null>(null)
   const requestSeqRef = React.useRef(0)
+  // The last total is still valid for the same filter/sort/projection, so page
+  // navigation does not need to pay for another countDocuments on every request.
+  const totalRef = React.useRef<{ key: string; total: number } | null>(null)
 
   const load = React.useCallback(
     async (opts?: {
@@ -146,12 +141,19 @@ export function useDocumentsQuery({
       filter?: string
       sort?: string
       projection?: string
+      includeTotal?: boolean
+      after?: unknown
+      before?: unknown
     }) => {
       const filterText = opts?.filter ?? filter
       const sortText = opts?.sort ?? sort
       const projectionText = opts?.projection ?? projection
       const nextSkip = opts?.skip ?? skip
       const nextLimit = opts?.limit ?? limit
+      const queryKey = appliedQueryKey(filterText, sortText, projectionText)
+      const includeTotal =
+        opts?.includeTotal ??
+        (opts === undefined || nextSkip === 0 || totalRef.current?.key !== queryKey)
 
       let filterObj: unknown
       let sortObj: unknown
@@ -185,12 +187,21 @@ export function useDocumentsQuery({
             projection: projectionObj,
             skip: nextSkip,
             limit: nextLimit,
+            includeTotal,
+            after: opts?.after,
+            before: opts?.before,
           },
           controller.signal,
         )
         if (seq !== requestSeqRef.current) return
-        setResult(res)
-        setAppliedQuery(appliedQueryKey(filterText, sortText, projectionText))
+        let total = res.total
+        if (typeof total === "number") {
+          totalRef.current = { key: queryKey, total }
+        } else if (totalRef.current?.key === queryKey) {
+          total = totalRef.current.total
+        }
+        setResult(total === undefined ? res : { ...res, total })
+        setAppliedQuery(queryKey)
         setSkip(res.skip)
         onLoaded?.()
         if (nextSkip === 0 && filterText.trim() && filterText.trim() !== "{}") {

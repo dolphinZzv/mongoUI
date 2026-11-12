@@ -53,9 +53,17 @@ export type MongoDocument = Record<string, unknown>
 
 export interface FindResult {
   documents: MongoDocument[]
-  total: number
+  /** Omitted when the request used includeTotal=false. */
+  total?: number
   skip: number
   limit: number
+  /** Whether another page exists in the requested direction. */
+  hasMore?: boolean
+  /** Exclusive _id cursors for the neighbouring pages. */
+  nextCursor?: unknown
+  prevCursor?: unknown
+  /** True when total came from estimatedDocumentCount (empty filter). */
+  totalEstimated?: boolean
   durationMs?: number
 }
 
@@ -71,6 +79,11 @@ export interface FindRequest {
   projection?: unknown
   skip?: number
   limit?: number
+  /** Defaults to true. Pagination can skip the count after the first page. */
+  includeTotal?: boolean
+  /** Exclusive _id cursors, honoured for plain {_id: 1|-1} sorts. */
+  after?: unknown
+  before?: unknown
 }
 
 export interface UpdateRequest {

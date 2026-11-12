@@ -289,6 +289,7 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
           storageKey={`sql:${connectionId}:${database}:${collection}`}
           dictionaries={columnPrefs.dictionaries}
           renderers={columnPrefs.renderers}
+          colors={columnPrefs.colors}
         />
       ) : (
         <div className="scrollbar-thin min-h-0 flex-1 overflow-auto p-3">

@@ -38,6 +38,8 @@ interface CellValueProps {
   /** When provided, boolean checkbox/switch cells become editable. */
   onToggle?: (next: boolean) => void
   toggleDisabled?: boolean
+  /** Inline style for a matching conditional-color text rule. */
+  colorStyle?: React.CSSProperties
 }
 
 /** A single BSON value rendered as a type-colored, truncated monospace cell. */
@@ -48,6 +50,7 @@ export function CellValue({
   renderer = "default",
   onToggle,
   toggleDisabled = false,
+  colorStyle,
 }: CellValueProps) {
   const { t, locale } = useI18n()
   const timeZone = useDateTimeZone()
@@ -75,6 +78,7 @@ export function CellValue({
             expandable &&
               "cursor-pointer hover:underline hover:decoration-dotted hover:underline-offset-2",
           )}
+          style={colorStyle}
           title={text}
           onClick={handleExpand}
         >
@@ -94,6 +98,7 @@ export function CellValue({
             expandable &&
               "cursor-pointer hover:underline hover:decoration-dotted hover:underline-offset-2",
           )}
+          style={colorStyle}
           title={text}
           onClick={handleExpand}
         >
@@ -124,6 +129,7 @@ export function CellValue({
       <span
         data-cell-value
         className="inline-flex items-center"
+        style={colorStyle}
         title={text}
         onMouseDown={(event) => event.stopPropagation()}
         onClick={(event) => event.stopPropagation()}
@@ -151,7 +157,11 @@ export function CellValue({
     )
   }
   if (value === null || value === undefined) {
-    return <span className="text-muted-foreground font-mono text-xs italic">null</span>
+    return (
+      <span className="text-muted-foreground font-mono text-xs italic" style={colorStyle}>
+        null
+      </span>
+    )
   }
   const display =
     text.length > CELL_PREVIEW_LENGTH ? `${text.slice(0, CELL_PREVIEW_LENGTH)}…` : text
@@ -164,6 +174,7 @@ export function CellValue({
         expandable &&
           "cursor-pointer hover:underline hover:decoration-dotted hover:underline-offset-2",
       )}
+      style={colorStyle}
       title={expandable ? t("docs.viewFullValueHint") : text}
       onClick={handleExpand}
     >

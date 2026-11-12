@@ -13,6 +13,59 @@ export type ColumnRender = "default" | "dictionary" | "checkbox" | "switch" | "d
 
 export type ColumnRenderers = Record<string, ColumnRender>
 
+export type ColumnColorOperator =
+  | "eq"
+  | "neq"
+  | "contains"
+  | "gt"
+  | "gte"
+  | "lt"
+  | "lte"
+  | "empty"
+  | "notEmpty"
+
+export type ColumnColorStyle = "text" | "background"
+
+export interface ColumnColorRule {
+  id: string
+  operator: ColumnColorOperator
+  value: string
+  color: string
+  style: ColumnColorStyle
+}
+
+export type ColumnColorRules = Record<string, ColumnColorRule[]>
+
+export const COLUMN_COLOR_OPERATORS: ColumnColorOperator[] = [
+  "eq",
+  "neq",
+  "contains",
+  "gt",
+  "gte",
+  "lt",
+  "lte",
+  "empty",
+  "notEmpty",
+]
+
+export const COLUMN_COLOR_STYLES: ColumnColorStyle[] = ["text", "background"]
+
+const COLOR_PATTERN = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i
+
+function normalizeHexColor(value: string): string | null {
+  const match = COLOR_PATTERN.exec(value.trim())
+  if (!match) return null
+  const hex = match[0].slice(1)
+  const expanded =
+    hex.length === 3
+      ? hex
+          .split("")
+          .map((char) => char + char)
+          .join("")
+      : hex
+  return `#${expanded.toLowerCase()}`
+}
+
 export interface ColumnPrefs {
   /** Explicit column order; unknown/new columns are appended after it. */
   order: string[]
@@ -24,6 +77,8 @@ export interface ColumnPrefs {
   dictionaries: ColumnDictionaries
   /** Optional renderer choice per column. */
   renderers: ColumnRenderers
+  /** Conditional color rules per column; the first matching rule wins. */
+  colors: ColumnColorRules
 }
 
 export const COLUMN_MIN_WIDTH = 80
@@ -90,6 +145,7 @@ function emptyPrefs(): ColumnPrefs {
     pinned: [...DEFAULT_PINNED_COLUMNS],
     dictionaries: {},
     renderers: {},
+    colors: {},
   }
 }
 
@@ -147,6 +203,41 @@ export function columnRenderMode(
   )
 }
 
+function colorRulesMap(value: unknown): ColumnColorRules {
+  if (typeof value !== "object" || value === null) return {}
+  const result: ColumnColorRules = {}
+  for (const [column, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!Array.isArray(raw)) continue
+    const seen = new Set<string>()
+    const rules: ColumnColorRule[] = []
+    raw.forEach((item, index) => {
+      if (!item || typeof item !== "object") return
+      const rule = item as Partial<ColumnColorRule>
+      const operator = COLUMN_COLOR_OPERATORS.includes(rule.operator as ColumnColorOperator)
+        ? (rule.operator as ColumnColorOperator)
+        : null
+      if (!operator) return
+      const style = COLUMN_COLOR_STYLES.includes(rule.style as ColumnColorStyle)
+        ? (rule.style as ColumnColorStyle)
+        : "text"
+      const color =
+        typeof rule.color === "string" ? normalizeHexColor(rule.color) ?? "#ef4444" : "#ef4444"
+      let id = typeof rule.id === "string" && rule.id.trim() ? rule.id.trim() : ""
+      if (!id || seen.has(id)) id = `${column}-${index}`
+      seen.add(id)
+      rules.push({
+        id,
+        operator,
+        value: typeof rule.value === "string" ? rule.value : "",
+        color,
+        style,
+      })
+    })
+    if (rules.length > 0) result[column] = rules
+  }
+  return result
+}
+
 function widthMap(value: unknown): Record<string, number> {
   if (typeof value !== "object" || value === null) return {}
   const result: Record<string, number> = {}
@@ -171,6 +262,7 @@ export function readColumnPrefs(key: string): ColumnPrefs {
       pinned: Array.isArray(parsed.pinned) ? stringList(parsed.pinned) : [...DEFAULT_PINNED_COLUMNS],
       dictionaries: dictionaryMap(parsed.dictionaries),
       renderers: rendererMap(parsed.renderers),
+      colors: colorRulesMap(parsed.colors),
     }
   } catch {
     return emptyPrefs()

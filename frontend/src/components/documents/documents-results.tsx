@@ -15,6 +15,7 @@ import {
   Copy,
   LineChart,
   Pencil,
+  Palette,
   Pin,
   PinOff,
   Rows3,
@@ -62,6 +63,7 @@ import {
   type ColumnPrefs,
   type ColumnRender,
 } from "@/lib/columnPrefs"
+import { columnColorRule, columnColorStyle } from "@/lib/columnColors"
 import { documentId, prettyJSON } from "@/lib/mongo"
 import { cn } from "@/lib/utils"
 import type { MongoDocument } from "@/lib/types"
@@ -126,6 +128,7 @@ interface DocumentsResultsProps {
   setColumnHidden: (column: string, hidden: boolean) => void
   onSelectColumn: (column: string, additive: boolean) => void
   onVisualizeColumn: (column: string) => void
+  onEditColumnColors: (column: string) => void
   showOnlyColumn: (column: string) => void
   resetColumns: () => void
   copyToClipboard: (text: string) => Promise<boolean>
@@ -193,6 +196,7 @@ export function DocumentsResults({
   setColumnHidden,
   onSelectColumn,
   onVisualizeColumn,
+  onEditColumnColors,
   showOnlyColumn,
   resetColumns,
   copyToClipboard,
@@ -256,6 +260,7 @@ export function DocumentsResults({
             columns={columns}
             dictionaries={prefs.dictionaries}
             renderers={prefs.renderers}
+            colors={prefs.colors}
             selected={selected}
             readOnly={readOnly}
             filterActive={filterActive}
@@ -300,6 +305,7 @@ export function DocumentsResults({
                   prefs.dictionaries,
                   column,
                 )
+                const hasColorRules = (prefs.colors[column]?.length ?? 0) > 0
                 return (
                   <TableHead
                     key={column}
@@ -359,6 +365,9 @@ export function DocumentsResults({
                           <ToggleLeft className="text-primary size-3 shrink-0" />
                         ) : renderMode === "date" ? (
                           <CalendarDays className="text-primary size-3 shrink-0" />
+                        ) : null}
+                        {hasColorRules ? (
+                          <Palette className="text-primary size-3 shrink-0" />
                         ) : null}
                         {direction === 1 ? (
                           <ArrowUp className="size-3 shrink-0" />
@@ -438,6 +447,10 @@ export function DocumentsResults({
                               </DropdownMenuItem>
                             </DropdownMenuSubContent>
                           </DropdownMenuSub>
+                          <DropdownMenuItem onSelect={() => onEditColumnColors(column)}>
+                            <Palette /> {t("docs.conditionalColors")}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
                           <DropdownMenuItem
                             onSelect={() =>
                               void copyToClipboard(column).then((ok) =>
@@ -581,6 +594,7 @@ export function DocumentsResults({
                     const isActiveCell =
                       activeCell?.row === index && activeCell.column === column
                     const previewable = readOnly && isPreviewableValue(doc[column])
+                    const colorRule = columnColorRule(prefs.colors, column, doc[column])
                     return (
                       <TableCell
                         key={column}
@@ -604,6 +618,7 @@ export function DocumentsResults({
                               }
                             : {}),
                           ...(isPinned && left !== undefined ? { left } : {}),
+                          ...(columnColorStyle(colorRule, "background") ?? {}),
                         }}
                         onClick={
                           readOnly
@@ -630,6 +645,7 @@ export function DocumentsResults({
                         ) : (
                           <CellValue
                             value={doc[column]}
+                            colorStyle={columnColorStyle(colorRule, "text")}
                             dictionary={prefs.dictionaries[column]}
                             renderer={columnRenderMode(
                               prefs.renderers,

@@ -6,8 +6,10 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { CellValue } from "./cell"
 import { useI18n } from "@/lib/i18n"
 import { documentId } from "@/lib/mongo"
+import { columnColorRule, columnColorStyle } from "@/lib/columnColors"
 import {
   columnRenderMode,
+  type ColumnColorRules,
   type ColumnDictionaries,
   type ColumnRenderers,
 } from "@/lib/columnPrefs"
@@ -20,6 +22,7 @@ interface DocumentsCardListProps {
   columns: string[]
   dictionaries?: ColumnDictionaries
   renderers?: ColumnRenderers
+  colors?: ColumnColorRules
   selected: Set<string>
   readOnly: boolean
   filterActive: boolean
@@ -47,6 +50,7 @@ export function DocumentsCardList({
   columns,
   dictionaries,
   renderers,
+  colors,
   selected,
   readOnly,
   filterActive,
@@ -171,9 +175,21 @@ export function DocumentsCardList({
                       <dt className="text-muted-foreground w-24 shrink-0 truncate font-mono">
                         {column}
                       </dt>
-                      <dd className="min-w-0 flex-1">
+                      <dd
+                        className="min-w-0 flex-1"
+                        style={
+                          columnColorStyle(
+                            columnColorRule(colors, column, doc[column]),
+                            "background",
+                          )
+                        }
+                      >
                         <CellValue
                           value={doc[column]}
+                          colorStyle={columnColorStyle(
+                            columnColorRule(colors, column, doc[column]),
+                            "text",
+                          )}
                           dictionary={dictionaries?.[column]}
                           renderer={columnRenderMode(renderers, dictionaries, column)}
                           onExpand={onPreview ? () => onPreview(column, doc[column]) : undefined}

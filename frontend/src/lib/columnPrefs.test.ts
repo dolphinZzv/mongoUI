@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { reorderVisibleColumns } from "@/lib/columnPrefs"
+import { readColumnPrefs, reorderVisibleColumns } from "@/lib/columnPrefs"
 
 const visible = ["_id", "name", "amount", "createdAt"]
 const all = [...visible, "hidden"]
@@ -41,5 +41,54 @@ describe("reorderVisibleColumns", () => {
         "before",
       ),
     ).toEqual(["_id", "amount", "name", "createdAt", "hidden"])
+  })
+})
+
+describe("readColumnPrefs color rules", () => {
+  let store: Map<string, string>
+
+  beforeEach(() => {
+    store = new Map()
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+      clear: () => store.clear(),
+    })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("normalizes valid rules and drops invalid ones", () => {
+    store.set(
+      "prefs",
+      JSON.stringify({
+        colors: {
+          status: [
+            { id: "a", operator: "eq", value: "failed", color: "#F00", style: "background" },
+            { id: "a", operator: "bogus", value: "x", color: "red" },
+            { operator: "contains", value: "ok", color: "#10b981" },
+          ],
+        },
+      }),
+    )
+    expect(readColumnPrefs("prefs").colors.status).toEqual([
+      {
+        id: "a",
+        operator: "eq",
+        value: "failed",
+        color: "#ff0000",
+        style: "background",
+      },
+      {
+        id: "status-2",
+        operator: "contains",
+        value: "ok",
+        color: "#10b981",
+        style: "text",
+      },
+    ])
   })
 })

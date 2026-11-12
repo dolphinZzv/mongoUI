@@ -397,6 +397,7 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
           storageKey={`agg:${connectionId}:${sourceDatabase}:${sourceCollection}`}
           dictionaries={columnPrefs.dictionaries}
           renderers={columnPrefs.renderers}
+          colors={columnPrefs.colors}
         />
       ) : (
         <div className="scrollbar-thin min-h-0 flex-1 overflow-auto p-3">

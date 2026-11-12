@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/table"
 import { useFrozenColumns } from "@/hooks/useFrozenColumns"
 import { useColumnDrag } from "@/hooks/useColumnDrag"
+import { columnColorRule, columnColorStyle } from "@/lib/columnColors"
 import { useI18n } from "@/lib/i18n"
 import {
   readResultTablePrefs,
@@ -22,6 +23,7 @@ import { cn } from "@/lib/utils"
 import {
   columnRenderMode,
   reorderVisibleColumns,
+  type ColumnColorRules,
   type ColumnDictionaries,
   type ColumnDropPosition,
   type ColumnRenderers,
@@ -65,6 +67,7 @@ interface ResultTableProps {
   /** Optional raw-value → display-label mappings from the collection prefs. */
   dictionaries?: ColumnDictionaries
   renderers?: ColumnRenderers
+  colors?: ColumnColorRules
 }
 
 /**
@@ -79,6 +82,7 @@ export function ResultTable({
   storageKey,
   dictionaries,
   renderers,
+  colors,
 }: ResultTableProps) {
   const { t } = useI18n()
   const prefsKey = resultTablePrefsKey(storageKey)
@@ -225,6 +229,7 @@ export function ResultTable({
                   const isLastPinned =
                     isPinned && pinnedColumns[pinnedColumns.length - 1] === column
                   const previewable = isPreviewableValue(value)
+                  const colorRule = columnColorRule(colors, column, value)
                   return (
                     <TableCell
                       key={column}
@@ -235,7 +240,10 @@ export function ResultTable({
                         isPinned && "cell-frozen sticky z-10",
                         isLastPinned && frozen.scrolled && PINNED_EDGE_SHADOW,
                       )}
-                      style={isPinned && left !== undefined ? { left } : undefined}
+                      style={{
+                        ...(isPinned && left !== undefined ? { left } : undefined),
+                        ...(columnColorStyle(colorRule, "background") ?? {}),
+                      }}
                       onClick={(event) => {
                         if (!cellValueOverflows(event.currentTarget)) return
                         setValuePreview({ column, value })
@@ -243,6 +251,7 @@ export function ResultTable({
                     >
                       <CellValue
                         value={value}
+                        colorStyle={columnColorStyle(colorRule, "text")}
                         dictionary={dictionaries?.[column]}
                         renderer={columnRenderMode(renderers, dictionaries, column)}
                         onExpand={() => setValuePreview({ column, value })}

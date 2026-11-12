@@ -1,32 +1,28 @@
 import * as React from "react"
 import {
-  AlertCircle,
   BarChart3,
   Braces,
-  Ban,
   ChevronDown,
   Columns3,
   LineChart,
   ListFilter,
-  Maximize2,
   Pin,
   PinOff,
-  Play,
-  Plus,
-  RefreshCw,
   Rows3,
   X,
 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { MongoFilterEditor } from "@/components/mongo-filter-editor"
 import { RecentQueries } from "@/components/recent-queries"
 import { AsyncProgress } from "@/components/async-progress"
 import { ColumnsPicker } from "@/components/documents/columns-picker"
 import { DocumentsPagination } from "@/components/documents/documents-pagination"
 import { CellContextMenu } from "@/components/documents/cell"
 import { DocumentsDialogs, type DeleteConfirm, type EditingState } from "@/components/documents/documents-dialogs"
+import { DocumentsFilterBar } from "@/components/documents/documents-filter-bar"
+import { ColumnColorsDialog } from "@/components/documents/column-colors-dialog"
+import { DocumentsChartPane } from "@/components/documents/documents-chart-pane"
 import { DocumentsResults } from "@/components/documents/documents-results"
 import { DocumentsMoreMenu } from "@/components/documents/documents-more-menu"
 import { ViewsMenu } from "@/components/documents/views-menu"
@@ -36,18 +32,13 @@ import { api } from "@/lib/api"
 import { useRecentQueries } from "@/hooks/useRecentQueries"
 import { useDocumentsQuery } from "@/hooks/useDocumentsQuery"
 import { useFrozenColumns } from "@/hooks/useFrozenColumns"
+import { useColumnLayout } from "@/hooks/useColumnLayout"
 import { togglePinnedQuery, usePinnedQueries } from "@/lib/pinnedQueries"
 import {
-  COLUMN_MAX_WIDTH,
-  COLUMN_MIN_WIDTH,
-  DEFAULT_PINNED_COLUMNS,
   columnPrefsKey,
   readColumnPrefs,
-  reorderVisibleColumns,
   writeColumnPrefs,
-  type ColumnDropPosition,
   type ColumnPrefs,
-  type ColumnRender,
 } from "@/lib/columnPrefs"
 import { newViewId, readViews, viewsKey, writeViews, type SavedView } from "@/lib/savedViews"
 import { toFindJS, toSQL } from "@/lib/queryText"
@@ -66,10 +57,6 @@ import type { ExplainRequest, MongoDocument } from "@/lib/types"
 
 /** Fallback width of the leading row-select column (Tailwind `w-10`). */
 const CHECKBOX_COLUMN_WIDTH = 40
-
-const ChartView = React.lazy(() =>
-  import("@/components/chart-view").then((module) => ({ default: module.ChartView })),
-)
 
 interface DocumentsTabProps {
   connectionId: string
@@ -147,6 +134,7 @@ export function DocumentsTab({
   const [visualizeConfig, setVisualizeConfig] = React.useState<ChartConfig | undefined>()
   const [selectedColumns, setSelectedColumns] = React.useState<Set<string>>(new Set())
   const [chartPaneWidth, setChartPaneWidth] = React.useState(600)
+  const [colorColumn, setColorColumn] = React.useState<string | null>(null)
   const splitRef = React.useRef<HTMLDivElement>(null)
   const [builderOpen, setBuilderOpen] = React.useState(false)
   const [cellMenu, setCellMenu] = React.useState<{
@@ -296,37 +284,21 @@ export function DocumentsTab({
   }, [])
 
   const allColumns = React.useMemo(() => collectColumns(documents), [documents])
-  const hiddenSet = React.useMemo(() => new Set(prefs.hidden), [prefs.hidden])
-  const pinnedSet = React.useMemo(() => new Set(prefs.pinned), [prefs.pinned])
-  // Visible columns, ordered by the saved preference (new columns appended).
-  const columns = React.useMemo(() => {
-    const present = allColumns.filter((column) => !hiddenSet.has(column))
-    const presentSet = new Set(present)
-    const ordered: string[] = []
-    const seen = new Set<string>()
-    for (const column of prefs.order) {
-      if (presentSet.has(column) && !seen.has(column)) {
-        ordered.push(column)
-        seen.add(column)
-      }
-    }
-    for (const column of present) {
-      if (!seen.has(column)) {
-        ordered.push(column)
-        seen.add(column)
-      }
-    }
-    return ordered
-  }, [allColumns, hiddenSet, prefs.order])
-  // Pinned columns always render first so they occupy the frozen left region.
-  const pinnedColumns = React.useMemo(
-    () => columns.filter((column) => pinnedSet.has(column)),
-    [columns, pinnedSet],
-  )
-  const displayColumns = React.useMemo(
-    () => [...pinnedColumns, ...columns.filter((column) => !pinnedSet.has(column))],
-    [columns, pinnedColumns, pinnedSet],
-  )
+  const {
+    pinnedSet,
+    columns,
+    pinnedColumns,
+    displayColumns,
+    setColumnHidden,
+    showOnlyColumn,
+    resetColumns,
+    setColumnColors,
+    setColumnRenderer,
+    toggleColumnPinned,
+    moveColumn,
+    reorderColumn,
+    startResize,
+  } = useColumnLayout({ prefs, setPrefs, allColumns })
 
   // Infer a BSON type per field from the current page so the query builder can
   // offer typed value inputs (ObjectId, date, bool, number).
@@ -492,117 +464,6 @@ export function DocumentsTab({
   // the `left` offset for each one. The checkbox gutter is measured too, with
   // this value as the fallback while the table is hidden.
   const frozen = useFrozenColumns(pinnedColumns, CHECKBOX_COLUMN_WIDTH)
-
-  const setColumnHidden = React.useCallback((column: string, hidden: boolean) => {
-    setPrefs((prev) => ({
-      ...prev,
-      hidden: hidden
-        ? Array.from(new Set([...prev.hidden, column]))
-        : prev.hidden.filter((candidate) => candidate !== column),
-    }))
-  }, [])
-
-  const showOnlyColumn = React.useCallback(
-    (column: string) => {
-      setPrefs((prev) => ({
-        ...prev,
-        hidden: allColumns.filter((candidate) => candidate !== column),
-      }))
-    },
-    [allColumns],
-  )
-
-  const resetColumns = React.useCallback(() => {
-    setPrefs((prev) => ({
-      order: [],
-      hidden: [],
-      widths: {},
-      pinned: [...DEFAULT_PINNED_COLUMNS],
-      dictionaries: prev.dictionaries,
-      renderers: prev.renderers,
-    }))
-  }, [])
-
-  const setColumnRenderer = React.useCallback((column: string, renderer: ColumnRender) => {
-    setPrefs((prev) => {
-      const renderers = { ...prev.renderers }
-      if (renderer === "default") delete renderers[column]
-      else renderers[column] = renderer
-      return { ...prev, renderers }
-    })
-  }, [])
-
-  const toggleColumnPinned = React.useCallback((column: string) => {
-    setPrefs((prev) => ({
-      ...prev,
-      pinned: prev.pinned.includes(column)
-        ? prev.pinned.filter((candidate) => candidate !== column)
-        : [...prev.pinned, column],
-    }))
-  }, [])
-
-  const moveColumn = React.useCallback(
-    (column: string, direction: -1 | 1) => {
-      setPrefs((prev) => {
-        // Reorder only within the pinned or unpinned group, otherwise the swap
-        // is invisible (pinned columns always render first).
-        const isPinned = prev.pinned.includes(column)
-        const group = columns.filter((candidate) => pinnedSet.has(candidate) === isPinned)
-        const index = group.indexOf(column)
-        const target = index + direction
-        if (index < 0 || target < 0 || target >= group.length) return prev
-        const next = group.slice()
-        ;[next[index], next[target]] = [next[target], next[index]]
-        const pinnedOrder = isPinned ? next : columns.filter((c) => pinnedSet.has(c))
-        const restOrder = isPinned ? columns.filter((c) => !pinnedSet.has(c)) : next
-        const ordered = [...pinnedOrder, ...restOrder]
-        const rest = allColumns.filter((candidate) => !ordered.includes(candidate))
-        return { ...prev, order: [...ordered, ...rest] }
-      })
-    },
-    [columns, pinnedSet, allColumns],
-  )
-
-  const reorderColumn = React.useCallback(
-    (source: string, target: string, position: ColumnDropPosition) => {
-      setPrefs((prev) => {
-        const order = reorderVisibleColumns(
-          prev.order,
-          displayColumns,
-          allColumns,
-          prev.pinned,
-          source,
-          target,
-          position,
-        )
-        return order === prev.order ? prev : { ...prev, order }
-      })
-    },
-    [allColumns, displayColumns],
-  )
-
-  const startResize = React.useCallback((column: string, event: React.MouseEvent) => {
-    event.preventDefault()
-    event.stopPropagation()
-    const header = (event.currentTarget as HTMLElement).closest("th")
-    const startWidth = header?.getBoundingClientRect().width ?? 160
-    const startX = event.clientX
-    const onMove = (moveEvent: MouseEvent) => {
-      const width = Math.min(
-        COLUMN_MAX_WIDTH,
-        Math.max(COLUMN_MIN_WIDTH, startWidth + (moveEvent.clientX - startX)),
-      )
-      setPrefs((prev) => ({ ...prev, widths: { ...prev.widths, [column]: Math.round(width) } }))
-    }
-    const onUp = () => {
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
-      document.body.style.userSelect = ""
-    }
-    document.body.style.userSelect = "none"
-    document.addEventListener("mousemove", onMove)
-    document.addEventListener("mouseup", onUp)
-  }, [])
 
   // Close the cell context menu on outside click / Escape.
   React.useEffect(() => {
@@ -1309,55 +1170,20 @@ export function DocumentsTab({
     <div ref={rootRef} className="flex h-full min-h-0 flex-col">
       {/* Toolbar */}
       <div className="shrink-0 space-y-2 border-b p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[12rem] flex-1 basis-full sm:basis-auto">
-            <MongoFilterEditor
-              value={filter}
-              onChange={setFilter}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
-                  e.preventDefault()
-                  void load({ skip: 0 })
-                }
-              }}
-              placeholder={t("docs.filterPlaceholder")}
-              suggestions={allColumns}
-            />
-          </div>
-          {loading ? (
-            <Button variant="outline" onClick={cancelLoad} title={t("docs.cancelQuery")}>
-              <Ban /> {t("docs.cancelQuery")}
-            </Button>
-          ) : (
-            <Button
-              onClick={() => void load({ skip: 0 })}
-              disabled={Boolean(queryError)}
-              title={queryError ? `${t("docs.invalidJson")}: ${queryError}` : t("docs.runShortcut")}
-            >
-              <Play /> {t("common.run")}
-            </Button>
-          )}
-          <Button variant="outline" size="icon" onClick={() => void load({})} title={t("common.refresh")} aria-label={t("common.refresh")}>
-            <RefreshCw className={cn(loading && "animate-spin")} />
-          </Button>
-          <Button
-            className="ml-auto sm:ml-0"
-            onClick={() => setEditing({ mode: "insert" })}
-            disabled={readOnly}
-            title={readOnly ? t("docs.readonlyTip") : t("docs.insertTitle")}
-          >
-            <Plus /> {t("docs.insert")}
-          </Button>
-        </div>
-
-        {queryError ? (
-          <p className="text-destructive flex items-start gap-1.5 text-xs" role="alert">
-            <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
-            <span className="min-w-0 break-words">
-              {t("docs.invalidJson")}: {queryError}
-            </span>
-          </p>
-        ) : null}
+        <DocumentsFilterBar
+          value={filter}
+          onApply={(next) => {
+            setFilter(next)
+            void load({ skip: 0, filter: next })
+          }}
+          onRefresh={() => void load({})}
+          loading={loading}
+          onCancel={cancelLoad}
+          readOnly={readOnly}
+          onInsert={() => setEditing({ mode: "insert" })}
+          queryError={queryError}
+          suggestions={allColumns}
+        />
 
         {/* Secondary query tools, grouped and scrollable on narrow screens. */}
         <div className="scrollbar-thin flex items-center gap-1.5 overflow-x-auto pb-0.5">
@@ -1618,6 +1444,7 @@ export function DocumentsTab({
         setColumnHidden={setColumnHidden}
         onSelectColumn={handleSelectColumn}
         onVisualizeColumn={handleVisualizeColumn}
+        onEditColumnColors={setColorColumn}
         showOnlyColumn={showOnlyColumn}
         resetColumns={resetColumns}
         copyToClipboard={copyToClipboard}
@@ -1649,83 +1476,42 @@ export function DocumentsTab({
           setLimit(nextLimit)
           void load({ skip: 0, limit: nextLimit })
         }}
-        onPrev={() => void load({ skip: Math.max(0, skip - limit) })}
-        onNext={() => void load({ skip: skip + limit })}
+        onPrev={() =>
+          void load({
+            skip: Math.max(0, skip - limit),
+            before: result?.prevCursor,
+          })
+        }
+        onNext={() => void load({ skip: skip + limit, after: result?.nextCursor })}
         onGoToPage={(next) => void load({ skip: Math.max(0, (next - 1) * limit) })}
         onDeleteMatching={() => setConfirm({ type: "filter" })}
       />
         </div>
 
         {visualizeOpen ? (
-          <>
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              title={t("docs.dragToResize")}
-              onPointerDown={startChartResize}
-              className="bg-border hover:bg-primary/40 hidden w-1 shrink-0 cursor-col-resize lg:block"
-            />
-            <aside
-              className="bg-background absolute inset-0 z-30 flex w-full flex-col border-l lg:static lg:z-auto lg:w-[var(--chart-pane-width)] lg:min-w-[320px] lg:max-w-[70%]"
-              style={{ "--chart-pane-width": `${chartPaneWidth}px` } as React.CSSProperties}
-            >
-              <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
-                <BarChart3 className="text-primary size-4 shrink-0" />
-                <span className="text-sm font-medium">{t("docs.visualization")}</span>
-                <span className="text-muted-foreground min-w-0 truncate text-[11px]">
-                  {[...selectedColumns].join(", ")}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="ml-auto"
-                  onClick={openChartWithCurrent}
-                  title={t("docs.openChartDialog")}
-                  aria-label={t("docs.openChartDialog")}
-                >
-                  <Maximize2 />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => setVisualizeOpen(false)}
-                  title={t("docs.closeVisualization")}
-                  aria-label={t("docs.closeVisualization")}
-                >
-                  <X />
-                </Button>
-              </div>
-              <div className="min-h-0 flex-1 overflow-auto p-2">
-                <React.Suspense
-                  fallback={
-                    <p className="text-muted-foreground p-4 text-xs">{t("common.loading")}</p>
-                  }
-                >
-                  <ChartView
-                    documents={documents}
-                    columns={allColumns}
-                    fieldTypes={fieldTypes}
-                    connectionId={connectionId}
-                    database={database}
-                    collection={collection}
-                    filter={chartFilterValue ?? {}}
-                    filterValid={chartFilterValue !== null}
-                    initialConfig={visualizeConfig}
-                    onConfigChange={setVisualizeConfig}
-                    scope={`${connectionId}::${database}::${collection}`}
-                    storageKey={`docs:${connectionId}:${database}:${collection}`}
-                    currentFilter={filter}
-                    onDrilldown={(next) => {
-                      const text = JSON.stringify(next)
-                      setFilter(text)
-                      void load({ skip: 0, filter: text })
-                    }}
-                    height={520}
-                  />
-                </React.Suspense>
-              </div>
-            </aside>
-          </>
+          <DocumentsChartPane
+            documents={documents}
+            columns={allColumns}
+            fieldTypes={fieldTypes}
+            connectionId={connectionId}
+            database={database}
+            collection={collection}
+            selectedColumns={selectedColumns}
+            width={chartPaneWidth}
+            currentFilter={filter}
+            filter={chartFilterValue ?? {}}
+            filterValid={chartFilterValue !== null}
+            initialConfig={visualizeConfig}
+            onConfigChange={setVisualizeConfig}
+            onResizeStart={startChartResize}
+            onOpenChartDialog={openChartWithCurrent}
+            onClose={() => setVisualizeOpen(false)}
+            onDrilldown={(next) => {
+              const text = JSON.stringify(next)
+              setFilter(text)
+              void load({ skip: 0, filter: text })
+            }}
+          />
         ) : null}
       </div>
 
@@ -1744,6 +1530,19 @@ export function DocumentsTab({
           }
         />
       ) : null}
+
+      <ColumnColorsDialog
+        open={colorColumn !== null}
+        onOpenChange={(open) => {
+          if (!open) setColorColumn(null)
+        }}
+        column={colorColumn ?? ""}
+        rules={colorColumn ? prefs.colors[colorColumn] ?? [] : []}
+        onSave={(rules) => {
+          if (colorColumn) setColumnColors(colorColumn, rules)
+          setColorColumn(null)
+        }}
+      />
 
       <DocumentsDialogs
         connectionId={connectionId}

@@ -13,6 +13,9 @@ const pkg = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf8"),
 ) as { version: string }
 const appVersion = process.env.VITE_APP_VERSION || pkg.version
+// `scripts/dev.sh` exports this to match BACKEND_ADDR; keep :8080 as the
+// default so a plain `pnpm dev` works with `make dev-backend`.
+const apiProxy = process.env.VITE_API_PROXY || "http://127.0.0.1:8080"
 
 // packageName extracts the real package name from a resolved module id. pnpm's
 // virtual store embeds peer deps (e.g. `@types+react-dom@19.3.0`) in the
@@ -39,7 +42,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:18099",
+        target: apiProxy,
         changeOrigin: true,
       },
     },

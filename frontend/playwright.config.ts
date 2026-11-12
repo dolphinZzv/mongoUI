@@ -37,6 +37,7 @@ export default defineConfig({
       url: `http://127.0.0.1:${uiPort}`,
       reuseExistingServer: false,
       timeout: 120_000,
+      env: { VITE_API_PROXY: `http://127.0.0.1:${backendPort}` },
     },
   ],
 })

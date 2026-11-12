@@ -9,6 +9,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_ADDR="${BACKEND_ADDR:-:8080}"
 DATA_DIR="${DATA_DIR:-$ROOT/data}"
+# Vite proxies /api to the backend; derive it from BACKEND_ADDR so overriding
+# the listen address does not silently leave the front-end pointed at :8080.
+backend_port="${BACKEND_ADDR##*:}"
+export VITE_API_PROXY="${VITE_API_PROXY:-http://127.0.0.1:${backend_port}}"
 
 cd "$ROOT/backend"
 go run . -addr "$BACKEND_ADDR" -data "$DATA_DIR" &

@@ -1480,9 +1480,16 @@ export function DocumentsTab({
           void load({
             skip: Math.max(0, skip - limit),
             before: result?.prevCursor,
+            includeTotal: false,
           })
         }
-        onNext={() => void load({ skip: skip + limit, after: result?.nextCursor })}
+        onNext={() =>
+          void load({
+            skip: skip + limit,
+            after: result?.nextCursor,
+            includeTotal: false,
+          })
+        }
         onGoToPage={(next) => void load({ skip: Math.max(0, (next - 1) * limit) })}
         onDeleteMatching={() => setConfirm({ type: "filter" })}
       />

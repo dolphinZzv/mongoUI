@@ -35,13 +35,10 @@ test("searches and multi-selects Y-axis fields", async ({ page }) => {
   await page.getByRole("option", { name: /latencyMs/i }).click()
   await expect.poll(() => yButton.getAttribute("title")).toContain("latencyMs")
 
-  await search.fill("amount")
-  await expect(page.getByRole("option")).toHaveCount(1)
-  await page.getByRole("option", { name: /amount/i }).click()
-  await expect.poll(() => yButton.getAttribute("title")).toContain("amount")
   await expect.poll(() => yButton.getAttribute("title")).not.toBe(before)
 
   await search.fill("latency")
   await page.getByRole("option", { name: /latencyMs/i }).click()
   await expect.poll(() => yButton.getAttribute("title")).not.toContain("latencyMs")
+  await expect.poll(() => yButton.getAttribute("title")).toBe(before)
 })

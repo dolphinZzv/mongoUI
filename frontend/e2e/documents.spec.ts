@@ -11,6 +11,13 @@ async function headers(page: Page): Promise<string[]> {
   )
 }
 
+async function columnPrefs(page: Page): Promise<{ order?: string[]; colors?: Record<string, unknown[]> } | null> {
+  return page.evaluate(() => {
+    const key = Object.keys(localStorage).find((name) => name.startsWith("mongoui-columns:"))
+    return key ? JSON.parse(localStorage.getItem(key) ?? "null") : null
+  })
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto(path)
   await page.locator('th[data-column="amount"]').waitFor()
@@ -27,8 +34,12 @@ test("reorders columns by dragging a header and persists the order", async ({ pa
       targetPosition: { x: 4, y: 12 },
     })
   await expect
-    .poll(async () => (await headers(page)).indexOf("amount"))
-    .toBeLessThan((await headers(page)).indexOf("orderNo"))
+    .poll(async () => {
+      const prefs = await columnPrefs(page)
+      if (!prefs?.order) return false
+      return prefs.order.indexOf("amount") < prefs.order.indexOf("orderNo")
+    })
+    .toBe(true)
 
   await page.reload()
   await page.locator('th[data-column="amount"]').waitFor()
@@ -131,7 +142,12 @@ test("applies and persists conditional column colors", async ({ page }) => {
       )
   await expect.poll(coloredCells).toBeGreaterThan(0)
 
+  await expect
+    .poll(async () => (await columnPrefs(page))?.colors?.amount?.length ?? 0)
+    .toBeGreaterThan(0)
+
   await page.reload()
   await page.locator('th[data-column="amount"]').waitFor()
+  await page.locator("tbody tr[data-row-index]").first().waitFor()
   await expect.poll(coloredCells).toBeGreaterThan(0)
 })

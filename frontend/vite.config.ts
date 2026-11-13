@@ -49,6 +49,18 @@ export default defineConfig({
   },
   test: {
     include: ["src/**/*.test.{ts,tsx}"],
+    coverage: {
+      provider: "v8",
+      include: ["src/lib/**/*.ts"],
+      exclude: ["src/**/*.test.ts", "src/lib/types.ts"],
+      reporter: ["text", "json-summary"],
+      thresholds: {
+        statements: 36,
+        branches: 33,
+        functions: 27,
+        lines: 37,
+      },
+    },
   },
   build: {
     outDir: "dist",

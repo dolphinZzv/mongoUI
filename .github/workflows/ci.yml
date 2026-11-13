@@ -78,6 +78,13 @@ jobs:
       - name: Test
         run: go test ./... -race -covermode=atomic -coverprofile=coverage.out
 
+      - name: Enforce backend coverage floor
+        working-directory: backend
+        run: |
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub(/%/, "", $3); print $3}')
+          echo "backend coverage: ${total}% (floor: 40%)"
+          awk -v c="$total" 'BEGIN { if (c < 40) exit 1 }'
+
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v7
         with:
@@ -123,8 +130,15 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
-      - name: Test
-        run: pnpm test
+      - name: Test + coverage gate
+        run: pnpm run test:coverage
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-coverage
+          path: frontend/coverage
+          if-no-files-found: ignore
 
       - name: Build
         run: pnpm run build

@@ -151,3 +151,33 @@ test("applies and persists conditional column colors", async ({ page }) => {
   await page.locator("tbody tr[data-row-index]").first().waitFor()
   await expect.poll(coloredCells).toBeGreaterThan(0)
 })
+
+test("restores results when the URL query changes externally", async ({ page }) => {
+  await page.getByTestId("mongo-filter-editor").fill('{"region":"EMEA"}')
+  await page.getByTestId("documents-run").click()
+  await expect
+    .poll(() =>
+      page
+        .locator('tbody td[data-column="region"]')
+        .evaluateAll((cells) => cells.every((cell) => cell.textContent?.trim() === "EMEA")),
+    )
+    .toBe(true)
+
+  await page.evaluate(() => {
+    const url = new URL(window.location.href)
+    url.searchParams.set("filter", '{"region":"APAC"}')
+    window.history.pushState({}, "", url)
+    window.dispatchEvent(new PopStateEvent("popstate"))
+  })
+
+  await expect
+    .poll(() =>
+      page
+        .locator('tbody td[data-column="region"]')
+        .evaluateAll((cells) =>
+          cells.length > 0 && cells.every((cell) => cell.textContent?.trim() === "APAC"),
+        ),
+    )
+    .toBe(true)
+  await expect(page.getByTestId("mongo-filter-editor")).toHaveValue('{"region":"APAC"}')
+})

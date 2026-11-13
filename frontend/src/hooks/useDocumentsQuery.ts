@@ -308,14 +308,27 @@ export function useDocumentsQuery({
     const incoming = docsQuerySignature(initialDocs)
     if (incoming === appliedDocsRef.current) return
     appliedDocsRef.current = incoming
-    setFilter(initialDocs?.filter ?? DOCS_QUERY_DEFAULTS.filter)
-    setSort(initialDocs?.sort ?? DOCS_QUERY_DEFAULTS.sort)
-    setProjection(initialDocs?.projection ?? DOCS_QUERY_DEFAULTS.projection)
-    setLimit(initialDocs?.limit ?? DOCS_QUERY_DEFAULTS.limit)
-    setSkip(initialDocs?.skip ?? DOCS_QUERY_DEFAULTS.skip)
+    const nextFilter = initialDocs?.filter ?? DOCS_QUERY_DEFAULTS.filter
+    const nextSort = initialDocs?.sort ?? DOCS_QUERY_DEFAULTS.sort
+    const nextProjection = initialDocs?.projection ?? DOCS_QUERY_DEFAULTS.projection
+    const nextLimit = initialDocs?.limit ?? DOCS_QUERY_DEFAULTS.limit
+    const nextSkip = initialDocs?.skip ?? DOCS_QUERY_DEFAULTS.skip
+    setFilter(nextFilter)
+    setSort(nextSort)
+    setProjection(nextProjection)
+    setLimit(nextLimit)
+    setSkip(nextSkip)
     onPinnedFromURL(initialDocs?.pinned ?? readPinned())
     onChartFromURL?.(initialDocs?.chart)
-  }, [initialDocs, onPinnedFromURL, readPinned, onChartFromURL])
+    // Back/forward must restore the results too, not only the input values.
+    void load({
+      skip: nextSkip,
+      limit: nextLimit,
+      filter: nextFilter,
+      sort: nextSort,
+      projection: nextProjection,
+    })
+  }, [initialDocs, onPinnedFromURL, readPinned, onChartFromURL, load])
 
   const documents = result?.documents ?? []
   const total = result?.total ?? 0

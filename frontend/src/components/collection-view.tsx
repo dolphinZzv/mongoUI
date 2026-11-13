@@ -9,13 +9,10 @@ import { LazyMount, TabFallback } from "@/components/lazy-mount"
 import { collectionLabel, databaseLabel, useAliases } from "@/lib/aliases"
 import { copyToClipboard } from "@/lib/clipboard"
 import { useI18n } from "@/lib/i18n"
-import { DOCS_QUERY_DEFAULTS, type DocsQueryState } from "@/lib/router"
+import type { DocsQueryState } from "@/lib/router"
 
 // The collection tabs other than Documents are loaded on first open, so the
 // initial bundle only carries the documents view.
-const ChartTab = React.lazy(() =>
-  import("@/components/chart-tab").then((m) => ({ default: m.ChartTab })),
-)
 const QueryTab = React.lazy(() =>
   import("@/components/query-tab").then((m) => ({ default: m.QueryTab })),
 )
@@ -54,17 +51,14 @@ export function CollectionView({
   onTabChange,
 }: CollectionViewProps) {
   const [copied, setCopied] = React.useState(false)
-  const handleChartChange = React.useCallback(
-    (chart: NonNullable<DocsQueryState["chart"]>) => {
-      onDocsChange?.({ ...DOCS_QUERY_DEFAULTS, chart })
-    },
-    [onDocsChange],
-  )
   const [copyOpen, setCopyOpen] = React.useState(false)
   const { t } = useI18n()
   const aliases = useAliases()
   const queryTab = tab === "query" || tab === "sql" || tab === "aggregation"
-  const activeTab = queryTab ? "query" : (tab ?? "documents")
+  // The old Chart tab now opens the chart dialog from Documents, keeping its
+  // URL chart state and independent filter without a top-level tab.
+  const chartTab = tab === "chart"
+  const activeTab = queryTab ? "query" : chartTab ? "documents" : (tab ?? "documents")
   const queryMode: "sql" | "aggregation" = tab === "aggregation" ? "aggregation" : "sql"
   const dbName = databaseLabel(aliases, connectionId, database)
   const colName = collectionLabel(aliases, connectionId, database, collection)
@@ -122,9 +116,6 @@ export function CollectionView({
           <TabsTrigger value="documents" className="shrink-0 px-1.5 sm:px-3">
             {t("collection.tab.documents")}
           </TabsTrigger>
-          <TabsTrigger value="chart" className="shrink-0 px-1.5 sm:px-3">
-            {t("collection.tab.chart")}
-          </TabsTrigger>
           <TabsTrigger value="query" className="shrink-0 px-1.5 sm:px-3">
             {t("collection.tab.query")}
           </TabsTrigger>
@@ -148,20 +139,9 @@ export function CollectionView({
             collection={collection}
             readOnly={readOnly}
             initialDocs={docs}
+            initialChartOpen={chartTab}
             onDocsChange={onDocsChange}
           />
-        </TabsContent>
-        <TabsContent value="chart" className="min-h-0 flex-1">
-          <React.Suspense fallback={<TabFallback />}>
-            <ChartTab
-              connectionId={connectionId}
-              database={database}
-              collection={collection}
-              initialFilter={docs?.filter}
-              initialChart={docs?.chart}
-              onChartChange={handleChartChange}
-            />
-          </React.Suspense>
         </TabsContent>
         <TabsContent value="query" className="min-h-0 flex-1">
           <React.Suspense fallback={<TabFallback />}>

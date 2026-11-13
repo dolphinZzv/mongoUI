@@ -395,7 +395,6 @@ const zh: Record<string, string> = {
   "collection.copyPath": "复制路径",
   "collection.pathCopied": "已复制集合路径",
   "collection.tab.documents": "文档",
-  "collection.tab.chart": "图表",
   "collection.tab.query": "查询",
   "collection.tab.sql": "SQL",
   "collection.tab.aggregation": "聚合",

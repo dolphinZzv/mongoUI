@@ -65,6 +65,8 @@ interface DocumentsTabProps {
   readOnly: boolean
   /** Query/pagination restored from the URL, if present. */
   initialDocs?: DocsQueryState
+  /** Legacy `?tab=chart` links open the chart dialog on the documents tab. */
+  initialChartOpen?: boolean
   /** Persist the current query/pagination so a refresh restores it. */
   onDocsChange?: (docs: DocsQueryState) => void
 }
@@ -108,6 +110,7 @@ export function DocumentsTab({
   collection,
   readOnly,
   initialDocs,
+  initialChartOpen,
   onDocsChange,
 }: DocumentsTabProps) {
   const { t } = useI18n()
@@ -123,7 +126,9 @@ export function DocumentsTab({
   const [liveOpen, setLiveOpen] = React.useState(false)
   const [advisorOpen, setAdvisorOpen] = React.useState(false)
   const [qualityOpen, setQualityOpen] = React.useState(false)
-  const [chartOpen, setChartOpen] = React.useState(Boolean(initialDocs?.chart))
+  const [chartOpen, setChartOpen] = React.useState(
+    Boolean(initialChartOpen) || Boolean(initialDocs?.chart),
+  )
   const [chartConfig, setChartConfig] = React.useState<ChartConfig | undefined>(
     initialDocs?.chart?.config,
   )

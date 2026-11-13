@@ -7,6 +7,12 @@ const path = `${collectionPath(state)}?tab=chart`
 
 test.beforeEach(async ({ page }) => {
   await page.goto(path)
+  // The old ?tab=chart deep link now opens Documents with the chart dialog.
+  await expect(page.getByRole("tab", { name: "Documents" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  )
+  await expect(page.getByRole("tab", { name: "Chart" })).toHaveCount(0)
   await page.getByRole("button", { name: /Configure/i }).waitFor()
   await page.locator('svg[role="img"]').waitFor()
 })

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -283,9 +284,15 @@ func parseCSVImport(content string) ([]bson.D, error) {
 	return docs, nil
 }
 
+var (
+	integerCellPattern = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)$`)
+	decimalCellPattern = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$`)
+)
+
 // parseCSVCell coerces a CSV cell into a BSON-friendly value. Numbers, booleans,
 // null and embedded JSON/Extended JSON objects are recognised; everything else
-// stays a string.
+// stays a string. Leading-zero codes and integers beyond int64 stay strings to
+// avoid silent precision loss.
 func parseCSVCell(cell string) any {
 	s := strings.TrimSpace(cell)
 	if s == "" || s == "null" {
@@ -297,11 +304,18 @@ func parseCSVCell(cell string) any {
 	case "false":
 		return false
 	}
-	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
-		return i
+	// Preserve identifiers such as leading-zero codes and integers that do not
+	// fit in int64 instead of silently turning them into lossy float64 values.
+	if integerCellPattern.MatchString(s) {
+		if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return i
+		}
+		return cell
 	}
-	if f, err := strconv.ParseFloat(s, 64); err == nil {
-		return f
+	if decimalCellPattern.MatchString(s) {
+		if f, err := strconv.ParseFloat(s, 64); err == nil {
+			return f
+		}
 	}
 	if strings.HasPrefix(s, "{") && strings.HasSuffix(s, "}") ||
 		strings.HasPrefix(s, "[") && strings.HasSuffix(s, "]") {

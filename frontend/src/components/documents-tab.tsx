@@ -136,6 +136,7 @@ export function DocumentsTab({
   const [chartPaneWidth, setChartPaneWidth] = React.useState(600)
   const [colorColumn, setColorColumn] = React.useState<string | null>(null)
   const splitRef = React.useRef<HTMLDivElement>(null)
+  const chartResizeCleanupRef = React.useRef<(() => void) | null>(null)
   const [builderOpen, setBuilderOpen] = React.useState(false)
   const [cellMenu, setCellMenu] = React.useState<{
     x: number
@@ -450,13 +451,19 @@ export function DocumentsTab({
       const width = Math.min(rect.width - 280, Math.max(320, rect.right - next.clientX))
       setChartPaneWidth(width)
     }
-    const stop = () => {
+    const cleanup = () => {
       window.removeEventListener("pointermove", move)
       window.removeEventListener("pointerup", stop)
+      if (chartResizeCleanupRef.current === cleanup) chartResizeCleanupRef.current = null
     }
+    const stop = () => cleanup()
+    chartResizeCleanupRef.current?.()
+    chartResizeCleanupRef.current = cleanup
     window.addEventListener("pointermove", move)
     window.addEventListener("pointerup", stop)
   }, [])
+
+  React.useEffect(() => () => chartResizeCleanupRef.current?.(), [])
 
   React.useEffect(() => {
     setSelectedColumns((previous) => {

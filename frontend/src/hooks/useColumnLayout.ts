@@ -24,6 +24,9 @@ interface UseColumnLayoutOptions {
  * stays with the caller so it can also be passed to the documents query hook.
  */
 export function useColumnLayout({ prefs, setPrefs, allColumns }: UseColumnLayoutOptions) {
+  const resizeCleanupRef = React.useRef<(() => void) | null>(null)
+
+  React.useEffect(() => () => resizeCleanupRef.current?.(), [])
 
   const hiddenSet = React.useMemo(() => new Set(prefs.hidden), [prefs.hidden])
   const pinnedSet = React.useMemo(() => new Set(prefs.pinned), [prefs.pinned])
@@ -168,11 +171,17 @@ export function useColumnLayout({ prefs, setPrefs, allColumns }: UseColumnLayout
       )
       setPrefs((prev) => ({ ...prev, widths: { ...prev.widths, [column]: Math.round(width) } }))
     }
-    const onUp = () => {
+    const cleanup = () => {
       document.removeEventListener("mousemove", onMove)
       document.removeEventListener("mouseup", onUp)
       document.body.style.userSelect = ""
+      if (resizeCleanupRef.current === cleanup) resizeCleanupRef.current = null
     }
+    const onUp = () => cleanup()
+    // A second drag, or an unmount while the pointer is down, must not leave
+    // global listeners behind or keep the page unselectable.
+    resizeCleanupRef.current?.()
+    resizeCleanupRef.current = cleanup
     document.body.style.userSelect = "none"
     document.addEventListener("mousemove", onMove)
     document.addEventListener("mouseup", onUp)

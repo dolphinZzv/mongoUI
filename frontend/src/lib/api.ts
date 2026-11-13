@@ -150,7 +150,10 @@ export const api = {
   serverInfo: (id: string) => request<Record<string, unknown>>(`/connections/${id}/server`),
 
   // databases -------------------------------------------------------------------
-  listDatabases: (id: string) => request<DatabaseList>(`/connections/${id}/databases`),
+  listDatabases: (id: string, opts?: { sizes?: boolean }) =>
+    request<DatabaseList>(
+      `/connections/${id}/databases${opts?.sizes ? "?sizes=1" : ""}`,
+    ),
   createDatabase: (id: string, name: string, collection: string) =>
     post(`/connections/${id}/databases`, { name, collection }),
   dropDatabase: (id: string, db: string) =>

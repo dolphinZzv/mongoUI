@@ -64,7 +64,7 @@ export function ConnectionOverview({ connection, onOpenChart }: ConnectionOvervi
     setLoading(true)
     try {
       const [dbResult, serverResult, chartResult] = await Promise.all([
-        api.listDatabases(connection.id),
+        api.listDatabases(connection.id, { sizes: true }),
         api.serverInfo(connection.id).catch(() => null),
         api.getConnectionChartViews(connection.id).catch(() => ({ scopes: {} })),
       ])

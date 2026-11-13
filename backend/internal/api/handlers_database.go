@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"go.mongodb.org/mongo-driver/bson"
@@ -18,7 +19,10 @@ func (a *API) listDatabases(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := withTimeout(r)
 	defer cancel()
 
-	res, err := client.ListDatabases(ctx, bson.M{})
+	// Sizes require a full listDatabases scan. Most callers (sidebar, search,
+	// SQL source pickers) only need names, so make the expensive mode opt-in.
+	withSizes := r.URL.Query().Get("sizes") == "1" || strings.EqualFold(r.URL.Query().Get("sizes"), "true")
+	res, err := client.ListDatabases(ctx, bson.M{}, options.ListDatabases().SetNameOnly(!withSizes))
 	if err != nil {
 		a.dbErr(w, err)
 		return

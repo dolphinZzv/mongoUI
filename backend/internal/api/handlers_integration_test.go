@@ -479,3 +479,47 @@ func TestIntegrationFindTotalAndCursorPagination(t *testing.T) {
 		t.Fatalf("filtered count must not be estimated: %#v", filtered)
 	}
 }
+
+func TestIntegrationListDatabasesSizesOptIn(t *testing.T) {
+	handler, db := integrationAPI(t)
+	base := "/api/connections"
+	status, env := doJSON(t, handler, http.MethodGet, base+"/", "")
+	if status != http.StatusOK {
+		t.Fatalf("list connections: status %d", status)
+	}
+	connID := env["data"].([]any)[0].(map[string]any)["id"].(string)
+
+	status, _ = doJSON(t, handler, http.MethodPost,
+		fmt.Sprintf("%s/%s/databases/%s/collections/sized/insert", base, connID, db),
+		`{"documents":[{"value":"sized"}]}`)
+	if status != http.StatusOK {
+		t.Fatalf("insert: status %d", status)
+	}
+
+	status, env = doJSON(t, handler, http.MethodGet, base+"/"+connID+"/databases", "")
+	if status != http.StatusOK {
+		t.Fatalf("list databases (names): status %d", status)
+	}
+	names := dataOf(t, env)
+	if names["totalSize"] != float64(0) {
+		t.Fatalf("name-only list should omit sizes, totalSize = %#v", names["totalSize"])
+	}
+	found := false
+	for _, item := range names["databases"].([]any) {
+		if item.(map[string]any)["name"] == db {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("database %s missing from name-only list", db)
+	}
+
+	status, env = doJSON(t, handler, http.MethodGet, base+"/"+connID+"/databases?sizes=1", "")
+	if status != http.StatusOK {
+		t.Fatalf("list databases (sizes): status %d", status)
+	}
+	sized := dataOf(t, env)
+	if total, _ := sized["totalSize"].(float64); total <= 0 {
+		t.Fatalf("sizes=1 should report totalSize > 0, got %#v", sized["totalSize"])
+	}
+}

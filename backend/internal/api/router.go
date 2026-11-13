@@ -87,7 +87,7 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 			AllowedOrigins:   origins,
 			AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 			AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Requested-With"},
-			ExposedHeaders:   []string{"Link", "Mcp-Session-Id"},
+			ExposedHeaders:   []string{"Link", "Mcp-Session-Id", "Content-Disposition", "X-Mongoui-Export-Count"},
 			AllowCredentials: false,
 			MaxAge:           300,
 		}))

@@ -1253,6 +1253,7 @@ const en: Record<string, string> = {
   "transfer.exportDesc": "Download documents from {{path}} as a file.",
   "transfer.exportAction": "Export",
   "transfer.exported": "Exported {{count}} documents",
+  "transfer.exportedDone": "Export downloaded.",
   "transfer.exportFailed": "Export failed",
   "transfer.importTitle": "Import documents",
   "transfer.importDesc": "Insert documents into {{path}}.",

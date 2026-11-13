@@ -26,7 +26,7 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { api } from "@/lib/api"
-import { downloadText } from "@/lib/download"
+import { downloadBlob } from "@/lib/download"
 import { useI18n } from "@/lib/i18n"
 import type { TransferFormat } from "@/lib/types"
 
@@ -116,8 +116,12 @@ export function ExportDialog({
         projection: projectionResult.value,
         limit: limit.trim() ? Number(limit) : undefined,
       })
-      downloadText(res.filename, res.content, res.contentType)
-      toast.success(t("transfer.exported", { count: res.count }))
+      downloadBlob(res.filename, res.blob)
+      toast.success(
+        res.count === undefined
+          ? t("transfer.exportedDone")
+          : t("transfer.exported", { count: res.count }),
+      )
       onOpenChange(false)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("transfer.exportFailed"))

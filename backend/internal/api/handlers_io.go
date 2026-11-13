@@ -1,13 +1,19 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log"
+	"mime"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -22,6 +28,7 @@ import (
 const (
 	defaultExportLimit = 10000
 	maxExportLimit     = 100000
+	exportTimeout      = 10 * time.Minute
 	importBatchSize    = 1000
 )
 
@@ -33,9 +40,17 @@ type exportRequest struct {
 	Limit      int64           `json:"limit"`
 }
 
-// exportDocuments streams a collection (or a filtered subset) back to the
-// client as JSON (Extended JSON) or CSV. The payload is returned inside the
-// usual JSON envelope so the SPA can turn it into a download.
+// documentIterator is the subset of *mongo.Cursor used by the export writers.
+// Keeping it narrow makes the streaming/CSV spooling logic unit-testable.
+type documentIterator interface {
+	Next(context.Context) bool
+	Decode(any) error
+	Err() error
+}
+
+// exportDocuments streams a collection (or a filtered subset) directly to the
+// client as a download. Server memory stays bounded even for the maximum
+// 100k-document export.
 func (a *API) exportDocuments(w http.ResponseWriter, r *http.Request) {
 	coll, err := a.dbCollection(r)
 	if err != nil {
@@ -81,7 +96,7 @@ func (a *API) exportDocuments(w http.ResponseWriter, r *http.Request) {
 		limit = maxExportLimit
 	}
 
-	ctx, cancel := withTimeout(r)
+	ctx, cancel := context.WithTimeout(r.Context(), exportTimeout)
 	defer cancel()
 
 	findOpts := options.Find().SetLimit(limit)
@@ -99,45 +114,218 @@ func (a *API) exportDocuments(w http.ResponseWriter, r *http.Request) {
 	}
 	defer cursor.Close(ctx)
 
-	docs := []bson.D{}
-	if err := cursor.All(ctx, &docs); err != nil {
-		a.dbErr(w, err)
+	name := exportFilename(chi.URLParam(r, "db"), coll.Name(), format)
+	if format == "csv" {
+		spool, err := spoolCSVDocuments(ctx, cursor)
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		defer spool.Close()
+		// Large exports may legitimately outlive the server's global 120s
+		// WriteTimeout; the request context still bounds the work.
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+		setDownloadHeaders(w, name, "text/csv; charset=utf-8", &spool.count)
+		w.WriteHeader(http.StatusOK)
+		if err := writeCSVSpool(w, spool); err != nil {
+			log.Printf("export csv %s: %v", name, err)
+		}
 		return
 	}
 
-	name := chi.URLParam(r, "db") + "." + coll.Name()
-	var content, contentType, ext string
-	switch format {
-	case "csv":
-		content, err = documentsToCSV(docs)
-		if err != nil {
-			serverError(w, err)
-			return
-		}
-		contentType = "text/csv; charset=utf-8"
-		ext = "csv"
-	default:
-		raw, err := toExtJSON(docs)
-		if err != nil {
-			serverError(w, err)
-			return
-		}
-		var buf bytes.Buffer
-		if err := json.Indent(&buf, raw, "", "  "); err != nil {
-			serverError(w, err)
-			return
-		}
-		content = buf.String()
-		contentType = "application/json; charset=utf-8"
-		ext = "json"
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+	setDownloadHeaders(w, name, "application/json; charset=utf-8", nil)
+	w.WriteHeader(http.StatusOK)
+	if _, err := writeJSONDocuments(ctx, w, cursor); err != nil {
+		log.Printf("export json %s: %v", name, err)
 	}
+}
 
-	ok(w, map[string]any{
-		"filename":    name + "." + ext,
-		"contentType": contentType,
-		"content":     content,
-		"count":       len(docs),
-	})
+func setDownloadHeaders(w http.ResponseWriter, filename, contentType string, count *int) {
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+	w.Header().Set("Cache-Control", "no-store")
+	if count != nil {
+		w.Header().Set("X-Mongoui-Export-Count", strconv.Itoa(*count))
+	}
+}
+
+func exportFilename(database, collection, format string) string {
+	ext := "json"
+	if format == "csv" {
+		ext = "csv"
+	}
+	name := database + "." + collection + "." + ext
+	var b strings.Builder
+	for _, r := range name {
+		if r < 32 || r == 127 || r == '"' || r == '\\' || r == '/' {
+			b.WriteByte('_')
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() == 0 {
+		return "export." + ext
+	}
+	return b.String()
+}
+
+// writeJSONDocuments streams a pretty-printed Extended JSON array without
+// materialising the full result in memory. The count return value is useful for
+// backup bookkeeping; the HTTP response cannot know it before the headers are
+// sent.
+func writeJSONDocuments(ctx context.Context, w io.Writer, iter documentIterator) (int, error) {
+	bw := bufio.NewWriterSize(w, 64<<10)
+	if _, err := bw.WriteString("[\n"); err != nil {
+		return 0, err
+	}
+	count := 0
+	for iter.Next(ctx) {
+		var doc bson.D
+		if err := iter.Decode(&doc); err != nil {
+			return count, err
+		}
+		raw, err := toExtJSON(doc)
+		if err != nil {
+			return count, err
+		}
+		if count > 0 {
+			if _, err := bw.WriteString(",\n"); err != nil {
+				return count, err
+			}
+		}
+		if _, err := bw.WriteString("  "); err != nil {
+			return count, err
+		}
+		if _, err := bw.Write(raw); err != nil {
+			return count, err
+		}
+		count++
+		if count%256 == 0 {
+			if err := bw.Flush(); err != nil {
+				return count, err
+			}
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+		}
+	}
+	if err := iter.Err(); err != nil {
+		return count, err
+	}
+	if _, err := bw.WriteString("\n]\n"); err != nil {
+		return count, err
+	}
+	if err := bw.Flush(); err != nil {
+		return count, err
+	}
+	return count, nil
+}
+
+type csvSpool struct {
+	path    string
+	headers []string
+	count   int
+}
+
+func (s *csvSpool) Close() {
+	if s != nil && s.path != "" {
+		_ = os.Remove(s.path)
+	}
+}
+
+// spoolCSVDocuments reads the cursor once, collecting the union of top-level
+// fields so CSV still has a stable header. Row payloads go to a temporary file
+// instead of RAM; writeCSVSpool replays them into the HTTP response.
+func spoolCSVDocuments(ctx context.Context, iter documentIterator) (*csvSpool, error) {
+	file, err := os.CreateTemp("", "mongoui-export-*.ndjson")
+	if err != nil {
+		return nil, err
+	}
+	path := file.Name()
+	ok := false
+	defer func() {
+		if !ok {
+			_ = file.Close()
+			_ = os.Remove(path)
+		}
+	}()
+
+	bw := bufio.NewWriterSize(file, 64<<10)
+	seen := map[string]bool{}
+	headers := []string{}
+	count := 0
+	for iter.Next(ctx) {
+		var doc bson.D
+		if err := iter.Decode(&doc); err != nil {
+			return nil, err
+		}
+		for _, e := range doc {
+			if !seen[e.Key] {
+				seen[e.Key] = true
+				headers = append(headers, e.Key)
+			}
+		}
+		raw, err := toExtJSON(doc)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := bw.Write(raw); err != nil {
+			return nil, err
+		}
+		if err := bw.WriteByte('\n'); err != nil {
+			return nil, err
+		}
+		count++
+	}
+	if err := iter.Err(); err != nil {
+		return nil, err
+	}
+	if err := bw.Flush(); err != nil {
+		return nil, err
+	}
+	if err := file.Close(); err != nil {
+		return nil, err
+	}
+	ok = true
+	return &csvSpool{path: path, headers: orderedCSVHeaders(headers), count: count}, nil
+}
+
+func writeCSVSpool(w io.Writer, spool *csvSpool) error {
+	file, err := os.Open(spool.path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	cw := csv.NewWriter(w)
+	if err := cw.Write(spool.headers); err != nil {
+		return err
+	}
+	dec := json.NewDecoder(file)
+	for {
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return err
+		}
+		var doc bson.D
+		if err := bson.UnmarshalExtJSON(raw, false, &doc); err != nil {
+			return err
+		}
+		m := doc.Map()
+		row := make([]string, len(spool.headers))
+		for i, header := range spool.headers {
+			row[i] = csvCell(m[header])
+		}
+		if err := cw.Write(row); err != nil {
+			return err
+		}
+	}
+	cw.Flush()
+	return cw.Error()
 }
 
 type importRequest struct {
@@ -363,15 +551,18 @@ func csvHeaders(docs []bson.D) []string {
 			}
 		}
 	}
-	// Keep _id as the first column when present.
+	return orderedCSVHeaders(headers)
+}
+
+// orderedCSVHeaders keeps the first-seen order but puts _id first.
+func orderedCSVHeaders(headers []string) []string {
 	for i, h := range headers {
 		if h == "_id" && i != 0 {
-			rest := make([]string, 0, len(headers))
-			rest = append(rest, "_id")
-			rest = append(rest, headers[:i]...)
-			rest = append(rest, headers[i+1:]...)
-			headers = rest
-			break
+			out := make([]string, 0, len(headers))
+			out = append(out, "_id")
+			out = append(out, headers[:i]...)
+			out = append(out, headers[i+1:]...)
+			return out
 		}
 	}
 	return headers

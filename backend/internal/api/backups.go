@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -187,22 +186,22 @@ func (b *backupManager) run(task BackupTask) {
 			return
 		}
 		collection := client.Database(task.Database).Collection(task.Collection)
-		ext, content, n, err := buildBackupContent(ctx, collection, task.Format, filter)
+		if err := os.MkdirAll(b.dir, 0o700); err != nil {
+			status, errText = "error", err.Error()
+			return
+		}
+		ext := "json"
+		if task.Format == "csv" {
+			ext = "csv"
+		}
+		name := fmt.Sprintf("%s.%s.%s.%s", task.ID, sanitizeName(task.Database), sanitizeName(task.Collection), time.Now().UTC().Format("20060102-150405"))
+		name = name + "." + ext
+		n, err := writeBackupFile(ctx, collection, task.Format, filter, filepath.Join(b.dir, name))
 		if err != nil {
 			status, errText = "error", err.Error()
 			return
 		}
 		count = n
-		if err := os.MkdirAll(b.dir, 0o700); err != nil {
-			status, errText = "error", err.Error()
-			return
-		}
-		name := fmt.Sprintf("%s.%s.%s.%s", task.ID, sanitizeName(task.Database), sanitizeName(task.Collection), time.Now().UTC().Format("20060102-150405"))
-		name = name + "." + ext
-		if err := os.WriteFile(filepath.Join(b.dir, name), []byte(content), 0o600); err != nil {
-			status, errText = "error", err.Error()
-			return
-		}
 		file = name
 		b.prune(task.ID)
 	}()
@@ -248,35 +247,69 @@ func sanitizeName(name string) string {
 	return strings.NewReplacer("/", "_", "\\", "_", " ", "_").Replace(name)
 }
 
-func buildBackupContent(ctx context.Context, collection *mongo.Collection, format string, filter bson.D) (string, string, int, error) {
+// writeBackupFile writes a backup atomically via a .tmp sibling and returns the
+// number of exported documents. JSON is streamed; CSV first spools rows to a
+// temporary NDJSON file so the full column union is known before the header is
+// written.
+func writeBackupFile(ctx context.Context, collection *mongo.Collection, format string, filter bson.D, target string) (int, error) {
 	if format == "" {
 		format = "json"
 	}
 	cursor, err := collection.Find(ctx, filter, options.Find().SetLimit(backupLimit))
 	if err != nil {
-		return "", "", 0, err
+		return 0, err
 	}
 	defer cursor.Close(ctx)
-	docs := []bson.D{}
-	if err := cursor.All(ctx, &docs); err != nil {
-		return "", "", 0, err
-	}
-	if format == "csv" {
-		content, err := documentsToCSV(docs)
-		if err != nil {
-			return "", "", 0, err
+
+	tmp := target + ".tmp"
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmp)
 		}
-		return "csv", content, len(docs), nil
+	}()
+
+	if format == "csv" {
+		spool, err := spoolCSVDocuments(ctx, cursor)
+		if err != nil {
+			return 0, err
+		}
+		defer spool.Close()
+		file, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+		if err != nil {
+			return 0, err
+		}
+		if err := writeCSVSpool(file, spool); err != nil {
+			_ = file.Close()
+			return 0, err
+		}
+		if err := file.Close(); err != nil {
+			return 0, err
+		}
+		if err := os.Rename(tmp, target); err != nil {
+			return 0, err
+		}
+		cleanup = false
+		return spool.count, nil
 	}
-	raw, err := toExtJSON(docs)
+
+	file, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
-		return "", "", 0, err
+		return 0, err
 	}
-	var buf bytes.Buffer
-	if err := json.Indent(&buf, raw, "", "  "); err != nil {
-		return "", "", 0, err
+	count, writeErr := writeJSONDocuments(ctx, file, cursor)
+	closeErr := file.Close()
+	if writeErr != nil {
+		return 0, writeErr
 	}
-	return "json", buf.String(), len(docs), nil
+	if closeErr != nil {
+		return 0, closeErr
+	}
+	if err := os.Rename(tmp, target); err != nil {
+		return 0, err
+	}
+	cleanup = false
+	return count, nil
 }
 
 // --- HTTP handlers ----------------------------------------------------------

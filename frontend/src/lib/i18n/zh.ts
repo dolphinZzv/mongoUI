@@ -1245,6 +1245,7 @@ const zh: Record<string, string> = {
   "transfer.exportDesc": "把 {{path}} 的文档下载为文件。",
   "transfer.exportAction": "导出",
   "transfer.exported": "已导出 {{count}} 条文档",
+  "transfer.exportedDone": "导出文件已下载。",
   "transfer.exportFailed": "导出失败",
   "transfer.importTitle": "导入文档",
   "transfer.importDesc": "向 {{path}} 插入文档。",

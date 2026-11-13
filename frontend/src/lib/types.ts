@@ -138,11 +138,11 @@ export interface ScriptResult {
 
 export type TransferFormat = "json" | "csv"
 
-export interface ExportResult {
+export interface ExportDownload {
+  blob: Blob
   filename: string
-  contentType: string
-  content: string
-  count: number
+  /** Present for CSV exports, where the server can know the count up front. */
+  count?: number
 }
 
 export interface ImportResult {

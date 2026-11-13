@@ -86,6 +86,15 @@ func dataOf(t *testing.T, envelope map[string]any) map[string]any {
 	return raw
 }
 
+func doDownload(t *testing.T, handler http.Handler, method, path, body string) (int, []byte, http.Header) {
+	t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec.Code, rec.Body.Bytes(), rec.Header()
+}
+
 func TestIntegrationDataOperations(t *testing.T) {
 	handler, db := integrationAPI(t)
 	base := "/api/connections"
@@ -121,35 +130,40 @@ func TestIntegrationDataOperations(t *testing.T) {
 		t.Fatalf("create index: status %d body %#v", status, env)
 	}
 
-	// Export JSON.
-	status, env = doJSON(t, handler, http.MethodPost, collPath("people")+"/export",
+	// Export JSON is a direct streaming download.
+	status, raw, headers := doDownload(t, handler, http.MethodPost, collPath("people")+"/export",
 		`{"format":"json","filter":{"active":true}}`)
 	if status != http.StatusOK {
-		t.Fatalf("export json: status %d body %#v", status, env)
+		t.Fatalf("export json: status %d body %s", status, raw)
 	}
-	exported := dataOf(t, env)
-	if exported["count"].(float64) != 2 {
-		t.Fatalf("export json count = %v, want 2", exported["count"])
+	var exported []map[string]any
+	if err := json.Unmarshal(raw, &exported); err != nil {
+		t.Fatalf("export json decode %q: %v", raw, err)
 	}
-	if !strings.Contains(exported["content"].(string), "Alice") {
-		t.Fatalf("export json missing Alice: %s", exported["content"])
+	if len(exported) != 2 {
+		t.Fatalf("export json count = %d, want 2", len(exported))
 	}
-	if !strings.HasSuffix(exported["filename"].(string), ".json") {
-		t.Fatalf("unexpected filename: %v", exported["filename"])
+	if !strings.Contains(string(raw), "Alice") {
+		t.Fatalf("export json missing Alice: %s", raw)
+	}
+	if disposition := headers.Get("Content-Disposition"); !strings.Contains(disposition, ".json") {
+		t.Fatalf("unexpected content disposition: %q", disposition)
 	}
 
 	// Export CSV.
-	status, env = doJSON(t, handler, http.MethodPost, collPath("people")+"/export", `{"format":"csv"}`)
+	status, raw, headers = doDownload(t, handler, http.MethodPost, collPath("people")+"/export", `{"format":"csv"}`)
 	if status != http.StatusOK {
-		t.Fatalf("export csv: status %d body %#v", status, env)
+		t.Fatalf("export csv: status %d body %s", status, raw)
 	}
-	csv := dataOf(t, env)["content"].(string)
-	lines := strings.Split(strings.TrimSpace(csv), "\n")
+	if got := headers.Get("X-Mongoui-Export-Count"); got != "3" {
+		t.Fatalf("csv export count header = %q, want 3", got)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
 	if !strings.Contains(lines[0], "name") || !strings.Contains(lines[0], "age") {
 		t.Fatalf("unexpected csv header: %q", lines[0])
 	}
 	if len(lines) != 4 {
-		t.Fatalf("expected header + 3 rows, got %d lines: %q", len(lines), csv)
+		t.Fatalf("expected header + 3 rows, got %d lines: %q", len(lines), raw)
 	}
 
 	// Import JSON (array).
@@ -205,12 +219,16 @@ func TestIntegrationDataOperations(t *testing.T) {
 	}
 
 	// Round-trip the copied collection back as an export.
-	status, env = doJSON(t, handler, http.MethodPost, collPath("people_copy")+"/export", `{"format":"json"}`)
+	status, raw, _ = doDownload(t, handler, http.MethodPost, collPath("people_copy")+"/export", `{"format":"json"}`)
 	if status != http.StatusOK {
-		t.Fatalf("export copy: status %d body %#v", status, env)
+		t.Fatalf("export copy: status %d body %s", status, raw)
 	}
-	if got := dataOf(t, env)["count"].(float64); got != 3 {
-		t.Fatalf("copied export count = %v, want 3", got)
+	var copiedExport []map[string]any
+	if err := json.Unmarshal(raw, &copiedExport); err != nil {
+		t.Fatalf("export copy decode: %v", err)
+	}
+	if len(copiedExport) != 3 {
+		t.Fatalf("copied export count = %d, want 3", len(copiedExport))
 	}
 }
 

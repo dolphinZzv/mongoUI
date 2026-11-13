@@ -1,6 +1,9 @@
 package api
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -172,5 +175,80 @@ func TestIsNamespaceNotFound(t *testing.T) {
 	}
 	if isNamespaceNotFound(errors.New("some other error")) {
 		t.Fatal("unrelated error must not match")
+	}
+}
+
+type sliceDocumentIterator struct {
+	docs []bson.D
+	next int
+}
+
+func (s *sliceDocumentIterator) Next(context.Context) bool {
+	if s.next >= len(s.docs) {
+		return false
+	}
+	s.next++
+	return true
+}
+
+func (s *sliceDocumentIterator) Decode(v any) error {
+	*(v.(*bson.D)) = s.docs[s.next-1]
+	return nil
+}
+
+func (s *sliceDocumentIterator) Err() error { return nil }
+
+func TestWriteJSONDocumentsStreamsArray(t *testing.T) {
+	var buf bytes.Buffer
+	count, err := writeJSONDocuments(context.Background(), &buf, &sliceDocumentIterator{docs: []bson.D{
+		{{Key: "_id", Value: int32(1)}, {Key: "name", Value: "Alice"}},
+		{{Key: "_id", Value: int32(2)}, {Key: "name", Value: "Bob"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("count = %d, want 2", count)
+	}
+	var docs []map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &docs); err != nil {
+		t.Fatalf("invalid JSON array: %v (%s)", err, buf.String())
+	}
+	if len(docs) != 2 || docs[0]["name"] != "Alice" || docs[1]["name"] != "Bob" {
+		t.Fatalf("unexpected docs: %#v", docs)
+	}
+}
+
+func TestSpoolCSVDocumentsPreservesUnionHeader(t *testing.T) {
+	spool, err := spoolCSVDocuments(context.Background(), &sliceDocumentIterator{docs: []bson.D{
+		{{Key: "name", Value: "Alice"}, {Key: "_id", Value: int32(1)}},
+		{{Key: "_id", Value: int32(2)}, {Key: "extra", Value: true}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer spool.Close()
+	if spool.count != 2 {
+		t.Fatalf("count = %d, want 2", spool.count)
+	}
+	var buf bytes.Buffer
+	if err := writeCSVSpool(&buf, spool); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if lines[0] != "_id,name,extra" {
+		t.Fatalf("unexpected header: %q", lines[0])
+	}
+	if lines[1] != "1,Alice," || lines[2] != "2,,true" {
+		t.Fatalf("unexpected rows: %q", lines)
+	}
+}
+
+func TestExportFilenameSanitizesUnsafeCharacters(t *testing.T) {
+	if got := exportFilename("db/../x", `col"name`, "json"); strings.ContainsAny(got, "/\\\"") {
+		t.Fatalf("unsafe filename: %q", got)
+	}
+	if got := exportFilename("db", "col", "csv"); got != "db.col.csv" {
+		t.Fatalf("filename = %q", got)
 	}
 }

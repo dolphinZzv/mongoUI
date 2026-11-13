@@ -32,7 +32,7 @@ import type {
   DatabaseList,
   DeleteRequest,
   ExplainRequest,
-  ExportResult,
+  ExportDownload,
   FeedbackInput,
   FeedbackResult,
   FindRequest,
@@ -72,6 +72,67 @@ export function isAbortError(err: unknown): boolean {
     (err instanceof DOMException && err.name === "AbortError") ||
     (err instanceof Error && err.name === "AbortError")
   )
+}
+
+function filenameFromDisposition(value: string | null): string | undefined {
+  if (!value) return undefined
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(value)
+  if (utf8) {
+    try {
+      return decodeURIComponent(utf8[1])
+    } catch {
+      /* fall through to the quoted form */
+    }
+  }
+  const quoted = /filename="([^"]*)"/i.exec(value)
+  return quoted?.[1]
+}
+
+/** Fetch a streaming download endpoint and keep the server-provided filename. */
+async function download(path: string, init?: RequestInit): Promise<ExportDownload> {
+  let res: Response
+  try {
+    res = await fetch(BASE + path, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+    })
+  } catch (err) {
+    if (isAbortError(err)) throw err
+    throw new ApiError(err instanceof Error ? err.message : "Network request failed", 0)
+  }
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      try {
+        window.dispatchEvent(new Event("mongoui-unauthorized"))
+      } catch {
+        /* ignore */
+      }
+    }
+    let message = res.statusText || `Request failed with status ${res.status}`
+    try {
+      const body = (await res.json()) as { error?: unknown }
+      if (body && typeof body.error === "string") message = body.error
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new ApiError(message, res.status)
+  }
+
+  const blob = await res.blob()
+  const countHeader = res.headers.get("X-Mongoui-Export-Count")
+  const parsedCount = countHeader === null ? undefined : Number(countHeader)
+  return {
+    blob,
+    filename: filenameFromDisposition(res.headers.get("Content-Disposition")) ?? "export",
+    count:
+      parsedCount !== undefined && Number.isFinite(parsedCount) && parsedCount >= 0
+        ? parsedCount
+        : undefined,
+  }
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -258,7 +319,7 @@ export const api = {
     col: string,
     req: { format: TransferFormat; filter?: unknown; sort?: unknown; projection?: unknown; limit?: number },
   ) =>
-    request<ExportResult>(
+    download(
       `/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/export`,
       { method: "POST", body: JSON.stringify(req) },
     ),

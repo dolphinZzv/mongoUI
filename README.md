@@ -238,7 +238,7 @@ LIMIT 20
 
 | 操作 | 接口 | 说明 |
 | --- | --- | --- |
-| 导出 | `POST .../export` | body `{ format: "json"\|"csv", filter?, sort?, projection?, limit? }`，返回文件名、MIME 与内容 |
+| 导出 | `POST .../export` | body `{ format: "json"\|"csv", filter?, sort?, projection?, limit? }`，流式返回文件（`Content-Disposition`）；CSV 额外返回 `X-Mongoui-Export-Count` |
 | 导入 | `POST .../import` | body `{ format: "json"\|"csv", content, drop? }`；JSON 支持数组或 NDJSON，CSV 自动推断类型 |
 | 复制 | `POST .../copy` | body `{ targetDatabase, targetCollection, filter?, dropTarget?, copyIndexes? }` |
 

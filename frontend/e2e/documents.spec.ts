@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises"
+
 import { expect, test, type Page } from "@playwright/test"
 
 import { collectionPath, readState } from "./state"
@@ -181,4 +183,21 @@ test("restores results when the URL query changes externally", async ({ page }) 
     )
     .toBe(true)
   await expect(page.getByTestId("mongo-filter-editor")).toHaveValue('{"region":"APAC"}')
+})
+
+test("downloads a streaming JSON export", async ({ page }) => {
+  await page.getByRole("button", { name: "More actions" }).click()
+  await page.getByRole("menuitem", { name: "Export" }).click()
+
+  const dialog = page.getByRole("dialog")
+  const downloadPromise = page.waitForEvent("download")
+  await dialog.getByRole("button", { name: "Export" }).click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toMatch(/\.json$/)
+
+  const file = await download.path()
+  expect(file).toBeTruthy()
+  const docs = JSON.parse(await readFile(file as string, "utf8")) as unknown[]
+  expect(Array.isArray(docs)).toBe(true)
+  expect(docs.length).toBe(60)
 })

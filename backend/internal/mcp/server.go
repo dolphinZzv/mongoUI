@@ -34,6 +34,12 @@ type TokenAuthorizer interface {
 	Enabled() bool
 }
 
+// ConnectionAuthorizer is an optional extension implemented by the auth
+// manager. A nil list means the token may access every connection.
+type ConnectionAuthorizer interface {
+	TokenConnectionIDs(*http.Request) ([]string, bool)
+}
+
 const (
 	scopeRead  = "read"
 	scopeWrite = "write"
@@ -108,12 +114,13 @@ type rpcResponse struct {
 // handle processes one JSON-RPC message with full access. Used by the local
 // stdio transport, which already runs as the server owner.
 func (s *Server) handle(raw []byte) []byte {
-	return s.handleWithScopes(raw, allScopes)
+	return s.handleWithScopes(raw, allScopes, nil)
 }
 
-// handleWithScopes processes one JSON-RPC message using the scopes granted to
-// the HTTP caller. Write tools are hidden and rejected for read-only PATs.
-func (s *Server) handleWithScopes(raw []byte, scopes []string) []byte {
+// handleWithScopes processes one JSON-RPC message using the scopes and
+// connection allowlist granted to the HTTP caller. Write tools are hidden and
+// rejected for read-only PATs; tools targeting a disallowed connection fail.
+func (s *Server) handleWithScopes(raw []byte, scopes, connections []string) []byte {
 	var req rpcRequest
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return encode(rpcResponse{JSONRPC: "2.0", Error: &rpcError{Code: -32700, Message: "parse error"}})
@@ -152,7 +159,7 @@ func (s *Server) handleWithScopes(raw []byte, scopes []string) []byte {
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return encode(rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid params"}})
 		}
-		text, err := s.callToolWithScopes(params.Name, params.Arguments, scopes)
+		text, err := s.callToolWithScopes(params.Name, params.Arguments, scopes, connections)
 		if err != nil {
 			return encode(rpcResponse{
 				JSONRPC: "2.0",
@@ -236,7 +243,7 @@ func (s *Server) HTTPHandler() http.Handler {
 			http.Error(w, "MCP server is disabled", http.StatusNotFound)
 			return
 		}
-		scopes, ok := s.authorized(r)
+		scopes, connections, ok := s.authorized(r)
 		if !ok {
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -258,7 +265,7 @@ func (s *Server) HTTPHandler() http.Handler {
 			}
 			w.Header().Set("Mcp-Session-Id", session)
 
-			resp := s.handleWithScopes(body, scopes)
+			resp := s.handleWithScopes(body, scopes, connections)
 
 			if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
 				w.Header().Set("Content-Type", "text/event-stream")
@@ -290,16 +297,24 @@ func (s *Server) HTTPHandler() http.Handler {
 	})
 }
 
-func (s *Server) authorized(r *http.Request) ([]string, bool) {
+func (s *Server) authorized(r *http.Request) ([]string, []string, bool) {
 	if s.authorizer != nil {
 		if scopes, ok := s.authorizer.TokenScopes(r); ok {
-			return scopes, true
+			var connections []string
+			if scoped, ok := s.authorizer.(ConnectionAuthorizer); ok {
+				list, ok := scoped.TokenConnectionIDs(r)
+				if !ok {
+					return nil, nil, false
+				}
+				connections = list
+			}
+			return scopes, connections, true
 		}
 		if s.authorizer.Enabled() {
-			return nil, false
+			return nil, nil, false
 		}
 	}
 	// No account system configured: preserve the original local-hosting
 	// behaviour where the MCP endpoint is open.
-	return allScopes, true
+	return allScopes, nil, true
 }

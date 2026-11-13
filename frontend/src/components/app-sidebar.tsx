@@ -8,6 +8,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
+import { useAuth } from "@/components/auth-gate"
 import { AliasDialog } from "@/components/alias-dialog"
 import { ConnectionTree } from "@/components/sidebar/connection-tree"
 import { PinnedSection, type PinnedNavItem } from "@/components/sidebar/pinned-section"
@@ -82,6 +83,8 @@ export function AppSidebar({
   onRefresh,
 }: AppSidebarProps) {
   const { t } = useI18n()
+  const { enabled, role } = useAuth()
+  const canManageConnections = !enabled || role === "admin"
   const [expandedConns, setExpandedConns] = React.useState<Record<string, boolean>>(
     () => readExpanded().conns,
   )
@@ -510,14 +513,16 @@ export function AppSidebar({
         </div>
         <span className="font-semibold tracking-tight">MongoUI</span>
         <div className="ml-auto flex items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" onClick={onNewConnection} aria-label={t("app.newConnection")}>
-                <Plus />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t("app.newConnection")}</TooltipContent>
-          </Tooltip>
+          {canManageConnections ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon-sm" onClick={onNewConnection} aria-label={t("app.newConnection")}>
+                  <Plus />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("app.newConnection")}</TooltipContent>
+            </Tooltip>
+          ) : null}
         </div>
       </div>
 
@@ -640,6 +645,7 @@ export function AppSidebar({
             onSelect={onSelect}
             onNewConnection={onNewConnection}
             onEditConnection={onEditConnection}
+            canManageConnections={canManageConnections}
             handleConnect={handleConnect}
             handleDisconnect={handleDisconnect}
             toggleConnection={toggleConnection}

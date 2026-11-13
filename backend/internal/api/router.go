@@ -112,6 +112,7 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 			if a.auth != nil {
 				r.Use(a.auth.Middleware)
 			}
+			r.Use(a.connectionAccessMiddleware)
 			r.Use(a.auditMiddleware)
 
 			r.Get("/audit", a.listAudit)

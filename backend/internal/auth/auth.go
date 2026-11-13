@@ -365,6 +365,9 @@ type User struct {
 	Source       string  `json:"source,omitempty"`
 	Email        string  `json:"email,omitempty"`
 	Tokens       []Token `json:"tokens,omitempty"`
+	// ConnectionIDs restricts which connection profiles this account may use.
+	// An empty list means all connections (backward-compatible default).
+	ConnectionIDs []string `json:"connectionIds,omitempty"`
 	// SessionVersion invalidates every existing browser session when it is
 	// incremented (password change, admin reset, sign out everywhere).
 	SessionVersion uint64 `json:"sessionVersion,omitempty"`
@@ -1304,6 +1307,53 @@ func (m *Manager) TokenScopes(r *http.Request) ([]string, bool) {
 	return access.scopes, true
 }
 
+// TokenConnectionIDs returns the connection allowlist for a PAT. A nil list
+// means unrestricted (admin or an empty allowlist).
+func (m *Manager) TokenConnectionIDs(r *http.Request) ([]string, bool) {
+	raw := bearerToken(r)
+	if raw == "" {
+		return nil, false
+	}
+	access, ok := m.accessForToken(raw)
+	if !ok {
+		return nil, false
+	}
+	if access.user.Role == RoleAdmin || len(access.user.ConnectionIDs) == 0 {
+		return nil, true
+	}
+	return append([]string(nil), access.user.ConnectionIDs...), true
+}
+
+// UpdateUserConnections replaces an account's allowlist. An empty slice means
+// all connections; ids are trimmed and de-duplicated.
+func (m *Manager) UpdateUserConnections(id string, ids []string) error {
+	seen := map[string]bool{}
+	clean := make([]string, 0, len(ids))
+	for _, value := range ids {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		clean = append(clean, value)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.users {
+		if m.users[i].ID != id {
+			continue
+		}
+		old := m.users[i].ConnectionIDs
+		m.users[i].ConnectionIDs = clean
+		if err := m.save(); err != nil {
+			m.users[i].ConnectionIDs = old
+			return err
+		}
+		return nil
+	}
+	return errors.New("account not found")
+}
+
 // AuditActor returns the account and PAT (when applicable) behind a request.
 // It is used by the HTTP audit log; it never reveals credentials.
 func (m *Manager) AuditActor(r *http.Request) (username, tokenID string) {
@@ -1328,6 +1378,32 @@ func (m *Manager) Scopes(r *http.Request) ([]string, bool) {
 func (m *Manager) CanWrite(r *http.Request) bool {
 	access, ok := m.requestAccess(r)
 	return ok && access.user.Role != RoleReadOnly && hasScope(access.scopes, ScopeWrite)
+}
+
+func connectionAllowed(user User, connectionID string) bool {
+	if user.Role == RoleAdmin || len(user.ConnectionIDs) == 0 {
+		return true
+	}
+	for _, id := range user.ConnectionIDs {
+		if id == connectionID {
+			return true
+		}
+	}
+	return false
+}
+
+// CanAccessConnection reports whether the caller may read the given connection.
+func (m *Manager) CanAccessConnection(r *http.Request, connectionID string) bool {
+	access, ok := m.requestAccess(r)
+	return ok && connectionAllowed(access.user, connectionID)
+}
+
+// CanWriteConnection combines the account/role write check with the per-user
+// connection allowlist. Admin accounts and empty allowlists are unrestricted.
+func (m *Manager) CanWriteConnection(r *http.Request, connectionID string) bool {
+	access, ok := m.requestAccess(r)
+	return ok && access.user.Role != RoleReadOnly &&
+		hasScope(access.scopes, ScopeWrite) && connectionAllowed(access.user, connectionID)
 }
 
 // IsAdmin reports whether the caller may manage accounts and server settings.
@@ -1664,14 +1740,15 @@ func (m *Manager) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	out := make([]map[string]any, 0, len(users))
 	for _, user := range users {
 		out = append(out, map[string]any{
-			"id":          user.ID,
-			"username":    user.Username,
-			"role":        user.Role,
-			"createdAt":   user.CreatedAt,
-			"source":      userSource(user),
-			"hasPassword": user.PasswordHash != "",
-			"hasTOTP":     user.Secret != "",
-			"email":       user.Email,
+			"id":            user.ID,
+			"username":      user.Username,
+			"role":          user.Role,
+			"createdAt":     user.CreatedAt,
+			"source":        userSource(user),
+			"hasPassword":   user.PasswordHash != "",
+			"hasTOTP":       user.Secret != "",
+			"email":         user.Email,
+			"connectionIds": append([]string{}, user.ConnectionIDs...),
 		})
 	}
 	ok(w, out)
@@ -1740,14 +1817,15 @@ func (m *Manager) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Role     *Role  `json:"role"`
-		Password string `json:"password"`
+		Role          *Role     `json:"role"`
+		Password      string    `json:"password"`
+		ConnectionIDs *[]string `json:"connectionIds"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		fail(w, http.StatusBadRequest, errors.New("invalid request body"))
 		return
 	}
-	if req.Role == nil && req.Password == "" {
+	if req.Role == nil && req.Password == "" && req.ConnectionIDs == nil {
 		fail(w, http.StatusBadRequest, errors.New("no fields to update"))
 		return
 	}
@@ -1762,6 +1840,12 @@ func (m *Manager) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Password != "" {
 		if err := m.SetUserPassword(id, req.Password); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+	}
+	if req.ConnectionIDs != nil {
+		if err := m.UpdateUserConnections(id, *req.ConnectionIDs); err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}

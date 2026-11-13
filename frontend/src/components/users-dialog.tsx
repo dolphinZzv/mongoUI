@@ -1,5 +1,5 @@
 import * as React from "react"
-import { KeyRound, Loader2, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react"
+import { Database, KeyRound, Loader2, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { useAuth } from "@/components/auth-gate"
@@ -21,9 +21,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { UserConnectionsDialog } from "@/components/user-connections-dialog"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
-import type { AuthRole, AuthUser, AuthUserSetup } from "@/lib/types"
+import type { AuthRole, AuthUser, AuthUserSetup, Connection } from "@/lib/types"
 
 interface UsersDialogProps {
   open: boolean
@@ -39,6 +40,8 @@ export function UsersDialog({ open, onOpenChange }: UsersDialogProps) {
   const { t } = useI18n()
   const { username: currentUsername } = useAuth()
   const [users, setUsers] = React.useState<AuthUser[]>([])
+  const [connections, setConnections] = React.useState<Connection[]>([])
+  const [managingConnections, setManagingConnections] = React.useState<AuthUser | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [adding, setAdding] = React.useState(false)
   const [newUsername, setNewUsername] = React.useState("")
@@ -57,7 +60,12 @@ export function UsersDialog({ open, onOpenChange }: UsersDialogProps) {
   const load = React.useCallback(async () => {
     setLoading(true)
     try {
-      setUsers((await api.listAuthUsers()) ?? [])
+      const [nextUsers, nextConnections] = await Promise.all([
+        api.listAuthUsers(),
+        api.listConnections().catch(() => [] as Connection[]),
+      ])
+      setUsers(nextUsers ?? [])
+      setConnections(nextConnections)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("users.failed"))
     } finally {
@@ -89,6 +97,7 @@ export function UsersDialog({ open, onOpenChange }: UsersDialogProps) {
     setResetting(null)
     setResetPassword("")
     setResetPasswordConfirm("")
+    setManagingConnections(null)
     void load()
   }, [open, load])
 
@@ -298,6 +307,16 @@ export function UsersDialog({ open, onOpenChange }: UsersDialogProps) {
                         ))}
                       </SelectContent>
                     </Select>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      disabled={user.role === "admin"}
+                      onClick={() => setManagingConnections(user)}
+                      title={t("users.connections")}
+                      aria-label={t("users.connections")}
+                    >
+                      <Database />
+                    </Button>
                     {user.source !== "oidc" ? (
                       <Button
                         variant="ghost"
@@ -480,6 +499,22 @@ export function UsersDialog({ open, onOpenChange }: UsersDialogProps) {
           </form>
         </DialogContent>
       </Dialog>
+
+      <UserConnectionsDialog
+        open={managingConnections !== null}
+        onOpenChange={(value) => !value && setManagingConnections(null)}
+        user={managingConnections}
+        connections={connections}
+        onSaved={(ids) => {
+          const id = managingConnections?.id
+          if (!id) return
+          setUsers((prev) =>
+            prev.map((entry) =>
+              entry.id === id ? { ...entry, connectionIds: ids } : entry,
+            ),
+          )
+        }}
+      />
     </>
   )
 }

@@ -453,3 +453,61 @@ func TestBoundAggregatePipelineStopsAtTerminalStage(t *testing.T) {
 		}
 	}
 }
+
+type fakeConnectionPAT struct {
+	fakePATAuthorizer
+	connections map[string][]string
+}
+
+func (f fakeConnectionPAT) TokenConnectionIDs(r *http.Request) ([]string, bool) {
+	raw := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	ids, ok := f.connections[raw]
+	return ids, ok
+}
+
+func TestHTTPConnectionAllowlist(t *testing.T) {
+	s, store := newTestServer(t, false)
+	allowed, err := store.Add(config.Connection{Name: "allowed", URI: "mongodb://127.0.0.1:27017"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocked, err := store.Add(config.Connection{Name: "blocked", URI: "mongodb://127.0.0.1:27017"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetTokenAuthorizer(fakeConnectionPAT{
+		fakePATAuthorizer: fakePATAuthorizer{
+			enabled: true,
+			tokens:  map[string][]string{"pat": {scopeRead}},
+		},
+		connections: map[string][]string{"pat": {allowed.ID}},
+	})
+	ts := httptest.NewServer(s.HTTPHandler())
+	defer ts.Close()
+
+	status, out := mcpRequest(t, ts.URL, "pat", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mongoui_list_connections","arguments":{}}}`)
+	if status != http.StatusOK {
+		t.Fatalf("status = %d", status)
+	}
+	text := out["result"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)
+	var list []map[string]any
+	if err := json.Unmarshal([]byte(text), &list); err != nil {
+		t.Fatalf("list decode: %v (%s)", err, text)
+	}
+	if len(list) != 1 || list[0]["id"] != allowed.ID {
+		t.Fatalf("filtered list = %#v", list)
+	}
+
+	status, out = mcpRequest(t, ts.URL, "pat", `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mongoui_connect","arguments":{"connectionId":"`+blocked.ID+`"}}}`)
+	if status != http.StatusOK {
+		t.Fatalf("status = %d", status)
+	}
+	result := out["result"].(map[string]any)
+	if result["isError"] != true {
+		t.Fatalf("blocked connection should fail: %#v", result)
+	}
+	errText := result["content"].([]any)[0].(map[string]any)["text"].(string)
+	if !strings.Contains(errText, "not allowed") {
+		t.Fatalf("unexpected error: %s", errText)
+	}
+}

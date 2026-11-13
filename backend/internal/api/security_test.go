@@ -191,7 +191,15 @@ func TestPersonalAccessTokenScopesThroughAPI(t *testing.T) {
 	if _, err := manager.SetupWithPassword("admin", "admin password"); err != nil {
 		t.Fatal(err)
 	}
+	adminUser, err := manager.LoginPassword("admin", "admin password")
+	if err != nil {
+		t.Fatal(err)
+	}
 	viewer, err := manager.CreatePasswordUser("viewer", auth.RoleReadWrite, "viewer password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminToken, _, err := manager.CreateToken(adminUser.ID, "admin", []string{auth.ScopeAdmin}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +235,15 @@ func TestPersonalAccessTokenScopesThroughAPI(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+writeToken)
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("write token create connection = %d, want 403: %s", rec.Code, rec.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodPost, "/api/connections", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("write token create connection = %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("admin token create connection = %d: %s", rec.Code, rec.Body.String())
 	}
 }

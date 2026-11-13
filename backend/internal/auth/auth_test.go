@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/pquerna/otp/totp"
 
 	"mongoui/internal/config"
@@ -704,4 +705,85 @@ func TestLogoutAllRevokesSessions(t *testing.T) {
 	if _, ok := m.validSession(token); ok {
 		t.Fatal("logout all left the old session valid")
 	}
+}
+
+func TestConnectionAllowlist(t *testing.T) {
+	m := newTestManager(t)
+	admin, err := m.SetupWithPassword("admin", "admin password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := m.CreatePasswordUser("alice", RoleReadWrite, "alice password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.UpdateUserConnections(user.ID, []string{" c1 ", "c2", "c1", ""}); err != nil {
+		t.Fatal(err)
+	}
+	req := requestWithSession(m, user.ID)
+	if !m.CanAccessConnection(req, "c1") || !m.CanAccessConnection(req, "c2") {
+		t.Fatal("allowed connection denied")
+	}
+	if m.CanAccessConnection(req, "c3") || m.CanWriteConnection(req, "c3") {
+		t.Fatal("disallowed connection granted")
+	}
+	if !m.CanWriteConnection(req, "c1") {
+		t.Fatal("readwrite account should write on an allowed connection")
+	}
+
+	raw, token, err := m.CreateToken(user.ID, "restricted", []string{ScopeRead}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, ok := m.TokenConnectionIDs(requestWithToken(raw))
+	if !ok || len(ids) != 2 || ids[0] != "c1" || ids[1] != "c2" {
+		t.Fatalf("token connection ids = %#v, %v", ids, ok)
+	}
+	if _, ok := m.TokenConnectionIDs(requestWithSession(m, user.ID)); ok {
+		t.Fatal("TokenConnectionIDs must not accept a session cookie")
+	}
+
+	// Admin is unrestricted even with a stored allowlist.
+	if err := m.UpdateUserConnections(admin.ID, []string{"c1"}); err != nil {
+		t.Fatal(err)
+	}
+	if !m.CanAccessConnection(requestWithSession(m, admin.ID), "c9") {
+		t.Fatal("admin should bypass the allowlist")
+	}
+	if token.ID == "" {
+		t.Fatal("unexpected empty token id")
+	}
+}
+
+func TestUpdateUserConnectionsHandler(t *testing.T) {
+	m := newTestManager(t)
+	admin, err := m.SetupWithPassword("admin", "admin password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := m.CreatePasswordUser("alice", RoleReadWrite, "alice password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPatch, "/users/"+user.ID,
+		strings.NewReader(`{"connectionIds":["c1","c1"," c2 "]}`))
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: m.newSession(admin.ID)})
+	rec := httptest.NewRecorder()
+	router := chi.NewRouter()
+	router.Patch("/users/{id}", m.handleUpdateUser)
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	for _, candidate := range m.ListUsers() {
+		if candidate.ID != user.ID {
+			continue
+		}
+		if len(candidate.ConnectionIDs) != 2 ||
+			candidate.ConnectionIDs[0] != "c1" || candidate.ConnectionIDs[1] != "c2" {
+			t.Fatalf("connectionIds = %#v", candidate.ConnectionIDs)
+		}
+		return
+	}
+	t.Fatal("updated account not found")
 }

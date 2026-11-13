@@ -46,6 +46,18 @@ func (t tool) toolGroup() toolGroup {
 	return readGroup
 }
 
+func connectionAllowed(ids []string, connectionID string) bool {
+	if len(ids) == 0 {
+		return true
+	}
+	for _, id := range ids {
+		if id == connectionID {
+			return true
+		}
+	}
+	return false
+}
+
 func hasScope(scopes []string, want string) bool {
 	for _, scope := range scopes {
 		if scope == want {
@@ -114,12 +126,12 @@ func pipelineWrites(args map[string]any) bool {
 
 // callTool dispatches a tool with full local access (stdio transport).
 func (s *Server) callTool(name string, args map[string]any) (string, error) {
-	return s.callToolWithScopes(name, args, allScopes)
+	return s.callToolWithScopes(name, args, allScopes, nil)
 }
 
 // callToolWithScopes rejects tools whose group is disabled or not granted to
 // the PAT that authorized the HTTP request.
-func (s *Server) callToolWithScopes(name string, args map[string]any, scopes []string) (string, error) {
+func (s *Server) callToolWithScopes(name string, args map[string]any, scopes, connections []string) (string, error) {
 	for _, t := range tools {
 		if t.name != name {
 			continue
@@ -138,6 +150,18 @@ func (s *Server) callToolWithScopes(name string, args map[string]any, scopes []s
 		// read-scoped PAT must not be able to write through this side door.
 		if t.name == "mongoui_aggregate" && !hasScope(scopes, scopeWrite) && pipelineWrites(args) {
 			return "", fmt.Errorf("tool %q requires a token with the %s scope when the pipeline contains $out or $merge", name, scopeWrite)
+		}
+		if args == nil {
+			args = map[string]any{}
+		}
+		if raw, ok := args["connectionId"]; ok {
+			id, _ := raw.(string)
+			if id != "" && !connectionAllowed(connections, id) {
+				return "", fmt.Errorf("token is not allowed to access connection %q", id)
+			}
+		}
+		if t.name == "mongoui_list_connections" {
+			args["_allowedConnections"] = connections
 		}
 		return t.run(s, args)
 	}
@@ -570,10 +594,14 @@ func clampLimit(n, def, max int64) int64 {
 
 // --- tool implementations ---------------------------------------------------
 
-func toolListConnections(s *Server, _ map[string]any) (string, error) {
+func toolListConnections(s *Server, args map[string]any) (string, error) {
 	conns := s.store.List()
+	allowed, _ := args["_allowedConnections"].([]string)
 	out := make([]map[string]any, 0, len(conns))
 	for _, c := range conns {
+		if !connectionAllowed(allowed, c.ID) {
+			continue
+		}
 		out = append(out, map[string]any{
 			"id":        c.ID,
 			"name":      c.Name,

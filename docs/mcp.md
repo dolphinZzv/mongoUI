@@ -74,7 +74,7 @@ mongoui                 # 启动服务，默认 0.0.0.0:8080
 }
 ```
 
-启用账号登录后，`/mcp` 只接受 PAT。PAT 的 scope 会同时限制 `tools/list` 和实际调用：只读令牌看不到也调不了写工具。
+启用账号登录后，`/mcp` 只接受 PAT。PAT 的 scope 会同时限制 `tools/list` 和实际调用：只读令牌看不到也调不了写工具；账号的连接级 allowlist 也会约束 MCP 可访问的连接（空列表表示全部）。
 
 未启用账号登录时，MCP HTTP 端点保持本地开放行为，适合单机开发；对外暴露前请先启用账号并创建 PAT。
 
@@ -102,7 +102,7 @@ MCP 工具分为**读**与**写**两组，可以在界面右上角的「设置�
 
 每个工具定义都会带上 `group`（`read` / `write`）以及标准的 `annotations.readOnlyHint`，方便客户端区分。
 
-使用 PAT 时还有一层 **scope** 保护：`read` 令牌只能看到/调用读工具，`write` 令牌才能看到/调用写工具。
+使用 PAT 时还有一层 **scope** 保护：`read` 令牌只能看到/调用读工具，`write` 令牌才能看到/调用写工具。连接级 allowlist 同样生效：`mongoui_list_connections` 只返回授权连接，其他工具即使传入未授权 `connectionId` 也会被拒绝。
 
 此外，连接配置里的**只读模式**也会生效：标记为只读的连接即使用写工具也会返回错误。两层保护可以独立使用：
 
@@ -123,7 +123,7 @@ MCP 工具分为**读**与**写**两组，可以在界面右上角的「设置�
 
 | 工具 | 参数 | 说明 |
 | --- | --- | --- |
-| `mongoui_list_connections` | – | 列出连接（id/name/connected/readOnly） |
+| `mongoui_list_connections` | – | 列出授权连接（id/name/connected/readOnly） |
 | `mongoui_connect` | `connectionId` | 建立连接（之后才能读写数据） |
 | `mongoui_disconnect` | `connectionId` | 断开连接 |
 | `mongoui_server_info` | `connectionId` | `buildInfo` |

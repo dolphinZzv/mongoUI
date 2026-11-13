@@ -203,6 +203,7 @@ export interface AuthUser {
   hasPassword?: boolean
   hasTOTP?: boolean
   email?: string
+  connectionIds?: string[]
 }
 
 export interface AuthToken {

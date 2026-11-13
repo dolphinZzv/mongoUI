@@ -64,10 +64,13 @@ type connectionView struct {
 	Connected bool `json:"connected"`
 }
 
-func (a *API) listConnections(w http.ResponseWriter, _ *http.Request) {
+func (a *API) listConnections(w http.ResponseWriter, r *http.Request) {
 	conns := a.store.List()
 	views := make([]connectionView, 0, len(conns))
 	for _, c := range conns {
+		if a.auth != nil && !a.auth.CanAccessConnection(r, c.ID) {
+			continue
+		}
 		// List responses are redacted: the UI only needs names/state, and
 		// credentials are fetched per connection when editing.
 		views = append(views, connectionView{Connection: redactConnection(c), Connected: a.mgr.IsConnected(c.ID)})
@@ -85,7 +88,7 @@ func (a *API) getConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) createConnection(w http.ResponseWriter, r *http.Request) {
-	if !a.requireAccountWrite(w, r) {
+	if !a.requireAdmin(w, r) {
 		return
 	}
 	var in connectionInput
@@ -112,7 +115,7 @@ func (a *API) createConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) updateConnection(w http.ResponseWriter, r *http.Request) {
-	if !a.requireAccountWrite(w, r) {
+	if !a.requireAdmin(w, r) {
 		return
 	}
 	var in connectionInput
@@ -154,7 +157,7 @@ func (a *API) updateConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) deleteConnection(w http.ResponseWriter, r *http.Request) {
-	if !a.requireAccountWrite(w, r) {
+	if !a.requireAdmin(w, r) {
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -199,6 +202,9 @@ func (a *API) disconnect(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) testConnection(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAdmin(w, r) {
+		return
+	}
 	var in connectionInput
 	if err := decodeJSON(r, &in); err != nil {
 		badRequest(w, err)

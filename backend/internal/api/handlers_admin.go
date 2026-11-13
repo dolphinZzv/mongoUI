@@ -86,7 +86,7 @@ func (a *API) copyCollection(w http.ResponseWriter, r *http.Request) {
 	targetClient := client
 	if targetConnectionID := strings.TrimSpace(req.TargetConnectionID); targetConnectionID != "" &&
 		targetConnectionID != chi.URLParam(r, "id") {
-		if !a.requireWritableConnection(w, targetConnectionID) {
+		if !a.requireWritableConnection(w, r, targetConnectionID) {
 			return
 		}
 		targetClient, err = a.mgr.Get(targetConnectionID)

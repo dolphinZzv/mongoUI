@@ -72,6 +72,7 @@ interface ConnectionTreeProps {
   onSelect: (selection: Selection) => void
   onNewConnection: () => void
   onEditConnection: (connection: Connection) => void
+  canManageConnections: boolean
   handleConnect: (connection: Connection) => Promise<void>
   handleDisconnect: (connection: Connection) => Promise<void>
   toggleConnection: (connection: Connection) => void
@@ -114,6 +115,7 @@ export function ConnectionTree({
   onSelect,
   onNewConnection,
   onEditConnection,
+  canManageConnections,
   handleConnect,
   handleDisconnect,
   toggleConnection,
@@ -146,9 +148,11 @@ export function ConnectionTree({
               <p className="text-muted-foreground mt-1 text-xs">
                 {t("sidebar.emptyHint")}
               </p>
-              <Button size="sm" className="mt-4" onClick={onNewConnection}>
-                <Plus /> {t("app.newConnection")}
-              </Button>
+              {canManageConnections ? (
+                <Button size="sm" className="mt-4" onClick={onNewConnection}>
+                  <Plus /> {t("app.newConnection")}
+                </Button>
+              ) : null}
             </div>
           ) : null}
 
@@ -261,16 +265,20 @@ export function ConnectionTree({
                         {pinned.has(connPin(connection.id)) ? <PinOff /> : <Pin />}
                         {pinned.has(connPin(connection.id)) ? t("sidebar.unpin") : t("sidebar.pin")}
                       </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onSelect={() => onEditConnection(connection)}>
-                        <Pencil /> {t("sidebar.editConnection")}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        variant="destructive"
-                        onSelect={() => setConfirm({ type: "delete-connection", connection })}
-                      >
-                        <Trash2 /> {t("sidebar.deleteConnection")}
-                      </DropdownMenuItem>
+                      {canManageConnections ? (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onSelect={() => onEditConnection(connection)}>
+                            <Pencil /> {t("sidebar.editConnection")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onSelect={() => setConfirm({ type: "delete-connection", connection })}
+                          >
+                            <Trash2 /> {t("sidebar.deleteConnection")}
+                          </DropdownMenuItem>
+                        </>
+                      ) : null}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>

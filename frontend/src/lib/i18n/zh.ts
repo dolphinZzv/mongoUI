@@ -131,9 +131,11 @@ const zh: Record<string, string> = {
 
   // 写操作审计
   "audit.title": "写操作审计",
-  "audit.desc": "通过界面或 API 执行的最新写操作。",
+  "audit.desc": "通过界面或 API 执行的写操作及安全事件（含失败尝试）。",
   "audit.empty": "暂无写操作记录",
   "audit.allConnections": "全部连接",
+  "audit.actor": "操作者",
+  "audit.ip": "IP",
   "audit.time": "时间",
   "audit.operation": "操作",
   "audit.target": "目标",
@@ -253,6 +255,7 @@ const zh: Record<string, string> = {
   "settings.passwordDesc": "修改当前账号的密码。",
   "settings.tokensDesc": "创建或撤销个人访问令牌。",
   "settings.signOutDesc": "结束当前浏览器会话。",
+  "settings.signOutAllDesc": "撤销该账号在所有浏览器上的登录状态。",
   "settings.usersDesc": "邀请用户并分配角色。",
   "settings.backupsDesc": "配置集合导出计划与保留策略。",
   "settings.oidcDesc": "配置 OpenID Connect 单点登录。",
@@ -928,6 +931,7 @@ const zh: Record<string, string> = {
   "auth.invalidPassword": "用户名或密码不正确",
   "auth.setupFailed": "无法开始设置",
   "auth.signOut": "退出登录",
+  "auth.signOutAll": "退出所有设备",
   "auth.usernameLabel": "用户名",
   "auth.passwordLabel": "密码",
   "auth.passwordConfirmLabel": "确认密码",

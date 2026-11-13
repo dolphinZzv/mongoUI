@@ -131,9 +131,11 @@ const en: Record<string, string> = {
 
   // audit log
   "audit.title": "Write audit log",
-  "audit.desc": "Recent write operations performed through the UI or API.",
+  "audit.desc": "Recent writes and security events, including failed attempts.",
   "audit.empty": "No write operations recorded yet",
   "audit.allConnections": "All connections",
+  "audit.actor": "Actor",
+  "audit.ip": "IP",
   "audit.time": "Time",
   "audit.operation": "Operation",
   "audit.target": "Target",
@@ -254,6 +256,7 @@ const en: Record<string, string> = {
   "settings.passwordDesc": "Change the password for this account.",
   "settings.tokensDesc": "Create and revoke personal access tokens.",
   "settings.signOutDesc": "End this browser session.",
+  "settings.signOutAllDesc": "Revoke every browser session for this account.",
   "settings.usersDesc": "Invite users and assign roles.",
   "settings.backupsDesc": "Schedule collection exports and retention.",
   "settings.oidcDesc": "Configure OpenID Connect single sign-on.",
@@ -932,6 +935,7 @@ const en: Record<string, string> = {
   "auth.invalidPassword": "Invalid username or password",
   "auth.setupFailed": "Could not start setup",
   "auth.signOut": "Sign out",
+  "auth.signOutAll": "Sign out everywhere",
   "auth.usernameLabel": "Username",
   "auth.passwordLabel": "Password",
   "auth.passwordConfirmLabel": "Confirm password",

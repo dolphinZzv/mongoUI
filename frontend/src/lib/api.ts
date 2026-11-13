@@ -342,7 +342,11 @@ export const api = {
     }),
   deleteAuthToken: (id: string) =>
     request<{ deleted: string }>(`/auth/tokens/${enc(id)}`, { method: "DELETE" }),
-  authLogout: () => request<{ authenticated: boolean }>("/auth/logout", { method: "POST" }),
+  authLogout: (all = false) =>
+    request<{ authenticated: boolean }>("/auth/logout", {
+      method: "POST",
+      body: all ? JSON.stringify({ all: true }) : undefined,
+    }),
   authOIDCConfig: () =>
     request<{ enabled: boolean; buttonLabel?: string }>("/auth/oidc/config"),
   getOIDCSettings: () => request<OIDCConfig>("/auth/oidc/settings"),

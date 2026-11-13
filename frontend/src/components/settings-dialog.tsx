@@ -17,6 +17,7 @@ import {
   Server,
   Settings2Icon,
   ShieldCheck,
+  ShieldOff,
   Sparkles,
   SunIcon,
   Tag,
@@ -271,6 +272,16 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
                       title={t("tokens.title")}
                       description={t("settings.tokensDesc")}
                       onClick={() => launch(setTokensOpen)}
+                    />
+                    <ActionRow
+                      icon={<ShieldOff />}
+                      title={t("auth.signOutAll")}
+                      description={t("settings.signOutAllDesc")}
+                      destructive
+                      onClick={() => {
+                        setOpen(false)
+                        void api.authLogout(true).then(() => window.location.reload())
+                      }}
                     />
                     <ActionRow
                       icon={<LogOut />}

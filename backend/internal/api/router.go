@@ -103,7 +103,9 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 		})
 
 		if a.auth != nil {
-			r.Mount("/auth", a.auth.Routes())
+			// Audit auth writes too: failed logins, password changes and token
+			// creation are security-relevant even though they are not data writes.
+			r.Mount("/auth", a.auditMiddleware(a.auth.Routes()))
 		}
 
 		r.Group(func(r chi.Router) {

@@ -29,7 +29,7 @@ interface AuditDialogProps {
 
 const ALL = "__all__"
 
-/** A view of the server's in-memory write-operation audit log. */
+/** A view of the server-side write and security audit log. */
 export function AuditDialog({ open, onOpenChange, connections }: AuditDialogProps) {
   const { t } = useI18n()
   const [connectionId, setConnectionId] = React.useState<string>(ALL)
@@ -55,11 +55,12 @@ export function AuditDialog({ open, onOpenChange, connections }: AuditDialogProp
     if (open) void load(connectionId)
   }, [open, connectionId, load])
 
-  const connectionName = (id: string) => connections.find((c) => c.id === id)?.name ?? id
+  const connectionName = (id?: string) =>
+    id ? (connections.find((c) => c.id === id)?.name ?? id) : "—"
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden sm:max-w-3xl">
+      <DialogContent className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>{t("audit.title")}</DialogTitle>
           <DialogDescription>{t("audit.desc")}</DialogDescription>
@@ -98,8 +99,10 @@ export function AuditDialog({ open, onOpenChange, connections }: AuditDialogProp
               <thead className="bg-muted/40 text-muted-foreground sticky top-0 text-left">
                 <tr>
                   <th className="px-2 py-1.5 font-medium">{t("audit.time")}</th>
+                  <th className="px-2 py-1.5 font-medium">{t("audit.actor")}</th>
                   <th className="px-2 py-1.5 font-medium">{t("audit.operation")}</th>
                   <th className="px-2 py-1.5 font-medium">{t("audit.target")}</th>
+                  <th className="px-2 py-1.5 font-medium">{t("audit.ip")}</th>
                   <th className="px-2 py-1.5 font-medium">{t("audit.status")}</th>
                 </tr>
               </thead>
@@ -108,6 +111,14 @@ export function AuditDialog({ open, onOpenChange, connections }: AuditDialogProp
                   <tr key={`${entry.time}-${index}`} className="border-t">
                     <td className="px-2 py-1 font-mono whitespace-nowrap">
                       {new Date(entry.time).toLocaleString()}
+                    </td>
+                    <td className="px-2 py-1 whitespace-nowrap">
+                      {entry.actor || "—"}
+                      {entry.tokenId ? (
+                        <span className="text-muted-foreground block font-mono text-[10px]">
+                          PAT {entry.tokenId.slice(0, 8)}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="px-2 py-1">
                       <span className="font-mono">{entry.method}</span> {entry.operation}
@@ -120,6 +131,7 @@ export function AuditDialog({ open, onOpenChange, connections }: AuditDialogProp
                         ? ` / ${entry.database}${entry.collection ? ` / ${entry.collection}` : ""}`
                         : null}
                     </td>
+                    <td className="px-2 py-1 font-mono">{entry.ip || "—"}</td>
                     <td className="px-2 py-1 font-mono">{entry.status}</td>
                   </tr>
                 ))}

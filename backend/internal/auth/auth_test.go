@@ -547,3 +547,161 @@ func TestTokenDemotionLimitsEffectiveScopes(t *testing.T) {
 		t.Fatal("unexpected admin id collision")
 	}
 }
+
+func TestLoginGuardLocksAndExpires(t *testing.T) {
+	g := newLoginGuard()
+	now := time.Now()
+	for i := 0; i < loginMaxFailures; i++ {
+		if retry, ok := g.allow("admin|127.0.0.1", now); !ok {
+			t.Fatalf("attempt %d unexpectedly blocked for %s", i, retry)
+		}
+		g.fail("admin|127.0.0.1", now, loginMaxFailures)
+	}
+	if retry, ok := g.allow("admin|127.0.0.1", now); ok || retry <= 0 {
+		t.Fatalf("expected lockout, got ok=%v retry=%s", ok, retry)
+	}
+	if _, ok := g.allow("admin|127.0.0.1", now.Add(loginLockout+time.Second)); !ok {
+		t.Fatal("lockout should expire")
+	}
+	g.succeed("admin|127.0.0.1")
+	if _, ok := g.allow("admin|127.0.0.1", now.Add(loginLockout+2*time.Second)); !ok {
+		t.Fatal("success should reset the guard")
+	}
+}
+
+func TestLoginHandlerRateLimit(t *testing.T) {
+	m := newTestManager(t)
+	if _, err := m.SetupWithPassword("admin", "correct horse battery"); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"username":"admin","password":"wrong password","method":"password"}`
+	for i := 0; i < loginMaxFailures; i++ {
+		rec := httptest.NewRecorder()
+		m.handleLogin(rec, httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(body)))
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d status = %d, want 401", i, rec.Code)
+		}
+	}
+	rec := httptest.NewRecorder()
+	m.handleLogin(rec, httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(body)))
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("blocked login status = %d, want 429", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Fatal("missing Retry-After header")
+	}
+}
+
+func TestPasswordChangeRevokesOldSessions(t *testing.T) {
+	m := newTestManager(t)
+	user, err := m.SetupWithPassword("admin", "initial password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldToken := m.newSession(user.ID)
+	if _, ok := m.validSession(oldToken); !ok {
+		t.Fatal("initial session should be valid")
+	}
+	if err := m.ChangePassword(user.ID, "initial password", "new password"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.validSession(oldToken); ok {
+		t.Fatal("old session survived a password change")
+	}
+	if _, ok := m.validSession(m.newSession(user.ID)); !ok {
+		t.Fatal("new session should be valid after password change")
+	}
+	if err := m.SetUserPassword(user.ID, "admin reset password"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.validSession(m.newSession(user.ID)); !ok {
+		t.Fatal("new session should be valid after admin reset")
+	}
+}
+
+func TestRevokeSessions(t *testing.T) {
+	m := newTestManager(t)
+	user, err := m.SetupWithPassword("admin", "initial password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := m.newSession(user.ID)
+	if err := m.RevokeSessions(user.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.validSession(token); ok {
+		t.Fatal("session survived RevokeSessions")
+	}
+}
+
+func TestAuditActor(t *testing.T) {
+	m := newTestManager(t)
+	user, err := m.SetupWithPassword("admin", "initial password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	username, tokenID := m.AuditActor(requestWithSession(m, user.ID))
+	if username != "admin" || tokenID != "" {
+		t.Fatalf("session actor = %q/%q", username, tokenID)
+	}
+	raw, token, err := m.CreateToken(user.ID, "audit", []string{ScopeRead}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	username, tokenID = m.AuditActor(requestWithToken(raw))
+	if username != "admin" || tokenID != token.ID {
+		t.Fatalf("token actor = %q/%q, want admin/%s", username, tokenID, token.ID)
+	}
+}
+
+func TestChangePasswordHandlerRefreshesCookieAndRevokesOldToken(t *testing.T) {
+	m := newTestManager(t)
+	user, err := m.SetupWithPassword("admin", "initial password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldToken := m.newSession(user.ID)
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/password", strings.NewReader(
+		`{"currentPassword":"initial password","newPassword":"new password"}`,
+	))
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: oldToken})
+	rec := httptest.NewRecorder()
+	m.handleChangePassword(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	var fresh string
+	for _, cookie := range rec.Result().Cookies() {
+		if cookie.Name == cookieName {
+			fresh = cookie.Value
+		}
+	}
+	if fresh == "" {
+		t.Fatal("password change did not refresh the session cookie")
+	}
+	if _, ok := m.validSession(oldToken); ok {
+		t.Fatal("old token survived password change")
+	}
+	if _, ok := m.validSession(fresh); !ok {
+		t.Fatal("fresh token is invalid")
+	}
+}
+
+func TestLogoutAllRevokesSessions(t *testing.T) {
+	m := newTestManager(t)
+	user, err := m.SetupWithPassword("admin", "initial password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := m.newSession(user.ID)
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/logout", strings.NewReader(`{"all":true}`))
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
+	rec := httptest.NewRecorder()
+	m.handleLogout(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if _, ok := m.validSession(token); ok {
+		t.Fatal("logout all left the old session valid")
+	}
+}

@@ -66,3 +66,25 @@ func TestAuditMiddlewareRecordsWrites(t *testing.T) {
 		t.Fatalf("unexpected entry operation: %#v", entry)
 	}
 }
+
+func TestAuditMiddlewareRecordsFailuresAndRemoteIP(t *testing.T) {
+	api := &API{audit: newAuditLog("")}
+	router := chi.NewRouter()
+	router.Use(api.auditMiddleware)
+	router.Post("/connections/{id}/databases/{db}/collections/{col}/insert", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	req := httptest.NewRequest(http.MethodPost, "/connections/c1/databases/d1/collections/x/insert", nil)
+	router.ServeHTTP(httptest.NewRecorder(), req)
+
+	entries := api.audit.list("", 10)
+	if len(entries) != 1 {
+		t.Fatalf("expected failed write to be recorded, got %d", len(entries))
+	}
+	if entries[0].Status != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", entries[0].Status)
+	}
+	if entries[0].IP == "" {
+		t.Fatal("missing client IP")
+	}
+}

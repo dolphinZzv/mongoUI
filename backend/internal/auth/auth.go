@@ -18,6 +18,8 @@ import (
 	"encoding/json"
 	"errors"
 	"image/png"
+	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -209,6 +211,134 @@ var ErrInvalidPassword = errors.New("invalid username or password")
 
 var dummyPasswordHash, _ = bcrypt.GenerateFromPassword([]byte("mongoui-invalid-password"), bcrypt.DefaultCost)
 
+const (
+	loginWindow          = 15 * time.Minute
+	loginMaxFailures     = 8
+	loginMaxUserFailures = 20
+	loginLockout         = 5 * time.Minute
+)
+
+type loginAttempt struct {
+	failures    []time.Time
+	lockedUntil time.Time
+}
+
+// loginGuard throttles failed sign-ins per username + client IP. It is kept in
+// memory: a process restart clears lockouts, which is acceptable for brute
+// force protection without turning the auth file into a write-heavy log.
+type loginGuard struct {
+	mu        sync.Mutex
+	attempts  map[string]*loginAttempt
+	lastSweep time.Time
+}
+
+func newLoginGuard() *loginGuard {
+	return &loginGuard{attempts: map[string]*loginAttempt{}}
+}
+
+func (g *loginGuard) allow(key string, now time.Time) (time.Duration, bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.attempts == nil {
+		g.attempts = map[string]*loginAttempt{}
+	}
+	if now.Sub(g.lastSweep) > 10*time.Minute {
+		g.sweep(now)
+	}
+	attempt := g.attempts[key]
+	if attempt == nil {
+		return 0, true
+	}
+	if !attempt.lockedUntil.IsZero() {
+		if now.Before(attempt.lockedUntil) {
+			return attempt.lockedUntil.Sub(now), false
+		}
+		attempt.lockedUntil = time.Time{}
+		attempt.failures = nil
+	}
+	cutoff := now.Add(-loginWindow)
+	kept := attempt.failures[:0]
+	for _, at := range attempt.failures {
+		if at.After(cutoff) {
+			kept = append(kept, at)
+		}
+	}
+	attempt.failures = kept
+	if len(attempt.failures) == 0 {
+		delete(g.attempts, key)
+	}
+	return 0, true
+}
+
+func (g *loginGuard) fail(key string, now time.Time, maxFailures int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.attempts == nil {
+		g.attempts = map[string]*loginAttempt{}
+	}
+	attempt := g.attempts[key]
+	if attempt == nil {
+		attempt = &loginAttempt{}
+		g.attempts[key] = attempt
+	}
+	cutoff := now.Add(-loginWindow)
+	kept := attempt.failures[:0]
+	for _, at := range attempt.failures {
+		if at.After(cutoff) {
+			kept = append(kept, at)
+		}
+	}
+	attempt.failures = append(kept, now)
+	if len(attempt.failures) >= maxFailures {
+		attempt.lockedUntil = now.Add(loginLockout)
+		attempt.failures = nil
+	}
+}
+
+func (g *loginGuard) succeed(key string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.attempts, key)
+}
+
+func (g *loginGuard) sweep(now time.Time) {
+	cutoff := now.Add(-loginWindow)
+	for key, attempt := range g.attempts {
+		if !attempt.lockedUntil.IsZero() && now.Before(attempt.lockedUntil) {
+			continue
+		}
+		last := time.Time{}
+		for _, at := range attempt.failures {
+			if at.After(last) {
+				last = at
+			}
+		}
+		if last.IsZero() || last.Before(cutoff) {
+			delete(g.attempts, key)
+		}
+	}
+	g.lastSweep = now
+}
+
+func loginKey(r *http.Request, username string) string {
+	return strings.ToLower(strings.TrimSpace(username)) + "|" + clientIP(r)
+}
+
+func loginUserKey(username string) string {
+	username = strings.ToLower(strings.TrimSpace(username))
+	if username == "" {
+		return ""
+	}
+	return "user|" + username
+}
+
+func clientIP(r *http.Request) string {
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
+
 // Token is a personal access token. Only the SHA-256 hash is persisted; the raw
 // token is returned exactly once when it is created.
 type Token struct {
@@ -235,6 +365,9 @@ type User struct {
 	Source       string  `json:"source,omitempty"`
 	Email        string  `json:"email,omitempty"`
 	Tokens       []Token `json:"tokens,omitempty"`
+	// SessionVersion invalidates every existing browser session when it is
+	// incremented (password change, admin reset, sign out everywhere).
+	SessionVersion uint64 `json:"sessionVersion,omitempty"`
 }
 
 type storedConfig struct {
@@ -265,6 +398,7 @@ type Manager struct {
 
 	oidcMu       sync.Mutex
 	oidcProvider *oidc.Provider
+	loginGuard   *loginGuard
 }
 
 // New loads (or prepares) the auth state under dataDir. masterKey derives the
@@ -272,9 +406,10 @@ type Manager struct {
 // tests).
 func New(dataDir string, cipher *config.Cipher, masterKey []byte) (*Manager, error) {
 	m := &Manager{
-		path:    filepath.Join(dataDir, "auth.json"),
-		cipher:  cipher,
-		pending: map[string]*pendingUser{},
+		path:       filepath.Join(dataDir, "auth.json"),
+		cipher:     cipher,
+		pending:    map[string]*pendingUser{},
+		loginGuard: newLoginGuard(),
 	}
 	mac := hmac.New(sha256.New, masterKey)
 	mac.Write([]byte("mongoui-session"))
@@ -650,9 +785,12 @@ func (m *Manager) SetUserPassword(id, password string) error {
 			return errors.New("OIDC accounts cannot use password login")
 		}
 		old := m.users[i].PasswordHash
+		oldVersion := m.users[i].SessionVersion
 		m.users[i].PasswordHash = hash
+		m.users[i].SessionVersion++
 		if err := m.save(); err != nil {
 			m.users[i].PasswordHash = old
+			m.users[i].SessionVersion = oldVersion
 			return err
 		}
 		return nil
@@ -683,9 +821,31 @@ func (m *Manager) ChangePassword(id, current, next string) error {
 			}
 		}
 		old := m.users[i].PasswordHash
+		oldVersion := m.users[i].SessionVersion
 		m.users[i].PasswordHash = hash
+		m.users[i].SessionVersion++
 		if err := m.save(); err != nil {
 			m.users[i].PasswordHash = old
+			m.users[i].SessionVersion = oldVersion
+			return err
+		}
+		return nil
+	}
+	return errors.New("account not found")
+}
+
+// RevokeSessions invalidates every existing browser session for an account.
+func (m *Manager) RevokeSessions(userID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.users {
+		if m.users[i].ID != userID {
+			continue
+		}
+		old := m.users[i].SessionVersion
+		m.users[i].SessionVersion++
+		if err := m.save(); err != nil {
+			m.users[i].SessionVersion = old
 			return err
 		}
 		return nil
@@ -932,7 +1092,14 @@ func qrDataURL(key *otp.Key) (string, error) {
 // --- sessions ---------------------------------------------------------------
 
 func (m *Manager) newSession(userID string) string {
-	payload := strconv.FormatInt(time.Now().Add(sessionTTL).Unix(), 10) + "\n" + userID
+	version := uint64(0)
+	m.mu.Lock()
+	if user, ok := m.userByID(userID); ok {
+		version = user.SessionVersion
+	}
+	m.mu.Unlock()
+	payload := strconv.FormatInt(time.Now().Add(sessionTTL).Unix(), 10) + "\n" + userID +
+		"\n" + strconv.FormatUint(version, 10)
 	mac := hmac.New(sha256.New, m.sessionKey)
 	mac.Write([]byte(payload))
 	return base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." +
@@ -960,7 +1127,8 @@ func (m *Manager) validSession(token string) (string, bool) {
 	if !hmac.Equal(signature, mac.Sum(nil)) {
 		return "", false
 	}
-	expiryText, userID, _ := strings.Cut(string(payload), "\n")
+	expiryText, rest, _ := strings.Cut(string(payload), "\n")
+	userID, versionText, _ := strings.Cut(rest, "\n")
 	expiry, err := strconv.ParseInt(expiryText, 10, 64)
 	if err != nil || time.Now().Unix() >= expiry {
 		return "", false
@@ -971,6 +1139,19 @@ func (m *Manager) validSession(token string) (string, bool) {
 		m.mu.Unlock()
 	}
 	if userID == "" {
+		return "", false
+	}
+	version := uint64(0)
+	if versionText != "" {
+		version, err = strconv.ParseUint(versionText, 10, 64)
+		if err != nil {
+			return "", false
+		}
+	}
+	m.mu.Lock()
+	user, found := m.userByID(userID)
+	m.mu.Unlock()
+	if !found || user.SessionVersion != version {
 		return "", false
 	}
 	return userID, true
@@ -1121,6 +1302,16 @@ func (m *Manager) TokenScopes(r *http.Request) ([]string, bool) {
 		return nil, false
 	}
 	return access.scopes, true
+}
+
+// AuditActor returns the account and PAT (when applicable) behind a request.
+// It is used by the HTTP audit log; it never reveals credentials.
+func (m *Manager) AuditActor(r *http.Request) (username, tokenID string) {
+	access, ok := m.requestAccess(r)
+	if !ok {
+		return "", ""
+	}
+	return access.user.Username, access.tokenID
 }
 
 // Scopes returns the effective scopes granted to this request. Session access
@@ -1318,8 +1509,27 @@ func (m *Manager) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 		Method   string `json:"method"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	dec := json.NewDecoder(io.LimitReader(r.Body, 4096))
+	if err := dec.Decode(&req); err != nil {
 		fail(w, http.StatusBadRequest, errors.New("invalid request body"))
+		return
+	}
+	now := time.Now()
+	ipKey := loginKey(r, req.Username)
+	keys := []string{ipKey}
+	if userKey := loginUserKey(req.Username); userKey != "" {
+		keys = append(keys, userKey)
+	}
+	var retryAfter time.Duration
+	for _, key := range keys {
+		if retry, ok := m.loginGuard.allow(key, now); !ok && retry > retryAfter {
+			retryAfter = retry
+		}
+	}
+	if retryAfter > 0 {
+		seconds := int(retryAfter.Seconds()) + 1
+		w.Header().Set("Retry-After", strconv.Itoa(seconds))
+		fail(w, http.StatusTooManyRequests, errors.New("too many failed login attempts; try again later"))
 		return
 	}
 	var user User
@@ -1330,8 +1540,18 @@ func (m *Manager) handleLogin(w http.ResponseWriter, r *http.Request) {
 		user, err = m.Login(req.Username, req.Code)
 	}
 	if err != nil {
+		for _, key := range keys {
+			maxFailures := loginMaxFailures
+			if strings.HasPrefix(key, "user|") {
+				maxFailures = loginMaxUserFailures
+			}
+			m.loginGuard.fail(key, now, maxFailures)
+		}
 		fail(w, http.StatusUnauthorized, err)
 		return
+	}
+	for _, key := range keys {
+		m.loginGuard.succeed(key)
 	}
 	setSessionCookie(w, r, m.newSession(user.ID))
 	ok(w, map[string]any{
@@ -1341,7 +1561,18 @@ func (m *Manager) handleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (m *Manager) handleLogout(w http.ResponseWriter, _ *http.Request) {
+func (m *Manager) handleLogout(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		All bool `json:"all"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req)
+	}
+	if req.All {
+		if user, ok := m.sessionUser(r); ok {
+			_ = m.RevokeSessions(user.ID)
+		}
+	}
 	clearSessionCookie(w)
 	ok(w, map[string]any{"authenticated": false})
 }
@@ -1376,6 +1607,9 @@ func (m *Manager) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, err)
 		return
 	}
+	// Changing a password revokes every old session, including this one; issue
+	// a fresh cookie at the new version so the caller stays signed in.
+	setSessionCookie(w, r, m.newSession(user.ID))
 	ok(w, map[string]any{"updated": true})
 }
 

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -26,9 +27,12 @@ const (
 
 type auditEntry struct {
 	Time         string `json:"time"`
-	ConnectionID string `json:"connectionId"`
-	Database     string `json:"database"`
-	Collection   string `json:"collection"`
+	Actor        string `json:"actor,omitempty"`
+	TokenID      string `json:"tokenId,omitempty"`
+	IP           string `json:"ip,omitempty"`
+	ConnectionID string `json:"connectionId,omitempty"`
+	Database     string `json:"database,omitempty"`
+	Collection   string `json:"collection,omitempty"`
 	Method       string `json:"method"`
 	Operation    string `json:"operation"`
 	Path         string `json:"path"`
@@ -156,30 +160,46 @@ func operationFromPath(path string) string {
 	return segments[len(segments)-1]
 }
 
-// auditMiddleware records successful write requests to the data API. Auth and
-// self-update endpoints are excluded because they are not data changes.
+// auditMiddleware records every write request, including failed ones, so the
+// log can answer both "who changed this?" and "who tried?". It is also mounted
+// around the auth routes to capture login/configuration attempts.
 func (a *API) auditMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if a.audit == nil || !isWriteMethod(r.Method) ||
-			strings.Contains(path, "/auth/") || strings.Contains(path, "/update") {
+		if a.audit == nil || !isWriteMethod(r.Method) {
 			next.ServeHTTP(w, r)
 			return
 		}
+		actor, tokenID := "", ""
+		if a.auth != nil {
+			actor, tokenID = a.auth.AuditActor(r)
+		}
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)
-		if ww.Status() >= 200 && ww.Status() < 300 {
-			a.audit.add(auditEntry{
-				ConnectionID: chi.URLParam(r, "id"),
-				Database:     chi.URLParam(r, "db"),
-				Collection:   chi.URLParam(r, "col"),
-				Method:       r.Method,
-				Operation:    operationFromPath(path),
-				Path:         path,
-				Status:       ww.Status(),
-			})
+		status := ww.Status()
+		if status == 0 {
+			status = http.StatusOK
 		}
+		a.audit.add(auditEntry{
+			Actor:        actor,
+			TokenID:      tokenID,
+			IP:           remoteIP(r),
+			ConnectionID: chi.URLParam(r, "id"),
+			Database:     chi.URLParam(r, "db"),
+			Collection:   chi.URLParam(r, "col"),
+			Method:       r.Method,
+			Operation:    operationFromPath(path),
+			Path:         path,
+			Status:       status,
+		})
 	})
+}
+
+func remoteIP(r *http.Request) string {
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
 }
 
 func (a *API) listAudit(w http.ResponseWriter, r *http.Request) {

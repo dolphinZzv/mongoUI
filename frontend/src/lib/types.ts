@@ -491,9 +491,12 @@ export interface ProfileResult {
 
 export interface AuditEntry {
   time: string
-  connectionId: string
-  database: string
-  collection: string
+  actor?: string
+  tokenId?: string
+  ip?: string
+  connectionId?: string
+  database?: string
+  collection?: string
   method: string
   operation: string
   path: string

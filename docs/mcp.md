@@ -76,6 +76,16 @@ mongoui                 # 启动服务，默认 0.0.0.0:8080
 
 启用账号登录后，`/mcp` 只接受 PAT。PAT 的 scope 会同时限制 `tools/list` 和实际调用：只读令牌看不到也调不了写工具；账号的连接级 allowlist 也会约束 MCP 可访问的连接（空列表表示全部）。
 
+### AI 写操作提案与审批
+
+写工具（insert / update / delete）传入 `"propose": true` 时不会直接修改数据，而是返回一个提案：
+
+- 影响条数、前 5 条样例、过滤条件 / 更新内容
+- 最多 100 条旧文档的回滚快照（更新 / 删除）
+- 提案 ID 与 `pending` 状态
+
+管理员在网页端 **设置 → AI 写操作审批** 中审查，先批准再执行；已执行的更新 / 删除可回滚。MCP 侧可用 `mongoui_list_proposals` 查看状态、`mongoui_apply_proposal` 执行已批准提案、`mongoui_rollback_proposal` 回滚。执行前会重新计数，数据量变化时拒绝执行并要求重新提案。提案保存在内存中，30 分钟过期，最多保留 100 条，进程重启后失效。
+
 未启用账号登录时，MCP HTTP 端点保持本地开放行为，适合单机开发；对外暴露前请先启用账号并创建 PAT。
 
 | 方法 | 路径 | 说明 |
@@ -143,9 +153,12 @@ MCP 工具分为**读**与**写**两组，可以在界面右上角的「设置�
 
 | 工具 | 参数 |
 | --- | --- |
-| `mongoui_insert` | `connectionId`, `database`, `collection`, `documents: object[]` |
-| `mongoui_update` | `connectionId`, `database`, `collection`, `filter`, `update`, `many?`, `upsert?` |
-| `mongoui_delete` | `connectionId`, `database`, `collection`, `filter`, `many?` |
+| `mongoui_insert` | `connectionId`, `database`, `collection`, `documents: object[]`, `propose?` |
+| `mongoui_update` | `connectionId`, `database`, `collection`, `filter`, `update`, `many?`, `upsert?`, `propose?` |
+| `mongoui_delete` | `connectionId`, `database`, `collection`, `filter`, `many?`, `propose?` |
+| `mongoui_list_proposals` | `status?` | 列出写操作提案（按连接 allowlist 过滤） |
+| `mongoui_apply_proposal` | `proposalId` | 执行管理员已批准的提案 |
+| `mongoui_rollback_proposal` | `proposalId` | 回滚有快照的已执行提案 |
 | `mongoui_create_collection` | `connectionId`, `database`, `collection`, `capped?`, `size?`, `max?` |
 | `mongoui_drop_collection` | `connectionId`, `database`, `collection` |
 | `mongoui_drop_database` | `connectionId`, `database` |

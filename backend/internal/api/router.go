@@ -15,6 +15,7 @@ import (
 	"mongoui/internal/automation"
 	"mongoui/internal/autoupdate"
 	"mongoui/internal/config"
+	"mongoui/internal/mcp"
 	"mongoui/internal/mongoclient"
 )
 
@@ -25,6 +26,7 @@ type API struct {
 	uiEmbedded      bool
 	version         string
 	mcpHandler      http.Handler
+	mcpServer       *mcp.Server
 	auth            *auth.Manager
 	settings        *config.Settings
 	updater         *autoupdate.Updater
@@ -54,9 +56,6 @@ func New(store *config.Store, mgr *mongoclient.Manager, uiEmbedded bool, version
 	return api
 }
 
-// SetUpdater attaches the self-updater so the update endpoints can report and
-// trigger it. It may be nil (e.g. in tests), in which case those endpoints
-// report that the updater is unavailable.
 // SetAutomation attaches the background automation manager used by the alert
 // and runbook endpoints.
 func (a *API) SetAutomation(m *automation.Manager, store *automation.Store) {
@@ -66,6 +65,13 @@ func (a *API) SetAutomation(m *automation.Manager, store *automation.Store) {
 	}
 }
 
+// SetMCP attaches the live MCP server so admin approval endpoints can inspect
+// and apply queued AI write proposals.
+func (a *API) SetMCP(server *mcp.Server) { a.mcpServer = server }
+
+// SetUpdater attaches the self-updater so the update endpoints can report and
+// trigger it. It may be nil (e.g. in tests), in which case those endpoints
+// report that the updater is unavailable.
 func (a *API) SetUpdater(u *autoupdate.Updater) {
 	a.updater = u
 }
@@ -116,6 +122,11 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 			r.Use(a.auditMiddleware)
 
 			r.Get("/audit", a.listAudit)
+			r.Get("/ai/proposals", a.listAIProposals)
+			r.Post("/ai/proposals/{id}/approve", a.approveAIProposal)
+			r.Post("/ai/proposals/{id}/reject", a.rejectAIProposal)
+			r.Post("/ai/proposals/{id}/apply", a.applyAIProposal)
+			r.Post("/ai/proposals/{id}/rollback", a.rollbackAIProposal)
 			r.Get("/aliases", a.getAliases)
 			r.Patch("/aliases", a.updateAlias)
 

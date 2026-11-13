@@ -14,6 +14,7 @@ import type {
   AITestResult,
   AliasState,
   AliasUpdate,
+  AIProposal,
   AuditEntry,
   AuthRole,
   AuthScope,
@@ -270,6 +271,18 @@ export const api = {
     const suffix = query.toString()
     return request<{ entries: AuditEntry[] }>(`/audit${suffix ? `?${suffix}` : ""}`)
   },
+  listAIProposals: () =>
+    request<{ proposals: AIProposal[] }>("/ai/proposals", { cache: "no-store" }),
+  approveAIProposal: (id: string) =>
+    request<{ approved: boolean }>(`/ai/proposals/${enc(id)}/approve`, { method: "POST" }),
+  rejectAIProposal: (id: string) =>
+    request<{ rejected: boolean }>(`/ai/proposals/${enc(id)}/reject`, { method: "POST" }),
+  applyAIProposal: (id: string) =>
+    request<{ applied: boolean; result?: string }>(`/ai/proposals/${enc(id)}/apply`, {
+      method: "POST",
+    }),
+  rollbackAIProposal: (id: string) =>
+    request<{ rolledBack: boolean }>(`/ai/proposals/${enc(id)}/rollback`, { method: "POST" }),
   databaseProfile: (id: string, db: string, params?: { limit?: number; minMillis?: number }) => {
     const query = new URLSearchParams()
     if (params?.limit) query.set("limit", String(params.limit))

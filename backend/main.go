@@ -194,6 +194,7 @@ func main() {
 	mcpServer := mcp.New(store, mgr, version, settings)
 	mcpServer.SetTokenAuthorizer(authManager)
 	apiServer := api.New(store, mgr, uiEmbedded, version, mcpServer.HTTPHandler(), authManager, settings)
+	apiServer.SetMCP(mcpServer)
 	if updater != nil {
 		apiServer.SetUpdater(updater)
 	}

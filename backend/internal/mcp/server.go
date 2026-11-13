@@ -54,6 +54,7 @@ type Server struct {
 	version    string
 	settings   *config.Settings
 	authorizer TokenAuthorizer
+	proposals  *proposalStore
 }
 
 // New creates an MCP server backed by the given connection store and manager.
@@ -63,7 +64,7 @@ func New(store *config.Store, mgr *mongoclient.Manager, version string, settings
 	if settings == nil {
 		settings = config.NewSettings(config.DefaultMCPSettings())
 	}
-	return &Server{store: store, mgr: mgr, version: version, settings: settings}
+	return &Server{store: store, mgr: mgr, version: version, settings: settings, proposals: newProposalStore()}
 }
 
 // SetTokenAuthorizer enables personal access token authentication for the HTTP

@@ -72,6 +72,9 @@ const UsersDialog = React.lazy(() =>
 const BackupsDialog = React.lazy(() =>
   import("@/components/backups-dialog").then((m) => ({ default: m.BackupsDialog })),
 )
+const AIProposalsDialog = React.lazy(() =>
+  import("@/components/ai-proposals-dialog").then((m) => ({ default: m.AIProposalsDialog })),
+)
 const OIDCDialog = React.lazy(() =>
   import("@/components/oidc-dialog").then((m) => ({ default: m.OIDCDialog })),
 )
@@ -114,6 +117,7 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
   )
   const [usersOpen, setUsersOpen] = React.useState(false)
   const [backupsOpen, setBackupsOpen] = React.useState(false)
+  const [aiProposalsOpen, setAiProposalsOpen] = React.useState(false)
   const [oidcOpen, setOidcOpen] = React.useState(false)
   const [tokensOpen, setTokensOpen] = React.useState(false)
   const [passwordOpen, setPasswordOpen] = React.useState(false)
@@ -145,7 +149,7 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
         { id: "automation", label: t("settings.section.automation"), icon: <Workflow /> },
       )
     }
-    if (authEnabled && role === "admin") {
+    if (isAdmin) {
       items.push({ id: "admin", label: t("settings.section.admin"), icon: <ShieldCheck /> })
     }
     items.push({ id: "feedback", label: t("settings.section.feedback"), icon: <MessageSquare /> })
@@ -488,26 +492,36 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
 
               {section === "automation" && isAdmin ? <AutomationPanel /> : null}
 
-              {section === "admin" && authEnabled && role === "admin" ? (
+              {section === "admin" && isAdmin ? (
                 <Panel title={t("settings.section.admin")} description={t("settings.adminDesc")}>
                   <div className="divide-y rounded-lg border">
+                    {authEnabled && role === "admin" ? (
+                      <>
+                        <ActionRow
+                          icon={<Users />}
+                          title={t("users.title")}
+                          description={t("settings.usersDesc")}
+                          onClick={() => launch(setUsersOpen)}
+                        />
+                        <ActionRow
+                          icon={<DatabaseBackup />}
+                          title={t("backups.title")}
+                          description={t("settings.backupsDesc")}
+                          onClick={() => launch(setBackupsOpen)}
+                        />
+                        <ActionRow
+                          icon={<KeyRound />}
+                          title={t("oidc.title")}
+                          description={t("settings.oidcDesc")}
+                          onClick={() => launch(setOidcOpen)}
+                        />
+                      </>
+                    ) : null}
                     <ActionRow
-                      icon={<Users />}
-                      title={t("users.title")}
-                      description={t("settings.usersDesc")}
-                      onClick={() => launch(setUsersOpen)}
-                    />
-                    <ActionRow
-                      icon={<DatabaseBackup />}
-                      title={t("backups.title")}
-                      description={t("settings.backupsDesc")}
-                      onClick={() => launch(setBackupsOpen)}
-                    />
-                    <ActionRow
-                      icon={<KeyRound />}
-                      title={t("oidc.title")}
-                      description={t("settings.oidcDesc")}
-                      onClick={() => launch(setOidcOpen)}
+                      icon={<ShieldCheck />}
+                      title={t("aiApprovals.title")}
+                      description={t("settings.aiApprovalsDesc")}
+                      onClick={() => launch(setAiProposalsOpen)}
                     />
                   </div>
                 </Panel>
@@ -536,6 +550,9 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
       </LazyMount>
       <LazyMount active={backupsOpen}>
         <BackupsDialog open={backupsOpen} onOpenChange={setBackupsOpen} />
+      </LazyMount>
+      <LazyMount active={aiProposalsOpen}>
+        <AIProposalsDialog open={aiProposalsOpen} onOpenChange={setAiProposalsOpen} />
       </LazyMount>
       <LazyMount active={oidcOpen}>
         <OIDCDialog open={oidcOpen} onOpenChange={setOidcOpen} />

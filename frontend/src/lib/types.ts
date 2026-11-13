@@ -490,6 +490,30 @@ export interface ProfileResult {
   entries: MongoDocument[]
 }
 
+export interface AIProposal {
+  id: string
+  tool: string
+  operation: "insert" | "update" | "delete" | string
+  connectionId: string
+  database: string
+  collection: string
+  summary: string
+  count: number
+  rollbackable: boolean
+  preview: unknown
+  status: "pending" | "approved" | "applying" | "applied" | "failed" | "rejected" | "rolled_back" | string
+  createdBy?: string
+  createdAt?: string
+  updatedAt?: string
+  approvedBy?: string
+  approvedAt?: string
+  rejectedBy?: string
+  appliedAt?: string
+  rolledBackAt?: string
+  error?: string
+  result?: string
+}
+
 export interface AuditEntry {
   time: string
   actor?: string

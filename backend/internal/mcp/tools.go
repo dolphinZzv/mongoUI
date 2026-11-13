@@ -160,7 +160,15 @@ func (s *Server) callToolWithScopes(name string, args map[string]any, scopes, co
 				return "", fmt.Errorf("token is not allowed to access connection %q", id)
 			}
 		}
-		if t.name == "mongoui_list_connections" {
+		if t.name == "mongoui_apply_proposal" || t.name == "mongoui_rollback_proposal" {
+			if raw, ok := args["proposalId"]; ok {
+				id, _ := raw.(string)
+				if proposal, found := s.proposals.get(id); found && !connectionAllowed(connections, proposal.ConnectionID) {
+					return "", fmt.Errorf("token is not allowed to access connection %q", proposal.ConnectionID)
+				}
+			}
+		}
+		if t.name == "mongoui_list_connections" || t.name == "mongoui_list_proposals" {
 			args["_allowedConnections"] = connections
 		}
 		return t.run(s, args)
@@ -224,207 +232,235 @@ func connProp() map[string]any { return strP("Connection id from mongoui_list_co
 
 // --- tool registry ----------------------------------------------------------
 
-var tools = []tool{
-	{
-		name:        "mongoui_list_connections",
-		description: "List the saved MongoDB connection profiles (id, name, connected, readOnly). Call this first to get a connectionId.",
-		inputSchema: obj(map[string]any{}),
-		run:         toolListConnections,
-	},
-	{
-		name:        "mongoui_connect",
-		description: "Open a connection so data tools can run. Safe in read-only mode.",
-		inputSchema: obj(map[string]any{"connectionId": connProp()}, "connectionId"),
-		run:         toolConnect,
-	},
-	{
-		name:        "mongoui_disconnect",
-		description: "Close an open connection.",
-		inputSchema: obj(map[string]any{"connectionId": connProp()}, "connectionId"),
-		run:         toolDisconnect,
-	},
-	{
-		name:        "mongoui_server_info",
-		description: "Return MongoDB buildInfo for an open connection.",
-		inputSchema: obj(map[string]any{"connectionId": connProp()}, "connectionId"),
-		run:         toolServerInfo,
-	},
-	{
-		name:        "mongoui_list_databases",
-		description: "List databases on an open connection with their on-disk size.",
-		inputSchema: obj(map[string]any{"connectionId": connProp()}, "connectionId"),
-		run:         toolListDatabases,
-	},
-	{
-		name:        "mongoui_list_collections",
-		description: "List the collections of a database.",
-		inputSchema: obj(map[string]any{"connectionId": connProp(), "database": strP("database name")}, "connectionId", "database"),
-		run:         toolListCollections,
-	},
-	{
-		name:        "mongoui_collection_stats",
-		description: "Return collStats for a collection.",
-		inputSchema: obj(map[string]any{
-			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
-		}, "connectionId", "database", "collection"),
-		run: toolCollectionStats,
-	},
-	{
-		name:        "mongoui_collection_schema",
-		description: "Sample documents and summarise field coverage and BSON types.",
-		inputSchema: obj(map[string]any{
-			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
-		}, "connectionId", "database", "collection"),
-		run: toolCollectionSchema,
-	},
-	{
-		name:        "mongoui_find",
-		description: "Query documents. filter/sort/projection use MongoDB Extended JSON (e.g. {\"_id\":{\"$oid\":\"...\"}}).",
-		inputSchema: obj(map[string]any{
-			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
-			"filter": objP("query filter"), "sort": objP("sort spec"), "projection": objP("projection spec"),
-			"skip": numP("documents to skip"), "limit": numP("max documents (default 50, max 1000)"),
-			"includeTotal": boolP("count all matching documents (default true; set false for large collections)"),
-		}, "connectionId", "database", "collection"),
-		run: toolFind,
-	},
-	{
-		name:        "mongoui_count",
-		description: "Count documents matching a filter. Uses estimatedDocumentCount when the filter is empty.",
-		inputSchema: obj(map[string]any{
-			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
-			"filter": objP("query filter (optional)"),
-		}, "connectionId", "database", "collection"),
-		run: toolCount,
-	},
-	{
-		name:        "mongoui_database_stats",
-		description: "Return dbStats for a database (collections, objects, dataSize, storageSize, indexes).",
-		inputSchema: obj(map[string]any{
-			"connectionId": connProp(), "database": strP("database name"),
-		}, "connectionId", "database"),
-		run: toolDatabaseStats,
-	},
-	{
-		name:        "mongoui_aggregate",
-		description: "Run an aggregation pipeline (array of stage objects).",
-		inputSchema: obj(map[string]any{
-			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
-			"pipeline": arrP("array of pipeline stages"), "limit": numP("optional result cap"),
-		}, "connectionId", "database", "collection", "pipeline"),
-		run: toolAggregate,
-	},
-	{
-		name:        "mongoui_sql",
-		description: "Run a SQL SELECT (translated to MongoDB). FROM names the collection. Supports WHERE/IN/LIKE, ORDER BY, LIMIT, GROUP BY, HAVING, DISTINCT and COUNT/SUM/AVG/MIN/MAX.",
-		inputSchema: obj(map[string]any{
-			"connectionId": connProp(), "database": strP("database name"),
-			"query": strP("SQL SELECT statement"), "limit": numP("optional result cap"),
-		}, "connectionId", "database", "query"),
-		run: toolSQL,
-	},
-	{
-		name:        "mongoui_list_indexes",
-		description: "List indexes on a collection.",
-		inputSchema: obj(map[string]any{
-			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
-		}, "connectionId", "database", "collection"),
-		run: toolListIndexes,
-	},
-	{
-		name:        "mongoui_insert",
-		description: "Insert one or more documents (Extended JSON array).",
-		inputSchema: obj(map[string]any{
-			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
-			"documents": arrP("documents to insert"),
-		}, "connectionId", "database", "collection", "documents"),
-		group: writeGroup,
-		run:   toolInsert,
-	},
-	{
-		name:        "mongoui_update",
-		description: "Update documents. An update with $ operators updates in place, otherwise it replaces whole documents. many=true updates every match.",
-		inputSchema: obj(map[string]any{
-			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
-			"filter": objP("which documents to update"), "update": objP("update document or replacement"),
-			"many": boolP("update all matches (default first match)"), "upsert": boolP("insert when nothing matches"),
-		}, "connectionId", "database", "collection", "filter", "update"),
-		group: writeGroup,
-		run:   toolUpdate,
-	},
-	{
-		name:        "mongoui_delete",
-		description: "Delete documents matching a filter. many=true deletes every match.",
-		inputSchema: obj(map[string]any{
-			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
-			"filter": objP("which documents to delete"), "many": boolP("delete all matches"),
-		}, "connectionId", "database", "collection", "filter"),
-		group: writeGroup,
-		run:   toolDelete,
-	},
-	{
-		name:        "mongoui_create_collection",
-		description: "Create a collection (optionally capped).",
-		inputSchema: obj(map[string]any{
-			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
-			"capped": boolP("create a capped collection"), "size": numP("capped size in bytes"), "max": numP("max documents"),
-		}, "connectionId", "database", "collection"),
-		group: writeGroup,
-		run:   toolCreateCollection,
-	},
-	{
-		name:        "mongoui_drop_collection",
-		description: "Drop a collection.",
-		inputSchema: obj(map[string]any{
-			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
-		}, "connectionId", "database", "collection"),
-		group: writeGroup,
-		run:   toolDropCollection,
-	},
-	{
-		name:        "mongoui_drop_database",
-		description: "Drop a database.",
-		inputSchema: obj(map[string]any{
-			"connectionId": connProp(), "database": strP("database name"),
-		}, "connectionId", "database"),
-		group: writeGroup,
-		run:   toolDropDatabase,
-	},
-	{
-		name:        "mongoui_create_index",
-		description: "Create an index from a key spec, e.g. {\"email\":1} with optional options (unique, sparse, name, expireAfterSeconds).",
-		inputSchema: obj(map[string]any{
-			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
-			"keys": objP("index key spec"), "options": objP("index options"),
-		}, "connectionId", "database", "collection", "keys"),
-		group: writeGroup,
-		run:   toolCreateIndex,
-	},
-	{
-		name:        "mongoui_drop_index",
-		description: "Drop an index by name.",
-		inputSchema: obj(map[string]any{
-			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
-			"name": strP("index name"),
-		}, "connectionId", "database", "collection", "name"),
-		group: writeGroup,
-		run:   toolDropIndex,
-	},
-	{
-		name:        "mongoui_explain",
-		description: "Return the execution plan (explain) for a find query or an aggregation pipeline. Use verbosity=executionStats to see examined/returned counts.",
-		inputSchema: obj(map[string]any{
-			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
-			"type":       strP(`"find" (default) or "aggregate"`),
-			"filter":     objP("query filter (find)"),
-			"sort":       objP("sort spec (find)"),
-			"projection": objP("projection spec (find)"),
-			"pipeline":   arrP("aggregation pipeline (aggregate)"),
-			"limit":      numP("limit"),
-			"verbosity":  strP("queryPlanner (default), executionStats or allPlansExecution"),
-		}, "connectionId", "database", "collection"),
-		run: toolExplain,
-	},
+var tools []tool
+
+func init() {
+	tools = []tool{
+		{
+			name:        "mongoui_list_connections",
+			description: "List the saved MongoDB connection profiles (id, name, connected, readOnly). Call this first to get a connectionId.",
+			inputSchema: obj(map[string]any{}),
+			run:         toolListConnections,
+		},
+		{
+			name:        "mongoui_connect",
+			description: "Open a connection so data tools can run. Safe in read-only mode.",
+			inputSchema: obj(map[string]any{"connectionId": connProp()}, "connectionId"),
+			run:         toolConnect,
+		},
+		{
+			name:        "mongoui_disconnect",
+			description: "Close an open connection.",
+			inputSchema: obj(map[string]any{"connectionId": connProp()}, "connectionId"),
+			run:         toolDisconnect,
+		},
+		{
+			name:        "mongoui_server_info",
+			description: "Return MongoDB buildInfo for an open connection.",
+			inputSchema: obj(map[string]any{"connectionId": connProp()}, "connectionId"),
+			run:         toolServerInfo,
+		},
+		{
+			name:        "mongoui_list_databases",
+			description: "List databases on an open connection with their on-disk size.",
+			inputSchema: obj(map[string]any{"connectionId": connProp()}, "connectionId"),
+			run:         toolListDatabases,
+		},
+		{
+			name:        "mongoui_list_collections",
+			description: "List the collections of a database.",
+			inputSchema: obj(map[string]any{"connectionId": connProp(), "database": strP("database name")}, "connectionId", "database"),
+			run:         toolListCollections,
+		},
+		{
+			name:        "mongoui_collection_stats",
+			description: "Return collStats for a collection.",
+			inputSchema: obj(map[string]any{
+				"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
+			}, "connectionId", "database", "collection"),
+			run: toolCollectionStats,
+		},
+		{
+			name:        "mongoui_collection_schema",
+			description: "Sample documents and summarise field coverage and BSON types.",
+			inputSchema: obj(map[string]any{
+				"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
+			}, "connectionId", "database", "collection"),
+			run: toolCollectionSchema,
+		},
+		{
+			name:        "mongoui_find",
+			description: "Query documents. filter/sort/projection use MongoDB Extended JSON (e.g. {\"_id\":{\"$oid\":\"...\"}}).",
+			inputSchema: obj(map[string]any{
+				"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
+				"filter": objP("query filter"), "sort": objP("sort spec"), "projection": objP("projection spec"),
+				"skip": numP("documents to skip"), "limit": numP("max documents (default 50, max 1000)"),
+				"includeTotal": boolP("count all matching documents (default true; set false for large collections)"),
+			}, "connectionId", "database", "collection"),
+			run: toolFind,
+		},
+		{
+			name:        "mongoui_count",
+			description: "Count documents matching a filter. Uses estimatedDocumentCount when the filter is empty.",
+			inputSchema: obj(map[string]any{
+				"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
+				"filter": objP("query filter (optional)"),
+			}, "connectionId", "database", "collection"),
+			run: toolCount,
+		},
+		{
+			name:        "mongoui_database_stats",
+			description: "Return dbStats for a database (collections, objects, dataSize, storageSize, indexes).",
+			inputSchema: obj(map[string]any{
+				"connectionId": connProp(), "database": strP("database name"),
+			}, "connectionId", "database"),
+			run: toolDatabaseStats,
+		},
+		{
+			name:        "mongoui_aggregate",
+			description: "Run an aggregation pipeline (array of stage objects).",
+			inputSchema: obj(map[string]any{
+				"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
+				"pipeline": arrP("array of pipeline stages"), "limit": numP("optional result cap"),
+			}, "connectionId", "database", "collection", "pipeline"),
+			run: toolAggregate,
+		},
+		{
+			name:        "mongoui_sql",
+			description: "Run a SQL SELECT (translated to MongoDB). FROM names the collection. Supports WHERE/IN/LIKE, ORDER BY, LIMIT, GROUP BY, HAVING, DISTINCT and COUNT/SUM/AVG/MIN/MAX.",
+			inputSchema: obj(map[string]any{
+				"connectionId": connProp(), "database": strP("database name"),
+				"query": strP("SQL SELECT statement"), "limit": numP("optional result cap"),
+			}, "connectionId", "database", "query"),
+			run: toolSQL,
+		},
+		{
+			name:        "mongoui_list_indexes",
+			description: "List indexes on a collection.",
+			inputSchema: obj(map[string]any{
+				"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
+			}, "connectionId", "database", "collection"),
+			run: toolListIndexes,
+		},
+		{
+			name:        "mongoui_insert",
+			description: "Insert one or more documents (Extended JSON array).",
+			inputSchema: obj(map[string]any{
+				"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
+				"documents": arrP("documents to insert"),
+				"propose":   boolP("preview and queue for admin approval instead of writing immediately"),
+			}, "connectionId", "database", "collection", "documents"),
+			group: writeGroup,
+			run:   toolInsert,
+		},
+		{
+			name:        "mongoui_update",
+			description: "Update documents. An update with $ operators updates in place, otherwise it replaces whole documents. many=true updates every match.",
+			inputSchema: obj(map[string]any{
+				"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
+				"filter": objP("which documents to update"), "update": objP("update document or replacement"),
+				"many": boolP("update all matches (default first match)"), "upsert": boolP("insert when nothing matches"),
+				"propose": boolP("preview and queue for admin approval instead of writing immediately"),
+			}, "connectionId", "database", "collection", "filter", "update"),
+			group: writeGroup,
+			run:   toolUpdate,
+		},
+		{
+			name:        "mongoui_delete",
+			description: "Delete documents matching a filter. many=true deletes every match.",
+			inputSchema: obj(map[string]any{
+				"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
+				"filter": objP("which documents to delete"), "many": boolP("delete all matches"),
+				"propose": boolP("preview and queue for admin approval instead of writing immediately"),
+			}, "connectionId", "database", "collection", "filter"),
+			group: writeGroup,
+			run:   toolDelete,
+		},
+		{
+			name:        "mongoui_list_proposals",
+			description: "List queued write proposals (previews) awaiting approval or recently applied.",
+			inputSchema: obj(map[string]any{"status": strP("optional status filter")}),
+			group:       writeGroup,
+			run:         toolListProposals,
+		},
+		{
+			name:        "mongoui_apply_proposal",
+			description: "Apply an approved write proposal. Pending proposals cannot be applied until an administrator approves them.",
+			inputSchema: obj(map[string]any{"proposalId": strP("proposal id from a propose=true call")}, "proposalId"),
+			group:       writeGroup,
+			run:         toolApplyProposal,
+		},
+		{
+			name:        "mongoui_rollback_proposal",
+			description: "Restore documents from an applied update/delete proposal when a rollback snapshot is available.",
+			inputSchema: obj(map[string]any{"proposalId": strP("applied proposal id")}, "proposalId"),
+			group:       writeGroup,
+			run:         toolRollbackProposal,
+		},
+		{
+			name:        "mongoui_create_collection",
+			description: "Create a collection (optionally capped).",
+			inputSchema: obj(map[string]any{
+				"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
+				"capped": boolP("create a capped collection"), "size": numP("capped size in bytes"), "max": numP("max documents"),
+			}, "connectionId", "database", "collection"),
+			group: writeGroup,
+			run:   toolCreateCollection,
+		},
+		{
+			name:        "mongoui_drop_collection",
+			description: "Drop a collection.",
+			inputSchema: obj(map[string]any{
+				"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
+			}, "connectionId", "database", "collection"),
+			group: writeGroup,
+			run:   toolDropCollection,
+		},
+		{
+			name:        "mongoui_drop_database",
+			description: "Drop a database.",
+			inputSchema: obj(map[string]any{
+				"connectionId": connProp(), "database": strP("database name"),
+			}, "connectionId", "database"),
+			group: writeGroup,
+			run:   toolDropDatabase,
+		},
+		{
+			name:        "mongoui_create_index",
+			description: "Create an index from a key spec, e.g. {\"email\":1} with optional options (unique, sparse, name, expireAfterSeconds).",
+			inputSchema: obj(map[string]any{
+				"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
+				"keys": objP("index key spec"), "options": objP("index options"),
+			}, "connectionId", "database", "collection", "keys"),
+			group: writeGroup,
+			run:   toolCreateIndex,
+		},
+		{
+			name:        "mongoui_drop_index",
+			description: "Drop an index by name.",
+			inputSchema: obj(map[string]any{
+				"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
+				"name": strP("index name"),
+			}, "connectionId", "database", "collection", "name"),
+			group: writeGroup,
+			run:   toolDropIndex,
+		},
+		{
+			name:        "mongoui_explain",
+			description: "Return the execution plan (explain) for a find query or an aggregation pipeline. Use verbosity=executionStats to see examined/returned counts.",
+			inputSchema: obj(map[string]any{
+				"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
+				"type":       strP(`"find" (default) or "aggregate"`),
+				"filter":     objP("query filter (find)"),
+				"sort":       objP("sort spec (find)"),
+				"projection": objP("projection spec (find)"),
+				"pipeline":   arrP("aggregation pipeline (aggregate)"),
+				"limit":      numP("limit"),
+				"verbosity":  strP("queryPlanner (default), executionStats or allPlansExecution"),
+			}, "connectionId", "database", "collection"),
+			run: toolExplain,
+		},
+	}
 }
 
 // --- argument helpers -------------------------------------------------------
@@ -1045,7 +1081,50 @@ func toolListIndexes(s *Server, args map[string]any) (string, error) {
 	return jsonText(map[string]any{"indexes": indexes, "count": len(indexes)})
 }
 
+func toolListProposals(s *Server, args map[string]any) (string, error) {
+	allowed, _ := args["_allowedConnections"].([]string)
+	status := argStrDefault(args, "status", "")
+	all := s.proposals.list()
+	out := make([]Proposal, 0, len(all))
+	for _, proposal := range all {
+		if !connectionAllowed(allowed, proposal.ConnectionID) {
+			continue
+		}
+		if status != "" && proposal.Status != status {
+			continue
+		}
+		out = append(out, proposal)
+	}
+	return jsonStd(map[string]any{"proposals": out, "count": len(out)})
+}
+
+func toolApplyProposal(s *Server, args map[string]any) (string, error) {
+	id, err := argStr(args, "proposalId")
+	if err != nil {
+		return "", err
+	}
+	result, err := s.ApplyProposal(id)
+	if err != nil {
+		return "", err
+	}
+	return result, nil
+}
+
+func toolRollbackProposal(s *Server, args map[string]any) (string, error) {
+	id, err := argStr(args, "proposalId")
+	if err != nil {
+		return "", err
+	}
+	if err := s.RollbackProposal(id); err != nil {
+		return "", err
+	}
+	return jsonText(map[string]any{"proposalId": id, "rolledBack": true})
+}
+
 func toolInsert(s *Server, args map[string]any) (string, error) {
+	if argBool(args, "propose", false) {
+		return s.createProposal("mongoui_insert", args)
+	}
 	id, err := argStr(args, "connectionId")
 	if err != nil {
 		return "", err
@@ -1082,6 +1161,9 @@ func toolInsert(s *Server, args map[string]any) (string, error) {
 }
 
 func toolUpdate(s *Server, args map[string]any) (string, error) {
+	if argBool(args, "propose", false) {
+		return s.createProposal("mongoui_update", args)
+	}
 	id, err := argStr(args, "connectionId")
 	if err != nil {
 		return "", err
@@ -1140,6 +1222,9 @@ func toolUpdate(s *Server, args map[string]any) (string, error) {
 }
 
 func toolDelete(s *Server, args map[string]any) (string, error) {
+	if argBool(args, "propose", false) {
+		return s.createProposal("mongoui_delete", args)
+	}
 	id, err := argStr(args, "connectionId")
 	if err != nil {
 		return "", err

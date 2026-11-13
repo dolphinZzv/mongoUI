@@ -22,6 +22,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"mongoui/internal/config"
 	"mongoui/internal/mongoclient"
@@ -55,6 +56,14 @@ type RunbookState struct {
 	History    []RunbookRun `json:"history,omitempty"`
 }
 
+// ReportState is the latest execution status of a scheduled report.
+type ReportState struct {
+	LastRun    string `json:"lastRun,omitempty"`
+	LastStatus string `json:"lastStatus,omitempty"`
+	LastError  string `json:"lastError,omitempty"`
+	LastCount  int    `json:"lastCount,omitempty"`
+}
+
 // Manager evaluates alert rules and runbooks on a fixed tick.
 type Manager struct {
 	settings *config.Settings
@@ -68,6 +77,7 @@ type Manager struct {
 	lastRun  map[string]time.Time
 	alerts   map[string]AlertState
 	runbooks map[string]RunbookState
+	reports  map[string]ReportState
 	running  map[string]bool
 }
 
@@ -85,6 +95,7 @@ func New(settings *config.Settings, store *config.Store, mgr *mongoclient.Manage
 		lastRun:  map[string]time.Time{},
 		alerts:   map[string]AlertState{},
 		runbooks: map[string]RunbookState{},
+		reports:  map[string]ReportState{},
 		running:  map[string]bool{},
 	}
 }
@@ -131,6 +142,19 @@ func (m *Manager) tick(ctx context.Context) {
 		}
 		m.claim("r:" + runbook.ID)
 		go m.runRunbook(ctx, runbook)
+	}
+	reports, err := m.config.GetReports()
+	if err == nil {
+		for _, report := range reports {
+			if !report.Enabled || report.IntervalSeconds <= 0 {
+				continue
+			}
+			if !m.due("p:"+report.ID, report.IntervalSeconds) {
+				continue
+			}
+			m.claim("p:" + report.ID)
+			go m.runReport(ctx, report)
+		}
 	}
 }
 
@@ -187,6 +211,28 @@ func (m *Manager) RunbookStates() map[string]RunbookState {
 		out[key] = value
 	}
 	return out
+}
+
+// ReportStates returns a snapshot for the API.
+func (m *Manager) ReportStates() map[string]ReportState {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string]ReportState, len(m.reports))
+	for key, value := range m.reports {
+		out[key] = value
+	}
+	return out
+}
+
+func (m *Manager) setReportState(id string, state ReportState) {
+	m.mu.Lock()
+	m.reports[id] = state
+	m.mu.Unlock()
+}
+
+// RunReportNow executes a report immediately (used by the admin API).
+func (m *Manager) RunReportNow(ctx context.Context, report config.ReportRule) {
+	m.runReport(ctx, report)
 }
 
 func (m *Manager) clientFor(ctx context.Context, connectionID string) (*mongo.Client, error) {
@@ -340,8 +386,147 @@ func (m *Manager) notify(ctx context.Context, rule config.AlertRule, value float
 	return nil
 }
 
+func (m *Manager) runReport(ctx context.Context, report config.ReportRule) {
+	defer m.release("p:" + report.ID)
+	state := ReportState{LastRun: time.Now().UTC().Format(time.RFC3339)}
+	client, err := m.clientFor(ctx, report.ConnectionID)
+	if err != nil {
+		state.LastStatus = "error"
+		state.LastError = err.Error()
+		m.setReportState(report.ID, state)
+		return
+	}
+	runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	docs, err := buildReportDocuments(runCtx, client, report)
+	if err != nil {
+		state.LastStatus = "error"
+		state.LastError = err.Error()
+		m.setReportState(report.ID, state)
+		return
+	}
+	rawDocs, err := extJSONDocs(docs)
+	if err != nil {
+		state.LastStatus = "error"
+		state.LastError = err.Error()
+		m.setReportState(report.ID, state)
+		return
+	}
+	state.LastCount = len(docs)
+	payload := map[string]any{
+		"report":     report.Name,
+		"id":         report.ID,
+		"connection": report.ConnectionID,
+		"database":   report.Database,
+		"collection": report.Collection,
+		"at":         time.Now().UTC().Format(time.RFC3339),
+		"count":      len(docs),
+		"documents":  rawDocs,
+	}
+	var failures []string
+	if strings.TrimSpace(report.WebhookURL) != "" {
+		if err := m.postWebhook(ctx, report.WebhookURL, report.WebhookSecret, payload); err != nil {
+			failures = append(failures, "webhook: "+err.Error())
+		}
+	}
+	if strings.TrimSpace(report.EmailTo) != "" {
+		body, err := json.MarshalIndent(payload, "", "  ")
+		if err != nil {
+			failures = append(failures, "email body: "+err.Error())
+		} else {
+			text := truncateReport(string(body), 100<<10)
+			if err := m.sendMail(ctx, report.EmailTo, "[MongoUI] "+report.Name+" report", text); err != nil {
+				failures = append(failures, "email: "+err.Error())
+			}
+		}
+	}
+	if len(failures) == 0 {
+		state.LastStatus = "ok"
+	} else {
+		state.LastStatus = "error"
+		state.LastError = strings.Join(failures, "; ")
+	}
+	m.setReportState(report.ID, state)
+}
+
+func buildReportDocuments(ctx context.Context, client *mongo.Client, report config.ReportRule) ([]bson.D, error) {
+	filter := bson.D{}
+	if strings.TrimSpace(report.Filter) != "" {
+		if err := bson.UnmarshalExtJSON([]byte(report.Filter), false, &filter); err != nil {
+			return nil, fmt.Errorf("invalid filter: %w", err)
+		}
+	}
+	limit := report.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	coll := client.Database(report.Database).Collection(report.Collection)
+	var docs []bson.D
+	if strings.TrimSpace(report.Pipeline) != "" {
+		var pipeline []bson.D
+		if err := bson.UnmarshalExtJSON([]byte(report.Pipeline), false, &pipeline); err != nil {
+			return nil, fmt.Errorf("invalid pipeline: %w", err)
+		}
+		for _, stage := range pipeline {
+			for _, e := range stage {
+				if e.Key == "$out" || e.Key == "$merge" {
+					return nil, errors.New("reports are read-only; $out and $merge are not allowed")
+				}
+			}
+		}
+		if len(filter) > 0 {
+			pipeline = append([]bson.D{{{Key: "$match", Value: filter}}}, pipeline...)
+		}
+		pipeline = append(pipeline, bson.D{{Key: "$limit", Value: limit}})
+		cursor, err := coll.Aggregate(ctx, pipeline)
+		if err != nil {
+			return nil, err
+		}
+		defer cursor.Close(ctx)
+		if err := cursor.All(ctx, &docs); err != nil {
+			return nil, err
+		}
+		return docs, nil
+	}
+	cursor, err := coll.Find(ctx, filter, options.Find().SetLimit(int64(limit)))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	if err := cursor.All(ctx, &docs); err != nil {
+		return nil, err
+	}
+	return docs, nil
+}
+
+func extJSONDocs(docs []bson.D) ([]json.RawMessage, error) {
+	out := make([]json.RawMessage, len(docs))
+	for i, doc := range docs {
+		raw, err := bson.MarshalExtJSON(doc, false, false)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = raw
+	}
+	return out, nil
+}
+
+func truncateReport(text string, max int) string {
+	if len(text) <= max {
+		return text
+	}
+	return text[:max] + "\n… (truncated)"
+}
+
 func (m *Manager) sendWebhook(ctx context.Context, rule config.AlertRule, payload map[string]any) error {
-	if err := validateWebhookURL(rule.WebhookURL); err != nil {
+	return m.postWebhook(ctx, rule.WebhookURL, rule.WebhookSecret, payload)
+}
+
+func (m *Manager) postWebhook(ctx context.Context, rawURL, secret string, payload map[string]any) error {
+	if err := validateWebhookURL(rawURL); err != nil {
 		return err
 	}
 	body, err := json.Marshal(payload)
@@ -349,13 +534,13 @@ func (m *Manager) sendWebhook(ctx context.Context, rule config.AlertRule, payloa
 		return err
 	}
 	for attempt := 0; attempt < 3; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, rule.WebhookURL, bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, bytes.NewReader(body))
 		if err != nil {
 			return err
 		}
 		req.Header.Set("Content-Type", "application/json")
-		if rule.WebhookSecret != "" {
-			mac := hmac.New(sha256.New, []byte(rule.WebhookSecret))
+		if secret != "" {
+			mac := hmac.New(sha256.New, []byte(secret))
 			mac.Write(body)
 			req.Header.Set("X-Mongoui-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
 		}
@@ -380,6 +565,15 @@ func (m *Manager) sendWebhook(ctx context.Context, rule config.AlertRule, payloa
 }
 
 func (m *Manager) sendEmail(ctx context.Context, rule config.AlertRule, value float64) error {
+	subject := fmt.Sprintf("[MongoUI] %s triggered", rule.Name)
+	body := fmt.Sprintf(
+		"Alert %s triggered.\n\nConnection: %s\nDatabase: %s\nCollection: %s\nValue: %.6g\nThreshold: %s %.6g\n",
+		rule.Name, rule.ConnectionID, rule.Database, rule.Collection, value, rule.Operator, rule.Threshold,
+	)
+	return m.sendMail(ctx, rule.EmailTo, subject, body)
+}
+
+func (m *Manager) sendMail(ctx context.Context, to, subject, body string) error {
 	cfg, err := m.config.GetSMTP()
 	if err != nil {
 		return err
@@ -391,13 +585,8 @@ func (m *Manager) sendEmail(ctx context.Context, rule config.AlertRule, value fl
 	if port == 0 {
 		port = 587
 	}
-	subject := fmt.Sprintf("[MongoUI] %s triggered", rule.Name)
-	body := fmt.Sprintf(
-		"Alert %s triggered.\n\nConnection: %s\nDatabase: %s\nCollection: %s\nValue: %.6g\nThreshold: %s %.6g\n",
-		rule.Name, rule.ConnectionID, rule.Database, rule.Collection, value, rule.Operator, rule.Threshold,
-	)
 	message := []byte("From: " + cfg.From + "\r\n" +
-		"To: " + rule.EmailTo + "\r\n" +
+		"To: " + to + "\r\n" +
 		"Subject: " + subject + "\r\n" +
 		"MIME-Version: 1.0\r\n" +
 		"Content-Type: text/plain; charset=utf-8\r\n\r\n" + body)
@@ -408,7 +597,7 @@ func (m *Manager) sendEmail(ctx context.Context, rule config.AlertRule, value fl
 	}
 	done := make(chan error, 1)
 	recipients := []string{}
-	for _, recipient := range strings.Split(rule.EmailTo, ",") {
+	for _, recipient := range strings.Split(to, ",") {
 		if trimmed := strings.TrimSpace(recipient); trimmed != "" {
 			recipients = append(recipients, trimmed)
 		}

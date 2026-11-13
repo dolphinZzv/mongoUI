@@ -141,6 +141,9 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 			r.Get("/runbooks", a.getRunbooks)
 			r.Put("/runbooks", a.updateRunbooks)
 			r.Post("/runbooks/{id}/run", a.runRunbookNow)
+			r.Get("/reports", a.getReports)
+			r.Put("/reports", a.updateReports)
+			r.Post("/reports/{id}/run", a.runReportNow)
 			r.Get("/smtp", a.getSMTP)
 			r.Put("/smtp", a.updateSMTP)
 

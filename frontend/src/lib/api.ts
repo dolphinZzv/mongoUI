@@ -6,6 +6,8 @@ import type {
   AISettings,
   AlertRule,
   AlertRuntimeState,
+  ReportRule,
+  ReportRuntimeState,
   RunbookRule,
   RunbookRuntimeState,
   SavedQuery,
@@ -538,6 +540,17 @@ export const api = {
     ),
   runRunbook: (id: string) =>
     request<{ started: boolean }>(`/runbooks/${encodeURIComponent(id)}/run`, { method: "POST" }),
+  getReports: () =>
+    request<{ reports: ReportRule[]; statuses?: Record<string, ReportRuntimeState> }>("/reports", {
+      cache: "no-store",
+    }),
+  saveReports: (reports: ReportRule[]) =>
+    request<{ reports: ReportRule[]; statuses?: Record<string, ReportRuntimeState> }>("/reports", {
+      method: "PUT",
+      body: JSON.stringify({ reports }),
+    }),
+  runReport: (id: string) =>
+    request<{ started: boolean }>(`/reports/${encodeURIComponent(id)}/run`, { method: "POST" }),
   getSMTP: () => request<SMTPSettings>("/smtp"),
   saveSMTP: (settings: SMTPSettings) =>
     request<SMTPSettings>("/smtp", { method: "PUT", body: JSON.stringify(settings) }),

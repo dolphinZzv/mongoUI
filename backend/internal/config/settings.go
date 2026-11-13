@@ -126,6 +126,23 @@ type AlertRule struct {
 	Enabled         bool    `json:"enabled"`
 }
 
+// ReportRule is a scheduled read-only data report delivered by email/webhook.
+type ReportRule struct {
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	ConnectionID    string `json:"connectionId"`
+	Database        string `json:"database"`
+	Collection      string `json:"collection"`
+	Filter          string `json:"filter,omitempty"`
+	Pipeline        string `json:"pipeline,omitempty"`
+	Limit           int    `json:"limit,omitempty"`
+	IntervalSeconds int    `json:"intervalSeconds"`
+	WebhookURL      string `json:"webhookUrl,omitempty"`
+	WebhookSecret   string `json:"webhookSecret,omitempty"`
+	EmailTo         string `json:"emailTo,omitempty"`
+	Enabled         bool   `json:"enabled"`
+}
+
 // Runbook is a scheduled mongosh-style script.
 type Runbook struct {
 	ID              string `json:"id"`
@@ -171,9 +188,10 @@ type Settings struct {
 	SavedQueries        map[string][]SavedQuery `json:"savedQueries,omitempty"`
 	SavedQueriesVersion map[string]int64        `json:"savedQueriesVersion,omitempty"`
 	// Alerts and Runbooks power the server-side automation scheduler.
-	Alerts   map[string]AlertRule `json:"alerts,omitempty"`
-	Runbooks map[string]Runbook   `json:"runbooks,omitempty"`
-	SMTP     SMTPSettings         `json:"smtp,omitempty"`
+	Alerts   map[string]AlertRule  `json:"alerts,omitempty"`
+	Runbooks map[string]Runbook    `json:"runbooks,omitempty"`
+	Reports  map[string]ReportRule `json:"reports,omitempty"`
+	SMTP     SMTPSettings          `json:"smtp,omitempty"`
 }
 
 // SavedQuery is a reusable SQL statement or aggregation pipeline.
@@ -208,6 +226,7 @@ func NewSettings(mcp MCPSettings) *Settings {
 		SavedQueriesVersion: map[string]int64{},
 		Alerts:              map[string]AlertRule{},
 		Runbooks:            map[string]Runbook{},
+		Reports:             map[string]ReportRule{},
 	}
 }
 
@@ -578,6 +597,50 @@ func (s *Settings) SetRunbooks(runbooks []Runbook) error {
 		next[runbook.ID] = runbook
 	}
 	s.Runbooks = next
+	s.mu.Unlock()
+	if s.path == "" {
+		return nil
+	}
+	return s.persist()
+}
+
+// GetReports returns a copy of the scheduled data reports with secrets decrypted.
+func (s *Settings) GetReports() ([]ReportRule, error) {
+	s.mu.RLock()
+	reports := make([]ReportRule, 0, len(s.Reports))
+	cipher := s.cipher
+	for _, report := range s.Reports {
+		reports = append(reports, report)
+	}
+	s.mu.RUnlock()
+	if cipher == nil {
+		return reports, nil
+	}
+	for i := range reports {
+		var err error
+		if reports[i].WebhookSecret, err = cipher.Decrypt(reports[i].WebhookSecret); err != nil {
+			return nil, err
+		}
+	}
+	return reports, nil
+}
+
+// SetReports replaces the scheduled reports, encrypting webhook secrets.
+func (s *Settings) SetReports(reports []ReportRule) error {
+	s.mu.Lock()
+	cipher := s.cipher
+	next := make(map[string]ReportRule, len(reports))
+	for _, report := range reports {
+		if cipher != nil {
+			var err error
+			if report.WebhookSecret, err = cipher.Encrypt(report.WebhookSecret); err != nil {
+				s.mu.Unlock()
+				return err
+			}
+		}
+		next[report.ID] = report
+	}
+	s.Reports = next
 	s.mu.Unlock()
 	if s.path == "" {
 		return nil

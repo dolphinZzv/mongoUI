@@ -81,6 +81,7 @@ MongoUI 是一个用 Go + React 编写的 MongoDB 可视化管理工具。前端
 - **个人访问令牌（PAT）**：为 API 客户端签发带作用域（`read` / `write` / `admin`）的令牌，权限不会超过账号当前角色。
 - **单点登录（OIDC）**：接入任意 OpenID Connect 提供方，支持发现、PKCE、JWKS 校验与「用户组 → 角色」映射，可限制邮箱域名 / 邮箱。
 - **定时备份**：按计划把集合导出为 JSON/CSV 文件，保留最近若干份，并记录上次运行状态。
+- **定时数据报表**：按计划对集合执行只读 find / 聚合，把结果（最多 500 行）通过 Webhook 或 SMTP 邮件发送，作为轻量团队日报 / 周报。
 - **内置反馈**：右下角 Feedback 入口通过服务端 `gh` CLI 创建 GitHub Issue，支持关闭并从设置菜单重新打开。
 - **登录（账号密码 / TOTP）**、后退 / 前进与刷新可恢复的 URL 状态。
 - 守护进程（`-daemon`）、系统服务安装（`service`，systemd / launchd）、一键安装脚本、Homebrew formula（`brew services`）、Docker 镜像与**内置自动更新**。
@@ -318,7 +319,7 @@ await window.mongouiAgent.call("mongoui_find", {
 - 启用后所有 `/api/*` 需要登录（`/api/health` 除外）；静态前端不受影响，登录页始终能打开。
 - 密码使用 bcrypt 哈希，TOTP 密钥、密码哈希与 OIDC 客户端密钥经 AES-256-GCM 加密后保存在 `<data>/auth.json`；会话签名密钥由主密钥派生（`MONGOUI_SECRET_KEY`），**更换主密钥会导致会话失效并需重新登录**。旧的单账号配置会自动迁移为一个名为 `admin` 的管理员。
 - **连接级 allowlist**：管理员可在 **设置 → 账号** 中为账号勾选可访问的连接；空列表表示全部，管理员始终不受限。API、MCP 与侧边栏都按同一列表过滤；连接配置的创建 / 修改 / 删除仅管理员可执行，避免通过改 URI 绕过 ACL。
-- **自我保护**：账号管理、定时备份、MCP 服务端开关与自动更新均为管理员专属；读写 / 只读账号即使直接调用 API 也会收到 403。
+- **自我保护**：账号管理、定时备份、定时报表、MCP 服务端开关与自动更新均为管理员专属；读写 / 只读账号即使直接调用 API 也会收到 403。
 - 启用登录后 `/mcp` 不接受网页会话，需使用个人访问令牌（PAT）；PAT 的 scope 会限制可用的读 / 写工具。
 - 重置：删除 `<data>/auth.json` 重启，会重新进入首次设置。
 
@@ -396,7 +397,7 @@ export MONGOUI_COORDINATION_URI="mongodb://coordinator:27017"
 export MONGOUI_COORDINATION_DATABASE="mongoui"
 ```
 
-- 告警规则、定时 Runbook、SMTP 配置、团队保存的 SQL / 管道存放在协调库的 `automation` 集合，所有实例共享
+- 告警规则、定时 Runbook、定时报表、SMTP 配置、团队保存的 SQL / 管道存放在协调库的 `automation` 集合，所有实例共享
 - `locks` 集合保存 `automation` / `backups` 租约，15 秒续约、45 秒过期；同一时刻只有一个实例执行定时任务
 - 协调库不可用时进程会启动失败，避免多个实例同时执行任务
 - 自动更新仍按实例运行；多实例部署时建议在非主实例设置 `MONGOUI_DISABLE_AUTOUPDATE=1`

@@ -307,3 +307,147 @@ func toAnyMap[T any](in map[string]T) map[string]any {
 	}
 	return out
 }
+
+type reportsInput struct {
+	Reports []config.ReportRule `json:"reports"`
+}
+
+type reportView struct {
+	config.ReportRule
+	WebhookSecret    string `json:"webhookSecret,omitempty"`
+	HasWebhookSecret bool   `json:"hasWebhookSecret"`
+}
+
+func (a *API) getReports(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAdmin(w, r) {
+		return
+	}
+	reports, err := a.automationStore.GetReports()
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	views := make([]reportView, 0, len(reports))
+	for _, report := range reports {
+		hasSecret := report.WebhookSecret != ""
+		report.WebhookSecret = ""
+		views = append(views, reportView{ReportRule: report, HasWebhookSecret: hasSecret})
+	}
+	statuses := map[string]any{}
+	if a.automation != nil {
+		statuses = toAnyMap(a.automation.ReportStates())
+	}
+	ok(w, map[string]any{"reports": views, "statuses": statuses})
+}
+
+func (a *API) updateReports(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAdmin(w, r) {
+		return
+	}
+	var in reportsInput
+	if err := decodeJSON(r, &in); err != nil {
+		badRequest(w, err)
+		return
+	}
+	existing, _ := a.automationStore.GetReports()
+	secrets := map[string]string{}
+	for _, report := range existing {
+		secrets[report.ID] = report.WebhookSecret
+	}
+	reports := make([]config.ReportRule, 0, len(in.Reports))
+	for _, report := range in.Reports {
+		report.ID = strings.TrimSpace(report.ID)
+		report.Name = strings.TrimSpace(report.Name)
+		report.ConnectionID = strings.TrimSpace(report.ConnectionID)
+		report.Database = strings.TrimSpace(report.Database)
+		report.Collection = strings.TrimSpace(report.Collection)
+		report.Filter = strings.TrimSpace(report.Filter)
+		report.Pipeline = strings.TrimSpace(report.Pipeline)
+		report.WebhookURL = strings.TrimSpace(report.WebhookURL)
+		report.EmailTo = strings.TrimSpace(report.EmailTo)
+		if report.ID == "" || report.Name == "" || report.ConnectionID == "" || report.Database == "" || report.Collection == "" {
+			badRequest(w, errors.New("report id, name, connection, database and collection are required"))
+			return
+		}
+		if _, ok := a.store.Get(report.ConnectionID); !ok {
+			badRequest(w, errors.New("report connection does not exist"))
+			return
+		}
+		if report.IntervalSeconds < 5 {
+			report.IntervalSeconds = 5
+		}
+		if report.IntervalSeconds > 86400 {
+			report.IntervalSeconds = 86400
+		}
+		if report.Limit <= 0 {
+			report.Limit = 50
+		}
+		if report.Limit > 500 {
+			report.Limit = 500
+		}
+		if report.Filter != "" {
+			var filter bson.D
+			if err := bson.UnmarshalExtJSON([]byte(report.Filter), false, &filter); err != nil {
+				badRequest(w, errors.New("invalid report filter: "+err.Error()))
+				return
+			}
+		}
+		if report.Pipeline != "" {
+			var pipeline []bson.D
+			if err := bson.UnmarshalExtJSON([]byte(report.Pipeline), false, &pipeline); err != nil {
+				badRequest(w, errors.New("invalid report pipeline: "+err.Error()))
+				return
+			}
+			for _, stage := range pipeline {
+				for _, e := range stage {
+					if e.Key == "$out" || e.Key == "$merge" {
+						badRequest(w, errors.New("reports are read-only; $out and $merge are not allowed"))
+						return
+					}
+				}
+			}
+		}
+		if report.WebhookURL == "" && report.EmailTo == "" {
+			badRequest(w, errors.New("report needs a webhookUrl or emailTo destination"))
+			return
+		}
+		if report.WebhookSecret == "" {
+			report.WebhookSecret = secrets[report.ID]
+		}
+		reports = append(reports, report)
+	}
+	if err := a.automationStore.SetReports(reports); err != nil {
+		serverError(w, err)
+		return
+	}
+	a.getReports(w, r)
+}
+
+func (a *API) runReportNow(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAdmin(w, r) {
+		return
+	}
+	if a.automation == nil {
+		serverError(w, errors.New("automation is not running"))
+		return
+	}
+	id := chi.URLParam(r, "id")
+	reports, err := a.automationStore.GetReports()
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	for _, report := range reports {
+		if report.ID != id {
+			continue
+		}
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+			defer cancel()
+			a.automation.RunReportNow(ctx, report)
+		}()
+		ok(w, map[string]any{"started": true})
+		return
+	}
+	fail(w, http.StatusNotFound, errors.New("report not found"))
+}

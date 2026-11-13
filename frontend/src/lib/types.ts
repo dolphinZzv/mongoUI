@@ -419,6 +419,30 @@ export interface AlertRuntimeState {
   triggered?: boolean
 }
 
+export interface ReportRule {
+  id: string
+  name: string
+  connectionId: string
+  database: string
+  collection: string
+  filter?: string
+  pipeline?: string
+  limit?: number
+  intervalSeconds: number
+  webhookUrl?: string
+  webhookSecret?: string
+  hasWebhookSecret?: boolean
+  emailTo?: string
+  enabled: boolean
+}
+
+export interface ReportRuntimeState {
+  lastRun?: string
+  lastStatus?: string
+  lastError?: string
+  lastCount?: number
+}
+
 export interface RunbookRule {
   id: string
   name: string

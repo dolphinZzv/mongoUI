@@ -23,12 +23,14 @@ import type {
   AlertRule,
   AlertRuntimeState,
   Connection,
+  ReportRule,
+  ReportRuntimeState,
   RunbookRule,
   RunbookRuntimeState,
   SMTPSettings,
 } from "@/lib/types"
 
-type Tab = "alerts" | "runbooks" | "smtp"
+type Tab = "alerts" | "runbooks" | "reports" | "smtp"
 
 function blankAlert(): AlertRule {
   return {
@@ -61,6 +63,24 @@ function blankRunbook(): RunbookRule {
     script: "",
     intervalSeconds: 3600,
     timeoutSeconds: 60,
+    enabled: true,
+  }
+}
+
+function blankReport(): ReportRule {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: "",
+    connectionId: "",
+    database: "",
+    collection: "",
+    filter: "{}",
+    pipeline: "",
+    limit: 50,
+    intervalSeconds: 3600,
+    webhookUrl: "",
+    webhookSecret: "",
+    emailTo: "",
     enabled: true,
   }
 }
@@ -467,6 +487,260 @@ function RunbooksTab() {
   )
 }
 
+function ReportsTab() {
+  const { t } = useI18n()
+  const [reports, setReports] = React.useState<ReportRule[]>([])
+  const [statuses, setStatuses] = React.useState<Record<string, ReportRuntimeState>>({})
+  const [draft, setDraft] = React.useState<ReportRule | null>(null)
+  const [saving, setSaving] = React.useState(false)
+
+  const load = React.useCallback(async () => {
+    try {
+      const result = await api.getReports()
+      setReports(result.reports ?? [])
+      setStatuses(result.statuses ?? {})
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("automation.loadFailed"))
+    }
+  }, [t])
+
+  React.useEffect(() => {
+    void load()
+  }, [load])
+
+  const save = async (report: ReportRule) => {
+    setSaving(true)
+    try {
+      const next = reports.some((item) => item.id === report.id)
+        ? reports.map((item) => (item.id === report.id ? report : item))
+        : [...reports, report]
+      const result = await api.saveReports(next)
+      setReports(result.reports ?? next)
+      setStatuses(result.statuses ?? {})
+      setDraft(null)
+      toast.success(t("automation.saved"))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("automation.saveFailed"))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium">{t("automation.reports")}</p>
+        <Button size="sm" onClick={() => setDraft(blankReport())}>
+          <Plus /> {t("automation.addReport")}
+        </Button>
+      </div>
+
+      {draft ? (
+        <div className="space-y-3 rounded-lg border p-3">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-1.5">
+              <Label className="text-xs">{t("automation.name")}</Label>
+              <Input
+                value={draft.name}
+                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+              />
+            </div>
+            <div className="flex items-end gap-2">
+              <Switch
+                checked={draft.enabled}
+                onCheckedChange={(enabled) => setDraft({ ...draft, enabled })}
+              />
+              <span className="text-xs">{t("automation.enabled")}</span>
+            </div>
+          </div>
+          <DatabaseFields
+            connectionId={draft.connectionId}
+            database={draft.database}
+            collection={draft.collection}
+            onConnection={(connectionId) =>
+              setDraft({ ...draft, connectionId, database: "", collection: "" })
+            }
+            onDatabase={(database) => setDraft({ ...draft, database, collection: "" })}
+            onCollection={(collection) => setDraft({ ...draft, collection })}
+          />
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-1.5">
+              <Label className="text-xs">{t("automation.filter")}</Label>
+              <JsonEditor
+                value={draft.filter ?? "{}"}
+                onChange={(filter) => setDraft({ ...draft, filter })}
+                rows={3}
+                className="min-h-[4.5rem]"
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-xs">{t("automation.reportPipeline")}</Label>
+              <JsonEditor
+                value={draft.pipeline ?? ""}
+                onChange={(pipeline) => setDraft({ ...draft, pipeline })}
+                rows={3}
+                className="min-h-[4.5rem]"
+              />
+            </div>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <div className="grid gap-1.5">
+              <Label className="text-xs">{t("automation.reportLimit")}</Label>
+              <Input
+                type="number"
+                value={draft.limit ?? 50}
+                onChange={(e) => setDraft({ ...draft, limit: Number(e.target.value) })}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-xs">{t("automation.interval")}</Label>
+              <Input
+                type="number"
+                value={draft.intervalSeconds}
+                onChange={(e) =>
+                  setDraft({ ...draft, intervalSeconds: Number(e.target.value) })
+                }
+              />
+            </div>
+            <div className="flex items-end">
+              <p className="text-muted-foreground text-[11px]">{t("automation.reportHint")}</p>
+            </div>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-1.5">
+              <Label className="text-xs">{t("automation.webhook")}</Label>
+              <Input
+                value={draft.webhookUrl ?? ""}
+                onChange={(e) => setDraft({ ...draft, webhookUrl: e.target.value })}
+                placeholder="https://hooks.example.com/..."
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-xs">{t("automation.webhookSecret")}</Label>
+              <Input
+                type="password"
+                value={draft.webhookSecret ?? ""}
+                onChange={(e) => setDraft({ ...draft, webhookSecret: e.target.value })}
+                placeholder={draft.hasWebhookSecret ? "••••••••" : ""}
+                autoComplete="off"
+              />
+            </div>
+          </div>
+          <div className="grid gap-1.5">
+            <Label className="text-xs">{t("automation.emailTo")}</Label>
+            <Input
+              value={draft.emailTo ?? ""}
+              onChange={(e) => setDraft({ ...draft, emailTo: e.target.value })}
+              placeholder="ops@example.com"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              onClick={() => void save(draft)}
+              disabled={
+                saving ||
+                !draft.name ||
+                !draft.collection ||
+                (!draft.webhookUrl && !draft.emailTo)
+              }
+            >
+              {saving ? <Loader2 className="animate-spin" /> : <Save />} {t("common.save")}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setDraft(null)}>
+              {t("common.cancel")}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="divide-y rounded-lg border">
+        {reports.length === 0 ? (
+          <p className="text-muted-foreground p-3 text-sm">{t("automation.noReports")}</p>
+        ) : (
+          reports.map((report) => {
+            const status = statuses[report.id]
+            return (
+              <div key={report.id} className="flex flex-wrap items-center gap-2 p-3">
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-center gap-2 text-sm font-medium">
+                    {report.name}
+                    {!report.enabled ? (
+                      <Badge variant="secondary">{t("automation.disabled")}</Badge>
+                    ) : null}
+                    {status?.lastStatus === "error" ? (
+                      <Badge variant="destructive">{t("automation.failed")}</Badge>
+                    ) : null}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    {report.database}.{report.collection} · {report.intervalSeconds}s
+                    {status?.lastCount !== undefined
+                      ? ` · ${t("automation.reportCount", { count: status.lastCount })}`
+                      : ""}
+                    {status?.lastRun ? ` · ${status.lastRun}` : ""}
+                    {status?.lastError ? ` · ${status.lastError}` : ""}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    void api
+                      .runReport(report.id)
+                      .then(() => {
+                        toast.success(t("automation.started"))
+                        window.setTimeout(() => void load(), 1500)
+                      })
+                      .catch((err) =>
+                        toast.error(
+                          err instanceof Error ? err.message : t("automation.runFailed"),
+                        ),
+                      )
+                  }
+                >
+                  <Play /> {t("common.run")}
+                </Button>
+                <Switch
+                  checked={report.enabled}
+                  onCheckedChange={(enabled) => void save({ ...report, enabled })}
+                />
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setDraft({ ...report, webhookSecret: "" })}
+                  aria-label={t("common.edit")}
+                >
+                  <Pencil />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() =>
+                    void api
+                      .saveReports(reports.filter((item) => item.id !== report.id))
+                      .then((result) => {
+                        setReports(result.reports)
+                        setStatuses(result.statuses ?? {})
+                      })
+                      .catch((err) =>
+                        toast.error(
+                          err instanceof Error ? err.message : t("automation.saveFailed"),
+                        ),
+                      )
+                  }
+                  aria-label={t("common.delete")}
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+            )
+          })
+        )}
+      </div>
+    </div>
+  )
+}
+
 function SMTPTab() {
   const { t } = useI18n()
   const [cfg, setCfg] = React.useState<SMTPSettings | null>(null)
@@ -534,7 +808,7 @@ export function AutomationPanel() {
   return (
     <Panel title={t("automation.title")} description={t("automation.desc")}>
       <div className="flex items-center gap-1 rounded-md border p-0.5">
-        {(["alerts", "runbooks", "smtp"] as const).map((item) => (
+        {(["alerts", "runbooks", "reports", "smtp"] as const).map((item) => (
           <button
             key={item}
             type="button"
@@ -545,7 +819,15 @@ export function AutomationPanel() {
           </button>
         ))}
       </div>
-      {tab === "alerts" ? <AlertsTab /> : tab === "runbooks" ? <RunbooksTab /> : <SMTPTab />}
+      {tab === "alerts" ? (
+        <AlertsTab />
+      ) : tab === "runbooks" ? (
+        <RunbooksTab />
+      ) : tab === "reports" ? (
+        <ReportsTab />
+      ) : (
+        <SMTPTab />
+      )}
     </Panel>
   )
 }

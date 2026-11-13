@@ -30,6 +30,7 @@ func NewStore(settings *config.Settings, lease *Lease) *Store {
 type automationDoc struct {
 	Alerts              []config.AlertRule             `bson:"alerts"`
 	Runbooks            []config.Runbook               `bson:"runbooks"`
+	Reports             []config.ReportRule            `bson:"reports"`
 	SMTP                config.SMTPSettings            `bson:"smtp"`
 	SavedQueries        map[string][]config.SavedQuery `bson:"savedQueries"`
 	SavedQueriesVersion map[string]int64               `bson:"savedQueriesVersion"`
@@ -115,6 +116,38 @@ func (s *Store) SetRunbooks(runbooks []config.Runbook) error {
 		return s.settings.SetRunbooks(runbooks)
 	}
 	return s.update("runbooks", runbooks)
+}
+
+func (s *Store) GetReports() ([]config.ReportRule, error) {
+	if s.coll == nil {
+		return s.settings.GetReports()
+	}
+	doc, err := s.load()
+	if err != nil {
+		return nil, err
+	}
+	for i := range doc.Reports {
+		if doc.Reports[i].WebhookSecret, err = s.settings.DecryptSecret(doc.Reports[i].WebhookSecret); err != nil {
+			return nil, err
+		}
+	}
+	return doc.Reports, nil
+}
+
+func (s *Store) SetReports(reports []config.ReportRule) error {
+	if s.coll == nil {
+		return s.settings.SetReports(reports)
+	}
+	encrypted := make([]config.ReportRule, len(reports))
+	copy(encrypted, reports)
+	for i := range encrypted {
+		secret, err := s.settings.EncryptSecret(encrypted[i].WebhookSecret)
+		if err != nil {
+			return err
+		}
+		encrypted[i].WebhookSecret = secret
+	}
+	return s.update("reports", encrypted)
 }
 
 func (s *Store) GetSMTP() (config.SMTPSettings, error) {

@@ -1,15 +1,12 @@
 import * as React from "react"
-import { BarChart3, Braces, Loader2, Play, Table2 } from "lucide-react"
+import { Loader2, Play } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { ChartView } from "@/components/chart-view"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ResultTable } from "@/components/documents/result-table"
-import { JsonView } from "@/components/json-view"
-import { QueryDuration } from "@/components/query-duration"
 import { QueryLibrary } from "@/components/query-library"
+import { QueryResultPanel } from "@/components/query-result-panel"
 import { RecentQueries } from "@/components/recent-queries"
 import { SqlEditor } from "@/components/sql-editor"
 import { api } from "@/lib/api"
@@ -243,72 +240,22 @@ export function SqlTab({ connectionId, database, collection, modeSwitch }: SqlTa
 
       </div>
 
-      <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
-        <Button
-          variant={view === "table" ? "secondary" : "ghost"}
-          size="sm"
-          onClick={() => setView("table")}
-        >
-          <Table2 /> {t("result.table")}
-        </Button>
-        <Button
-          variant={view === "json" ? "secondary" : "ghost"}
-          size="sm"
-          onClick={() => setView("json")}
-        >
-          <Braces /> {t("result.json")}
-        </Button>
-        <Button
-          variant={view === "chart" ? "secondary" : "ghost"}
-          size="sm"
-          onClick={() => setView("chart")}
-          disabled={!ran}
-        >
-          <BarChart3 /> {t("result.chart")}
-        </Button>
-        <span className="text-muted-foreground ml-auto flex items-center gap-2 text-xs">
-          <span>
-            {ran && result
-              ? t(result.count === 1 ? "sql.rows" : "sql.rows_plural", { count: result.count }) +
-                (result.total > result.count ? t("sql.ofMatching", { total: result.total }) : "")
-              : t("sql.notRun")}
-          </span>
-          {ran && result ? <QueryDuration ms={result.durationMs} /> : null}
-        </span>
-      </div>
-
-      {ran && view === "chart" ? (
-        <ChartView
-          className="min-h-0 flex-1"
-          documents={documents}
-          columns={columns}
-          storageKey={`sql:${connectionId}:${database}:${collection}`}
-        />
-      ) : documents.length > 0 && view === "table" ? (
-        // The result grid owns its own scroller so sticky columns can pin to it.
-        <ResultTable
-          documents={documents}
-          columns={columns}
-          storageKey={`sql:${connectionId}:${database}:${collection}`}
-          dictionaries={columnPrefs.dictionaries}
-          renderers={columnPrefs.renderers}
-          colors={columnPrefs.colors}
-        />
-      ) : (
-        <div className="scrollbar-thin min-h-0 flex-1 overflow-auto p-3">
-          {!ran ? (
-            <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
-              {t("sql.placeholder")}
-            </div>
-          ) : view === "json" ? (
-            <JsonView value={documents} maxHeight="none" />
-          ) : (
-            <div className="text-muted-foreground flex h-32 items-center justify-center text-sm">
-              {t("sql.empty")}
-            </div>
-          )}
-        </div>
-      )}
+      <QueryResultPanel
+        ran={ran}
+        view={view}
+        onViewChange={setView}
+        documents={documents}
+        columns={columns}
+        storageKey={`sql:${connectionId}:${database}:${collection}`}
+        count={result?.count ?? 0}
+        total={result?.total}
+        durationMs={result?.durationMs}
+        notRunText={t("sql.notRun")}
+        emptyText={t("sql.empty")}
+        dictionaries={columnPrefs.dictionaries}
+        renderers={columnPrefs.renderers}
+        colors={columnPrefs.colors}
+      />
     </div>
   )
 }

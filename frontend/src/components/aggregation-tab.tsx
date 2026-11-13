@@ -1,16 +1,13 @@
 import * as React from "react"
-import { Activity, BarChart3, Braces, Copy, Loader2, Play, Table2 } from "lucide-react"
+import { Activity, Copy, Loader2, Play } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { AggregationBuilder } from "@/components/aggregation/builder"
-import { ChartView } from "@/components/chart-view"
 import { ExplainDialog } from "@/components/explain-dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ResultTable } from "@/components/documents/result-table"
 import { JsonEditor } from "@/components/json-editor"
-import { JsonView } from "@/components/json-view"
 import {
   Select,
   SelectContent,
@@ -18,8 +15,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { QueryDuration } from "@/components/query-duration"
 import { QueryLibrary } from "@/components/query-library"
+import { QueryResultPanel } from "@/components/query-result-panel"
 import { RecentQueries } from "@/components/recent-queries"
 import { useRecentQueries } from "@/hooks/useRecentQueries"
 import { api } from "@/lib/api"
@@ -355,73 +352,21 @@ export function AggregationTab({
         )}
       </div>
 
-      <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
-        <Button
-          variant={view === "table" ? "secondary" : "ghost"}
-          size="sm"
-          onClick={() => setView("table")}
-        >
-          <Table2 /> {t("result.table")}
-        </Button>
-        <Button
-          variant={view === "json" ? "secondary" : "ghost"}
-          size="sm"
-          onClick={() => setView("json")}
-        >
-          <Braces /> {t("result.json")}
-        </Button>
-        <Button
-          variant={view === "chart" ? "secondary" : "ghost"}
-          size="sm"
-          onClick={() => setView("chart")}
-          disabled={!ran}
-        >
-          <BarChart3 /> {t("result.chart")}
-        </Button>
-        <span className="text-muted-foreground ml-auto flex items-center gap-2 text-xs">
-          <span>
-            {ran
-              ? t(documents.length === 1 ? "sql.rows" : "sql.rows_plural", {
-                  count: documents.length,
-                })
-              : t("agg.notRun")}
-          </span>
-          {ran ? <QueryDuration ms={durationMs} /> : null}
-        </span>
-      </div>
-
-      {ran && view === "chart" ? (
-        <ChartView
-          className="min-h-0 flex-1"
-          documents={documents}
-          columns={columns}
-          storageKey={`agg:${connectionId}:${sourceDatabase}:${sourceCollection}`}
-        />
-      ) : documents.length > 0 && view === "table" ? (
-        // The result grid owns its own scroller so sticky columns can pin to it.
-        <ResultTable
-          documents={documents}
-          columns={columns}
-          storageKey={`agg:${connectionId}:${sourceDatabase}:${sourceCollection}`}
-          dictionaries={columnPrefs.dictionaries}
-          renderers={columnPrefs.renderers}
-          colors={columnPrefs.colors}
-        />
-      ) : (
-        <div className="scrollbar-thin min-h-0 flex-1 overflow-auto p-3">
-          {!ran ? (
-            <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
-              {t("agg.placeholder")}
-            </div>
-          ) : view === "json" ? (
-            <JsonView value={documents} maxHeight="none" />
-          ) : (
-            <div className="text-muted-foreground flex h-32 items-center justify-center text-sm">
-              {t("agg.empty")}
-            </div>
-          )}
-        </div>
-      )}
+      <QueryResultPanel
+        ran={ran}
+        view={view}
+        onViewChange={setView}
+        documents={documents}
+        columns={columns}
+        storageKey={`agg:${connectionId}:${sourceDatabase}:${sourceCollection}`}
+        count={documents.length}
+        durationMs={durationMs}
+        notRunText={t("agg.notRun")}
+        emptyText={t("agg.empty")}
+        dictionaries={columnPrefs.dictionaries}
+        renderers={columnPrefs.renderers}
+        colors={columnPrefs.colors}
+      />
 
       <ExplainDialog
         open={explainOpen}

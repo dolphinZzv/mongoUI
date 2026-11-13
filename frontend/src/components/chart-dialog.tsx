@@ -1,5 +1,4 @@
 import * as React from "react"
-import { AlertCircle } from "lucide-react"
 
 import {
   Dialog,
@@ -8,9 +7,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { ChartFilterBox } from "@/components/chart-filter-box"
 import { ChartView } from "@/components/chart-view"
-import { Button } from "@/components/ui/button"
-import { MongoFilterEditor } from "@/components/mongo-filter-editor"
+import { useChartFilter } from "@/hooks/useChartFilter"
 import { copyToClipboard } from "@/lib/clipboard"
 import { useI18n } from "@/lib/i18n"
 import { encodeChartParam } from "@/lib/router"
@@ -62,8 +61,9 @@ export function ChartDialog({
   onApplyFilter,
 }: ChartDialogProps) {
   const { t } = useI18n()
-  const [filterText, setFilterText] = React.useState(initialFilter ?? filter ?? "{}")
-  const [debounced, setDebounced] = React.useState(initialFilter ?? filter ?? "{}")
+  const { filterText, setFilterText, debounced, setDebounced, parsed } = useChartFilter(
+    initialFilter ?? filter ?? "{}",
+  )
 
   // Start from the table's filter each time the dialog opens; edits made inside
   // the dialog stay local until the user applies them.
@@ -74,21 +74,8 @@ export function ChartDialog({
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   React.useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(filterText), 500)
-    return () => window.clearTimeout(timer)
-  }, [filterText])
-
-  React.useEffect(() => {
     onFilterChange?.(debounced)
   }, [debounced, onFilterChange])
-
-  const parsed = React.useMemo(() => {
-    try {
-      return JSON.parse(debounced.trim() || "{}") as unknown
-    } catch {
-      return null
-    }
-  }, [debounced])
 
   const drilldown = (extra: Record<string, unknown>) => {
     let current: Record<string, unknown> = {}
@@ -123,48 +110,29 @@ export function ChartDialog({
           <DialogDescription>{t("chart.desc")}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-1">
-          <MongoFilterEditor
-            value={filterText}
-            onChange={setFilterText}
-            placeholder={t("docs.filterPlaceholder")}
-            suggestions={columns}
-          />
-          {parsed === null ? (
-            <p className="text-destructive flex items-center gap-1.5 text-xs" role="alert">
-              <AlertCircle className="size-3.5" /> {t("docs.invalidJson")}
-            </p>
-          ) : null}
-          {parsed !== null && debounced.trim() !== (filter ?? "{}").trim() ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-700 dark:text-amber-300">
-              <span>{t("chart.filterDiffers")}</span>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 px-2 text-[11px]"
-                onClick={() => {
+        <ChartFilterBox
+          value={filterText}
+          onChange={setFilterText}
+          parsed={parsed}
+          suggestions={columns}
+          compareFilter={filter ?? "{}"}
+          onReset={
+            parsed === null
+              ? undefined
+              : () => {
                   setFilterText(filter ?? "{}")
                   setDebounced(filter ?? "{}")
-                }}
-              >
-                {t("chart.resetToTable")}
-              </Button>
-              {onApplyFilter ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 px-2 text-[11px]"
-                  onClick={() => {
-                    onApplyFilter(filterText)
-                    onOpenChange(false)
-                  }}
-                >
-                  {t("chart.applyToDocuments")}
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+                }
+          }
+          onApply={
+            onApplyFilter
+              ? () => {
+                  onApplyFilter(filterText)
+                  onOpenChange(false)
+                }
+              : undefined
+          }
+        />
 
         <ChartView
           className="min-h-0 flex-1"

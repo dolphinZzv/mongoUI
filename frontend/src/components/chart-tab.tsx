@@ -1,9 +1,8 @@
 import * as React from "react"
-import { AlertCircle } from "lucide-react"
 
+import { ChartFilterBox } from "@/components/chart-filter-box"
 import { ChartView } from "@/components/chart-view"
-import { MongoFilterEditor } from "@/components/mongo-filter-editor"
-import { useI18n } from "@/lib/i18n"
+import { useChartFilter } from "@/hooks/useChartFilter"
 import type { ChartConfig } from "@/lib/chart"
 import type { ChartShareState } from "@/lib/router"
 
@@ -35,13 +34,8 @@ export function ChartTab({
   initialChart,
   onChartChange,
 }: ChartTabProps) {
-  const { t } = useI18n()
-  const [filterText, setFilterText] = React.useState(
-    initialChart?.filter ?? initialFilter ?? "{}",
-  )
-  const [debounced, setDebounced] = React.useState(
-    initialChart?.filter ?? initialFilter ?? "{}",
-  )
+  const initial = initialChart?.filter ?? initialFilter ?? "{}"
+  const { filterText, setFilterText, setDebounced, parsed } = useChartFilter(initial)
   const [chartConfig, setChartConfig] = React.useState<ChartConfig | undefined>(
     initialChart?.config,
   )
@@ -57,11 +51,6 @@ export function ChartTab({
     previous?: string
     previousUntil: number
   }>({ previousUntil: 0 })
-
-  React.useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(filterText), 500)
-    return () => window.clearTimeout(timer)
-  }, [filterText])
 
   React.useEffect(() => {
     if (!initialChart) return
@@ -99,28 +88,11 @@ export function ChartTab({
     return () => window.clearTimeout(timer)
   }, [chartConfig, filterText, onChartChange])
 
-  const parsed = React.useMemo(() => {
-    try {
-      return JSON.parse(debounced.trim() || "{}") as unknown
-    } catch {
-      return null
-    }
-  }, [debounced])
-
   const scope = `${connectionId}::${database}::${collection}`
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 p-3">
-      <MongoFilterEditor
-        value={filterText}
-        onChange={setFilterText}
-        placeholder={t("docs.filterPlaceholder")}
-      />
-      {parsed === null ? (
-        <p className="text-destructive flex items-center gap-1.5 text-xs" role="alert">
-          <AlertCircle className="size-3.5" /> {t("docs.invalidJson")}
-        </p>
-      ) : null}
+      <ChartFilterBox value={filterText} onChange={setFilterText} parsed={parsed} />
       <ChartView
         className="min-h-0 flex-1"
         documents={[]}

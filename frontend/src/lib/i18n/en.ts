@@ -397,6 +397,7 @@ const en: Record<string, string> = {
   "collection.pathCopied": "Collection path copied",
   "collection.tab.documents": "Documents",
   "collection.tab.chart": "Chart",
+  "collection.tab.query": "Query",
   "collection.tab.sql": "SQL",
   "collection.tab.aggregation": "Aggregation",
   "collection.tab.indexes": "Indexes",

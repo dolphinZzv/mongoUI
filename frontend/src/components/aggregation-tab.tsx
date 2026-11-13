@@ -35,6 +35,8 @@ interface AggregationTabProps {
   connectionId: string
   database: string
   collection: string
+  /** SQL / aggregation switch rendered inside the query toolbar. */
+  modeSwitch?: React.ReactNode
 }
 
 const EXAMPLES: { labelKey: string; pipeline: string }[] = [
@@ -66,7 +68,12 @@ function readStored(key: string, fallback: string): string {
 
 const DEFAULT_PIPELINE = "[\n  { \"$limit\": 20 }\n]"
 
-export function AggregationTab({ connectionId, database, collection }: AggregationTabProps) {
+export function AggregationTab({
+  connectionId,
+  database,
+  collection,
+  modeSwitch,
+}: AggregationTabProps) {
   const { t } = useI18n()
   const [sourceDatabase, setSourceDatabase] = React.useState(database)
   const [sourceCollection, setSourceCollection] = React.useState(collection)
@@ -214,6 +221,7 @@ export function AggregationTab({ connectionId, database, collection }: Aggregati
     <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 space-y-3 border-b p-3">
         <div className="flex flex-wrap items-center gap-2">
+          {modeSwitch}
           <span className="text-sm font-medium">{t("agg.pipeline")}</span>
           <div className="flex items-center gap-1">
             <Select

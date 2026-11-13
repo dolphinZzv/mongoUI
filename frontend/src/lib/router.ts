@@ -53,6 +53,8 @@ export interface RouteState {
 export const COLLECTION_TABS = [
   "documents",
   "chart",
+  "query",
+  // Legacy URLs remain valid; they open Query with the corresponding mode.
   "sql",
   "aggregation",
   "indexes",

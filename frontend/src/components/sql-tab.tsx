@@ -23,6 +23,8 @@ interface SqlTabProps {
   connectionId: string
   database: string
   collection: string
+  /** SQL / aggregation switch rendered inside the query toolbar. */
+  modeSwitch?: React.ReactNode
 }
 
 /** Quotes an identifier for SQL when it is not a simple name. */
@@ -55,7 +57,7 @@ function templates(collection: string): { labelKey: string; sql: string }[] {
   ]
 }
 
-export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
+export function SqlTab({ connectionId, database, collection, modeSwitch }: SqlTabProps) {
   const { t } = useI18n()
   const queryStorageKey = `mongoui-sql:${connectionId}:${database}:${collection}`
   const defaultQuery = `SELECT * FROM ${quoteIdent(collection)} LIMIT 50`
@@ -183,6 +185,7 @@ export function SqlTab({ connectionId, database, collection }: SqlTabProps) {
     <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 space-y-3 border-b p-3">
         <div className="flex flex-wrap items-center gap-2">
+          {modeSwitch}
           <span className="text-sm font-medium">SQL</span>
           <div className="flex flex-wrap gap-1.5">
             {templates(collection).map((template) => (

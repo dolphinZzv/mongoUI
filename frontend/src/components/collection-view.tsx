@@ -16,9 +16,8 @@ import { DOCS_QUERY_DEFAULTS, type DocsQueryState } from "@/lib/router"
 const ChartTab = React.lazy(() =>
   import("@/components/chart-tab").then((m) => ({ default: m.ChartTab })),
 )
-const SqlTab = React.lazy(() => import("@/components/sql-tab").then((m) => ({ default: m.SqlTab })))
-const AggregationTab = React.lazy(() =>
-  import("@/components/aggregation-tab").then((m) => ({ default: m.AggregationTab })),
+const QueryTab = React.lazy(() =>
+  import("@/components/query-tab").then((m) => ({ default: m.QueryTab })),
 )
 const IndexesTab = React.lazy(() =>
   import("@/components/indexes-tab").then((m) => ({ default: m.IndexesTab })),
@@ -64,7 +63,9 @@ export function CollectionView({
   const [copyOpen, setCopyOpen] = React.useState(false)
   const { t } = useI18n()
   const aliases = useAliases()
-  const activeTab = tab ?? "documents"
+  const queryTab = tab === "query" || tab === "sql" || tab === "aggregation"
+  const activeTab = queryTab ? "query" : (tab ?? "documents")
+  const queryMode: "sql" | "aggregation" = tab === "aggregation" ? "aggregation" : "sql"
   const dbName = databaseLabel(aliases, connectionId, database)
   const colName = collectionLabel(aliases, connectionId, database, collection)
 
@@ -124,11 +125,8 @@ export function CollectionView({
           <TabsTrigger value="chart" className="shrink-0 px-1.5 sm:px-3">
             {t("collection.tab.chart")}
           </TabsTrigger>
-          <TabsTrigger value="sql" className="shrink-0 px-1.5 sm:px-3">
-            {t("collection.tab.sql")}
-          </TabsTrigger>
-          <TabsTrigger value="aggregation" className="shrink-0 px-1.5 sm:px-3">
-            {t("collection.tab.aggregation")}
+          <TabsTrigger value="query" className="shrink-0 px-1.5 sm:px-3">
+            {t("collection.tab.query")}
           </TabsTrigger>
           <TabsTrigger value="indexes" className="shrink-0 px-1.5 sm:px-3">
             {t("collection.tab.indexes")}
@@ -165,17 +163,14 @@ export function CollectionView({
             />
           </React.Suspense>
         </TabsContent>
-        <TabsContent value="sql" className="min-h-0 flex-1">
+        <TabsContent value="query" className="min-h-0 flex-1">
           <React.Suspense fallback={<TabFallback />}>
-            <SqlTab connectionId={connectionId} database={database} collection={collection} />
-          </React.Suspense>
-        </TabsContent>
-        <TabsContent value="aggregation" className="min-h-0 flex-1">
-          <React.Suspense fallback={<TabFallback />}>
-            <AggregationTab
+            <QueryTab
               connectionId={connectionId}
               database={database}
               collection={collection}
+              mode={queryMode}
+              onModeChange={onTabChange ? (next) => onTabChange(next) : undefined}
             />
           </React.Suspense>
         </TabsContent>

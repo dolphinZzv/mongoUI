@@ -2,9 +2,12 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -20,6 +23,7 @@ type copyRequest struct {
 	Filter             json.RawMessage   `json:"filter"`
 	DropTarget         bool              `json:"dropTarget"`
 	CopyIndexes        bool              `json:"copyIndexes"`
+	Verify             *bool             `json:"verify"`
 	FieldMap           map[string]string `json:"fieldMap"`
 	ExcludeFields      []string          `json:"excludeFields"`
 }
@@ -163,6 +167,14 @@ func (a *API) copyCollection(w http.ResponseWriter, r *http.Request) {
 		"targetDatabase":   req.TargetDatabase,
 		"targetCollection": req.TargetCollection,
 	}
+	if req.Verify == nil || *req.Verify {
+		verification, err := verifyCopy(ctx, src, target, filter, req.FieldMap, excludeSet)
+		if err != nil {
+			payload["verification"] = map[string]any{"ok": false, "error": err.Error()}
+		} else {
+			payload["verification"] = verification
+		}
+	}
 	if req.CopyIndexes {
 		n, warnings := copyIndexes(ctx, src, target)
 		payload["indexesCopied"] = n
@@ -171,6 +183,94 @@ func (a *API) copyCollection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	ok(w, payload)
+}
+
+type copyVerification struct {
+	OK          bool   `json:"ok"`
+	SourceCount int64  `json:"sourceCount"`
+	TargetCount int64  `json:"targetCount"`
+	CountMatch  bool   `json:"countMatch"`
+	Sampled     int    `json:"sampled"`
+	SampleMatch bool   `json:"sampleMatch"`
+	SourceHash  string `json:"sourceHash,omitempty"`
+	TargetHash  string `json:"targetHash,omitempty"`
+}
+
+const copyVerificationSample = 100
+
+// verifyCopy compares counts and a deterministic _id-ordered sample of source
+// (after field transforms) against the target. It is a strong smoke test, not a
+// byte-for-byte cluster sync.
+func verifyCopy(
+	ctx context.Context,
+	src, target *mongo.Collection,
+	filter bson.D,
+	fieldMap map[string]string,
+	exclude map[string]bool,
+) (copyVerification, error) {
+	sourceCount, err := src.CountDocuments(ctx, filter)
+	if err != nil {
+		return copyVerification{}, err
+	}
+	targetCount, err := target.CountDocuments(ctx, bson.D{})
+	if err != nil {
+		return copyVerification{}, err
+	}
+	sourceHash, sampled, err := copySampleHash(ctx, src, filter, func(doc bson.D) bson.D {
+		return transformDocument(doc, fieldMap, exclude)
+	})
+	if err != nil {
+		return copyVerification{}, err
+	}
+	targetHash, _, err := copySampleHash(ctx, target, bson.D{}, func(doc bson.D) bson.D { return doc })
+	if err != nil {
+		return copyVerification{}, err
+	}
+	return copyVerification{
+		OK:          sourceHash == targetHash && sourceCount == targetCount,
+		SourceCount: sourceCount,
+		TargetCount: targetCount,
+		CountMatch:  sourceCount == targetCount,
+		Sampled:     sampled,
+		SampleMatch: sourceHash == targetHash,
+		SourceHash:  sourceHash,
+		TargetHash:  targetHash,
+	}, nil
+}
+
+func copySampleHash(
+	ctx context.Context,
+	coll *mongo.Collection,
+	filter bson.D,
+	transform func(bson.D) bson.D,
+) (string, int, error) {
+	opts := options.Find().SetSort(bson.D{{Key: "_id", Value: 1}}).SetLimit(copyVerificationSample)
+	cursor, err := coll.Find(ctx, filter, opts)
+	if err != nil {
+		return "", 0, err
+	}
+	defer cursor.Close(ctx)
+	hash := sha256.New()
+	count := 0
+	for cursor.Next(ctx) {
+		var doc bson.D
+		if err := cursor.Decode(&doc); err != nil {
+			return "", count, err
+		}
+		raw, err := bson.MarshalExtJSON(transform(doc), false, false)
+		if err != nil {
+			return "", count, err
+		}
+		_, _ = hash.Write([]byte(strconv.Itoa(len(raw))))
+		_, _ = hash.Write([]byte(":"))
+		_, _ = hash.Write(raw)
+		_, _ = hash.Write([]byte("\n"))
+		count++
+	}
+	if err := cursor.Err(); err != nil {
+		return "", count, err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), count, nil
 }
 
 // copyIndexes recreates the non-default indexes of src on target. Index specs

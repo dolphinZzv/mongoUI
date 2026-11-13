@@ -357,6 +357,7 @@ export const api = {
       filter?: unknown
       dropTarget?: boolean
       copyIndexes?: boolean
+      verify?: boolean
       fieldMap?: Record<string, string>
       excludeFields?: string[]
     },

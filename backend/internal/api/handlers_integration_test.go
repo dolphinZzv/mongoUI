@@ -199,6 +199,13 @@ func TestIntegrationDataOperations(t *testing.T) {
 	if copied["indexesCopied"].(float64) != 1 {
 		t.Fatalf("indexesCopied = %v, want 1", copied["indexesCopied"])
 	}
+	verification, ok := copied["verification"].(map[string]any)
+	if !ok || verification["ok"] != true || verification["countMatch"] != true || verification["sampleMatch"] != true {
+		t.Fatalf("copy verification = %#v", copied["verification"])
+	}
+	if verification["sampled"].(float64) != 3 {
+		t.Fatalf("verification sample = %v, want 3", verification["sampled"])
+	}
 
 	// Explain a find query.
 	status, env = doJSON(t, handler, http.MethodPost, collPath("people")+"/explain",

@@ -56,6 +56,7 @@ export function CopyCollectionDialog({
   const [targetCollection, setTargetCollection] = React.useState(`${collection}_copy`)
   const [dropTarget, setDropTarget] = React.useState(false)
   const [copyIndexes, setCopyIndexes] = React.useState(true)
+  const [verify, setVerify] = React.useState(true)
   const [fieldMapText, setFieldMapText] = React.useState("")
   const [excludeText, setExcludeText] = React.useState("")
   const [busy, setBusy] = React.useState(false)
@@ -67,6 +68,7 @@ export function CopyCollectionDialog({
       setTargetCollection(`${collection}_copy`)
       setDropTarget(false)
       setCopyIndexes(true)
+      setVerify(true)
       setFieldMapText("")
       setExcludeText("")
       void api.listConnections().then(setConnections).catch(() => setConnections([]))
@@ -116,6 +118,7 @@ export function CopyCollectionDialog({
         filter: filterValue,
         dropTarget,
         copyIndexes,
+        verify,
         fieldMap,
         excludeFields,
       })
@@ -127,6 +130,24 @@ export function CopyCollectionDialog({
       )
       if (res.warnings?.length) {
         toast.warning(t("copy.indexWarnings"))
+      }
+      if (res.verification?.ok === false) {
+        toast.warning(
+          t("copy.verifyFailed", {
+            error: res.verification.error ?? t("copy.verifyUnknown"),
+          }),
+        )
+      } else if (
+        res.verification &&
+        (!res.verification.countMatch || !res.verification.sampleMatch)
+      ) {
+        toast.warning(
+          t("copy.verifyMismatch", {
+            source: res.verification.sourceCount ?? 0,
+            target: res.verification.targetCount ?? 0,
+            sampled: res.verification.sampled ?? 0,
+          }),
+        )
       }
       onCopied()
       onOpenChange(false)
@@ -221,6 +242,13 @@ export function CopyCollectionDialog({
                 <p className="text-muted-foreground text-xs">{t("copy.copyIndexesHint")}</p>
               </div>
               <Switch id="copy-indexes" checked={copyIndexes} onCheckedChange={setCopyIndexes} />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div className="space-y-0.5">
+                <Label htmlFor="copy-verify">{t("copy.verify")}</Label>
+                <p className="text-muted-foreground text-xs">{t("copy.verifyHint")}</p>
+              </div>
+              <Switch id="copy-verify" checked={verify} onCheckedChange={setVerify} />
             </div>
             <div className="flex items-center justify-between rounded-lg border p-3">
               <div className="space-y-0.5">

@@ -149,12 +149,25 @@ export interface ImportResult {
   insertedCount: number
 }
 
+export interface CopyVerification {
+  ok?: boolean
+  error?: string
+  sourceCount?: number
+  targetCount?: number
+  countMatch?: boolean
+  sampled?: number
+  sampleMatch?: boolean
+  sourceHash?: string
+  targetHash?: string
+}
+
 export interface CopyResult {
   copied: number
   targetDatabase: string
   targetCollection: string
   indexesCopied?: number
   warnings?: string[]
+  verification?: CopyVerification
 }
 
 export type ExplainVerbosity = "queryPlanner" | "executionStats" | "allPlansExecution"

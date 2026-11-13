@@ -35,12 +35,13 @@ test("reorders columns by dragging a header and persists the order", async ({ pa
     })
   await expect
     .poll(async () => {
-      const prefs = await columnPrefs(page)
-      if (!prefs?.order) return false
-      return prefs.order.indexOf("amount") < prefs.order.indexOf("orderNo")
+      const current = await headers(page)
+      return current.indexOf("amount") < current.indexOf("orderNo")
     })
     .toBe(true)
 
+  // Reload immediately: the debounced write has not fired yet, so this checks
+  // the pagehide/unmount flush rather than the 300ms timeout.
   await page.reload()
   await page.locator('th[data-column="amount"]').waitFor()
   const reloaded = await headers(page)

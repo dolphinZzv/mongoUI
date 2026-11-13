@@ -161,6 +161,22 @@ export function DocumentsTab({
       ? { ...stored, pinned: initialDocs.pinned }
       : stored
   })
+  const prefsRef = React.useRef(prefs)
+  prefsRef.current = prefs
+  const prefsKeyRef = React.useRef(prefsKey)
+  prefsKeyRef.current = prefsKey
+  // The normal write is debounced because resizing changes widths on every
+  // pointer move. Flush synchronously when the tab is hidden/unmounted so a
+  // color/order change is not lost when the user navigates away immediately.
+  React.useEffect(() => {
+    const flush = () => writeColumnPrefs(prefsKeyRef.current, prefsRef.current)
+    window.addEventListener("pagehide", flush)
+    return () => {
+      window.removeEventListener("pagehide", flush)
+      flush()
+    }
+  }, [])
+
   const viewsStoreKey = viewsKey(connectionId, database, collection)
   const [views, setViews] = React.useState<SavedView[]>(() => readViews(viewsStoreKey))
   const [viewDialogOpen, setViewDialogOpen] = React.useState(false)

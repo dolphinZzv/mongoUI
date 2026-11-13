@@ -56,7 +56,27 @@ mongoui                 # 启动服务，默认 0.0.0.0:8080
 }
 ```
 
-若服务端设置了 `MONGOUI_MCP_TOKEN`（或 `-mcp-token`），需带令牌：
+推荐使用**个人访问令牌（PAT）**。在网页端「设置 → 账号 → 访问令牌」创建：
+
+- `read`：只读工具
+- `write`：读写工具（写分组仍受 MCP 设置与连接只读标记约束）
+- `admin`：包含 write，MCP 本身不需要额外管理员权限
+
+```jsonc
+{
+  "mcpServers": {
+    "mongoui": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp",
+      "headers": { "Authorization": "Bearer moui_pat_xxx" }
+    }
+  }
+}
+```
+
+启用账号登录后，`/mcp` 只接受 PAT；没有配置 `MONGOUI_MCP_TOKEN` 也不会再匿名开放。PAT 的 scope 会同时限制 `tools/list` 和实际调用：只读令牌看不到也调不了写工具。
+
+旧的 `MONGOUI_MCP_TOKEN`（或 `-mcp-token`）仍然支持，作为静态全权限令牌兼容已有部署；新部署建议优先使用 PAT。
 
 ```jsonc
 {
@@ -93,6 +113,8 @@ MCP 工具分为**读**与**写**两组，可以在界面右上角的「设置�
 开启 MCP 时**默认只开读分组**；写分组不会出现在 `tools/list` 中，直接调用也会被拒绝。设置保存在 `<data>/settings.json`，stdio 与 HTTP 共用。
 
 每个工具定义都会带上 `group`（`read` / `write`）以及标准的 `annotations.readOnlyHint`，方便客户端区分。
+
+使用 PAT 时还有一层 **scope** 保护：`read` 令牌只能看到/调用读工具，`write` 令牌才能看到/调用写工具。静态 `MONGOUI_MCP_TOKEN` 视为全权限兼容令牌。
 
 此外，连接配置里的**只读模式**也会生效：标记为只读的连接即使用写工具也会返回错误。两层保护可以独立使用：
 
@@ -237,8 +259,8 @@ curl -s http://localhost:8080/mcp \
 | 现象 | 原因 / 处理 |
 | --- | --- |
 | `command not found: mongoui` | 未安装或不在 `PATH` |
-| HTTP `401 unauthorized` | 服务端开启了 `MONGOUI_MCP_TOKEN`，需带 `Authorization: Bearer <token>` |
-| 开启 TOTP 后 MCP 返回 401 / 无鉴权 | `/mcp` 不受网页登录会话保护，请设置 `MONGOUI_MCP_TOKEN` |
+| HTTP `401 unauthorized` | 未带 PAT/静态令牌，或令牌已撤销/过期；使用 `Authorization: Bearer moui_pat_...` |
+| 开启账号登录后 MCP 返回 401 | `/mcp` 不接受网页会话，请创建 PAT 或设置 `MONGOUI_MCP_TOKEN` |
 | 写工具不存在 | 写分组已关闭（默认），请在界面「设置」里开启 |
 | HTTP `404` | MCP 服务已在界面「设置」里关闭；确认 `GET /mcp` 不支持（请用 `POST`） |
 | `connection is not active` | 先调用 `mongoui_connect` |

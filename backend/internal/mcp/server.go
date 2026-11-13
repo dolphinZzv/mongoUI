@@ -27,13 +27,29 @@ import (
 
 const protocolVersion = "2024-11-05"
 
+// TokenAuthorizer validates a personal access token from the request's
+// Authorization header and reports whether authentication is enabled at all.
+// The interface keeps the MCP package independent of the auth package.
+type TokenAuthorizer interface {
+	TokenScopes(*http.Request) ([]string, bool)
+	Enabled() bool
+}
+
+const (
+	scopeRead  = "read"
+	scopeWrite = "write"
+)
+
+var allScopes = []string{scopeRead, scopeWrite, "admin"}
+
 // Server exposes mongoUI operations as MCP tools.
 type Server struct {
-	store    *config.Store
-	mgr      *mongoclient.Manager
-	version  string
-	token    string
-	settings *config.Settings
+	store      *config.Store
+	mgr        *mongoclient.Manager
+	version    string
+	token      string
+	settings   *config.Settings
+	authorizer TokenAuthorizer
 }
 
 // New creates an MCP server backed by the given connection store and manager.
@@ -45,6 +61,12 @@ func New(store *config.Store, mgr *mongoclient.Manager, version, token string, s
 		settings = config.NewSettings(config.DefaultMCPSettings())
 	}
 	return &Server{store: store, mgr: mgr, version: version, token: token, settings: settings}
+}
+
+// SetTokenAuthorizer enables personal access tokens for the HTTP transport.
+// The static -mcp-token remains supported for existing deployments.
+func (s *Server) SetTokenAuthorizer(authorizer TokenAuthorizer) {
+	s.authorizer = authorizer
 }
 
 // enabled reports whether the MCP server capability is switched on.
@@ -86,9 +108,15 @@ type rpcResponse struct {
 	Error   *rpcError       `json:"error,omitempty"`
 }
 
-// handle processes one JSON-RPC message and returns the encoded response, or nil
-// for notifications (which expect no reply).
+// handle processes one JSON-RPC message with full access. Used by the local
+// stdio transport, which already runs as the server owner.
 func (s *Server) handle(raw []byte) []byte {
+	return s.handleWithScopes(raw, allScopes)
+}
+
+// handleWithScopes processes one JSON-RPC message using the scopes granted to
+// the HTTP caller. Write tools are hidden and rejected for read-only PATs.
+func (s *Server) handleWithScopes(raw []byte, scopes []string) []byte {
 	var req rpcRequest
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return encode(rpcResponse{JSONRPC: "2.0", Error: &rpcError{Code: -32700, Message: "parse error"}})
@@ -114,7 +142,7 @@ func (s *Server) handle(raw []byte) []byte {
 	case "ping":
 		return encode(rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{}})
 	case "tools/list":
-		return encode(rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"tools": s.toolDefs()}})
+		return encode(rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"tools": s.toolDefsForScopes(scopes)}})
 	case "resources/list":
 		return encode(rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"resources": []any{}}})
 	case "prompts/list":
@@ -127,7 +155,7 @@ func (s *Server) handle(raw []byte) []byte {
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return encode(rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid params"}})
 		}
-		text, err := s.callTool(params.Name, params.Arguments)
+		text, err := s.callToolWithScopes(params.Name, params.Arguments, scopes)
 		if err != nil {
 			return encode(rpcResponse{
 				JSONRPC: "2.0",
@@ -211,7 +239,8 @@ func (s *Server) HTTPHandler() http.Handler {
 			http.Error(w, "MCP server is disabled", http.StatusNotFound)
 			return
 		}
-		if !s.authorized(r) {
+		scopes, ok := s.authorized(r)
+		if !ok {
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -232,7 +261,7 @@ func (s *Server) HTTPHandler() http.Handler {
 			}
 			w.Header().Set("Mcp-Session-Id", session)
 
-			resp := s.handle(body)
+			resp := s.handleWithScopes(body, scopes)
 
 			if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
 				w.Header().Set("Content-Type", "text/event-stream")
@@ -264,11 +293,26 @@ func (s *Server) HTTPHandler() http.Handler {
 	})
 }
 
-func (s *Server) authorized(r *http.Request) bool {
-	if s.token == "" {
-		return true
+func (s *Server) authorized(r *http.Request) ([]string, bool) {
+	if s.token != "" {
+		header := r.Header.Get("Authorization")
+		expected := "Bearer " + s.token
+		if subtle.ConstantTimeCompare([]byte(header), []byte(expected)) == 1 {
+			return allScopes, true
+		}
 	}
-	header := r.Header.Get("Authorization")
-	expected := "Bearer " + s.token
-	return subtle.ConstantTimeCompare([]byte(header), []byte(expected)) == 1
+	if s.authorizer != nil {
+		if scopes, ok := s.authorizer.TokenScopes(r); ok {
+			return scopes, true
+		}
+		if s.authorizer.Enabled() {
+			return nil, false
+		}
+	}
+	// No auth server and no legacy token: preserve the original local-hosting
+	// behaviour where the MCP endpoint is open.
+	if s.token == "" && (s.authorizer == nil || !s.authorizer.Enabled()) {
+		return allScopes, true
+	}
+	return nil, false
 }

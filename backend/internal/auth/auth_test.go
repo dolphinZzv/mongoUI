@@ -426,6 +426,12 @@ func TestPersonalAccessTokenScopes(t *testing.T) {
 	if _, ok := m.Current(readReq); !ok {
 		t.Fatal("read token not authenticated")
 	}
+	if scopes, ok := m.TokenScopes(readReq); !ok || len(scopes) != 1 || scopes[0] != ScopeRead {
+		t.Fatalf("TokenScopes(read) = %#v, %v", scopes, ok)
+	}
+	if _, ok := m.TokenScopes(requestWithSession(m, writer.ID)); ok {
+		t.Fatal("TokenScopes must not accept a browser session")
+	}
 	if m.CanWrite(readReq) {
 		t.Fatal("read token should not be able to write")
 	}

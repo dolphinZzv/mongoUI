@@ -46,8 +46,23 @@ func (t tool) toolGroup() toolGroup {
 	return readGroup
 }
 
-// callTool dispatches a tool by name, rejecting tools whose group is disabled.
+func hasScope(scopes []string, want string) bool {
+	for _, scope := range scopes {
+		if scope == want {
+			return true
+		}
+	}
+	return false
+}
+
+// callTool dispatches a tool with full local access (stdio transport).
 func (s *Server) callTool(name string, args map[string]any) (string, error) {
+	return s.callToolWithScopes(name, args, allScopes)
+}
+
+// callToolWithScopes rejects tools whose group is disabled or not granted to
+// the PAT that authorized the HTTP request.
+func (s *Server) callToolWithScopes(name string, args map[string]any, scopes []string) (string, error) {
 	for _, t := range tools {
 		if t.name != name {
 			continue
@@ -56,26 +71,37 @@ func (s *Server) callTool(name string, args map[string]any) (string, error) {
 		if !s.groupEnabled(group) {
 			return "", fmt.Errorf("tool %q is disabled: the MCP %s group is turned off", name, group)
 		}
+		if group == writeGroup && !hasScope(scopes, scopeWrite) {
+			return "", fmt.Errorf("tool %q requires a token with the %s scope", name, scopeWrite)
+		}
+		if group == readGroup && !hasScope(scopes, scopeRead) {
+			return "", fmt.Errorf("tool %q requires a token with the %s scope", name, scopeRead)
+		}
 		return t.run(s, args)
 	}
 	return "", fmt.Errorf("unknown tool: %s", name)
 }
 
-// toolDefs returns the advertised tools, hiding groups that are disabled. Each
-// definition carries its group (and the standard readOnlyHint annotation) so
-// clients can reason about read vs write tools.
+// toolDefs returns the advertised tools with full local access.
 func (s *Server) toolDefs() []map[string]any {
+	return s.toolDefsForScopes(allScopes)
+}
+
+// toolDefsForScopes hides groups that are disabled globally or not granted to
+// the caller's PAT. Each definition carries its group (and the standard
+// readOnlyHint annotation) so clients can reason about read vs write tools.
+func (s *Server) toolDefsForScopes(scopes []string) []map[string]any {
 	cfg := s.settings.GetMCP()
 	defs := make([]map[string]any, 0, len(tools))
 	for _, t := range tools {
 		group := t.toolGroup()
 		switch group {
 		case readGroup:
-			if !cfg.Read {
+			if !cfg.Read || !hasScope(scopes, scopeRead) {
 				continue
 			}
 		case writeGroup:
-			if !cfg.Write {
+			if !cfg.Write || !hasScope(scopes, scopeWrite) {
 				continue
 			}
 		}

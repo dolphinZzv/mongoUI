@@ -167,7 +167,7 @@ func main() {
 	if authManager.Enabled() {
 		log.Printf("TOTP authentication enabled")
 		if *mcpToken == "" {
-			log.Printf("warning: TOTP is enabled but MONGOUI_MCP_TOKEN is empty; the /mcp endpoint is unauthenticated")
+			log.Printf("MCP HTTP endpoint requires a personal access token (or set MONGOUI_MCP_TOKEN)")
 		}
 	} else {
 		log.Printf("TOTP not configured yet; open the UI to set it up")
@@ -195,7 +195,9 @@ func main() {
 		log.Printf("automatic updates disabled (version %q)", version)
 	}
 
-	apiServer := api.New(store, mgr, uiEmbedded, version, mcp.New(store, mgr, version, *mcpToken, settings).HTTPHandler(), authManager, settings)
+	mcpServer := mcp.New(store, mgr, version, *mcpToken, settings)
+	mcpServer.SetTokenAuthorizer(authManager)
+	apiServer := api.New(store, mgr, uiEmbedded, version, mcpServer.HTTPHandler(), authManager, settings)
 	if updater != nil {
 		apiServer.SetUpdater(updater)
 	}

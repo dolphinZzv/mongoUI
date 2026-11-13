@@ -1108,6 +1108,21 @@ func (m *Manager) Role(r *http.Request) (Role, bool) {
 	return access.user.Role, true
 }
 
+// TokenScopes returns the scopes of a personal access token presented as a
+// bearer token. Unlike Scopes it never accepts the browser session cookie, so
+// API-style transports such as MCP can require a real PAT.
+func (m *Manager) TokenScopes(r *http.Request) ([]string, bool) {
+	raw := bearerToken(r)
+	if raw == "" {
+		return nil, false
+	}
+	access, ok := m.accessForToken(raw)
+	if !ok {
+		return nil, false
+	}
+	return access.scopes, true
+}
+
 // Scopes returns the effective scopes granted to this request. Session access
 // receives every scope allowed by the account role.
 func (m *Manager) Scopes(r *http.Request) ([]string, bool) {

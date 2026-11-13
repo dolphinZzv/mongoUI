@@ -310,3 +310,105 @@ func TestDisabledServerRejectsTransports(t *testing.T) {
 		t.Fatal("expected stdio to refuse to start while disabled")
 	}
 }
+
+type fakePATAuthorizer struct {
+	enabled bool
+	tokens  map[string][]string
+}
+
+func (f fakePATAuthorizer) TokenScopes(r *http.Request) ([]string, bool) {
+	raw := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	scopes, ok := f.tokens[raw]
+	return scopes, ok
+}
+
+func (f fakePATAuthorizer) Enabled() bool { return f.enabled }
+
+func mcpRequest(t *testing.T, url, token, body string) (int, map[string]any) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil && resp.StatusCode == http.StatusOK {
+		t.Fatalf("decode response: %v", err)
+	}
+	return resp.StatusCode, out
+}
+
+func TestHTTPPersonalAccessTokenScopes(t *testing.T) {
+	s, _ := newTestServer(t, false, "")
+	s.SetTokenAuthorizer(fakePATAuthorizer{
+		enabled: true,
+		tokens: map[string][]string{
+			"read-pat":  {scopeRead},
+			"write-pat": {scopeRead, scopeWrite},
+		},
+	})
+	ts := httptest.NewServer(s.HTTPHandler())
+	defer ts.Close()
+
+	initBody := `{"jsonrpc":"2.0","id":1,"method":"initialize"}`
+	if status, _ := mcpRequest(t, ts.URL, "", initBody); status != http.StatusUnauthorized {
+		t.Fatalf("missing PAT: status %d, want 401", status)
+	}
+	if status, _ := mcpRequest(t, ts.URL, "bad-pat", initBody); status != http.StatusUnauthorized {
+		t.Fatalf("invalid PAT: status %d, want 401", status)
+	}
+	if status, _ := mcpRequest(t, ts.URL, "read-pat", initBody); status != http.StatusOK {
+		t.Fatalf("read PAT initialize: status %d, want 200", status)
+	}
+
+	status, out := mcpRequest(t, ts.URL, "read-pat", `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
+	if status != http.StatusOK {
+		t.Fatalf("read PAT tools/list: status %d", status)
+	}
+	list := out["result"].(map[string]any)["tools"].([]any)
+	names := make([]string, 0, len(list))
+	for _, item := range list {
+		names = append(names, item.(map[string]any)["name"].(string))
+	}
+	if !has(names, "mongoui_find") {
+		t.Fatalf("read PAT should see read tools: %v", names)
+	}
+	if has(names, "mongoui_insert") {
+		t.Fatalf("read PAT must not see write tools: %v", names)
+	}
+
+	status, out = mcpRequest(t, ts.URL, "read-pat",
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"mongoui_insert","arguments":{}}}`)
+	if status != http.StatusOK {
+		t.Fatalf("read PAT insert status: %d", status)
+	}
+	result := out["result"].(map[string]any)
+	if result["isError"] != true {
+		t.Fatalf("read PAT write tool should fail: %#v", result)
+	}
+	text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, "write scope") {
+		t.Fatalf("unexpected error text: %q", text)
+	}
+
+	status, out = mcpRequest(t, ts.URL, "write-pat", `{"jsonrpc":"2.0","id":4,"method":"tools/list"}`)
+	if status != http.StatusOK {
+		t.Fatalf("write PAT tools/list: status %d", status)
+	}
+	list = out["result"].(map[string]any)["tools"].([]any)
+	names = names[:0]
+	for _, item := range list {
+		names = append(names, item.(map[string]any)["name"].(string))
+	}
+	if !has(names, "mongoui_insert") {
+		t.Fatalf("write PAT should see write tools: %v", names)
+	}
+}

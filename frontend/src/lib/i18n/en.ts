@@ -1024,14 +1024,14 @@ const en: Record<string, string> = {
 
   // personal access tokens
   "tokens.title": "Access tokens",
-  "tokens.desc": "Create scoped tokens for API clients. Tokens never grant more than your current role.",
+  "tokens.desc": "Create scoped tokens for API and MCP clients. Tokens never grant more than your current role.",
   "tokens.name": "Token name",
   "tokens.namePlaceholder": "e.g. CI pipeline",
   "tokens.expiry": "Expiry",
   "tokens.expiry.never": "Never",
   "tokens.expiry.days": "{{days}} days",
   "tokens.scopes": "Scopes",
-  "tokens.scopesHint": "Read is always included. Admin includes write.",
+  "tokens.scopesHint": "Read is always included. Write unlocks MCP write tools; admin includes write.",
   "tokens.scope.read": "Read",
   "tokens.scope.write": "Write",
   "tokens.scope.admin": "Admin",

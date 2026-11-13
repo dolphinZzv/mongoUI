@@ -1019,14 +1019,14 @@ const zh: Record<string, string> = {
 
   // 个人访问令牌
   "tokens.title": "访问令牌",
-  "tokens.desc": "为 API 客户端创建带作用域的令牌。令牌权限不会超过当前账号角色。",
+  "tokens.desc": "为 API 与 MCP 客户端创建带作用域的令牌。令牌权限不会超过当前账号角色。",
   "tokens.name": "令牌名称",
   "tokens.namePlaceholder": "例如 CI 流水线",
   "tokens.expiry": "有效期",
   "tokens.expiry.never": "永不过期",
   "tokens.expiry.days": "{{days}} 天",
   "tokens.scopes": "作用域",
-  "tokens.scopesHint": "始终包含读取权限；管理员作用域包含写入权限。",
+  "tokens.scopesHint": "始终包含读取权限；写入作用域解锁 MCP 写工具，管理员作用域包含写入权限。",
   "tokens.scope.read": "读取",
   "tokens.scope.write": "写入",
   "tokens.scope.admin": "管理",

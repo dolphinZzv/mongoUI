@@ -507,4 +507,10 @@ export interface SearchResult {
   term: string
   mode: "value" | "field"
   results: SearchHit[]
+  scanned?: number
+  totalCollections?: number
+  truncated?: boolean
+  timedOut?: boolean
+  failed?: number
+  durationMs?: number
 }

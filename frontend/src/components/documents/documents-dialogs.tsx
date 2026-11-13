@@ -194,6 +194,12 @@ export function DocumentsDialogs({
   onApplyChartFilter,
 }: DocumentsDialogsProps) {
   const { t } = useI18n()
+  const [updateConfirm, setUpdateConfirm] = React.useState("")
+  const updateNeedsConfirm = allMatching && total > 0
+
+  React.useEffect(() => {
+    if (updateOpen) setUpdateConfirm("")
+  }, [updateOpen])
 
   return (
     <>
@@ -261,11 +267,30 @@ export function DocumentsDialogs({
             placeholder='{ "$set": { "status": "done" } }'
             className="min-h-[8rem]"
           />
+          {updateNeedsConfirm ? (
+            <div className="grid gap-2">
+              <p className="text-muted-foreground text-xs">
+                {t("docs.bulkUpdateConfirm", { count: total })}
+              </p>
+              <Input
+                value={updateConfirm}
+                onChange={(event) => setUpdateConfirm(event.target.value)}
+                placeholder={String(total)}
+                inputMode="numeric"
+                autoComplete="off"
+              />
+            </div>
+          ) : null}
           <DialogFooter>
             <Button variant="outline" onClick={() => onUpdateOpenChange(false)}>
               {t("common.cancel")}
             </Button>
-            <Button onClick={onRunBulkUpdate}>{t("docs.updateAction")}</Button>
+            <Button
+              onClick={onRunBulkUpdate}
+              disabled={updateNeedsConfirm && updateConfirm !== String(total)}
+            >
+              {t("docs.updateAction")}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -295,7 +320,25 @@ export function DocumentsDialogs({
                 ? t("docs.deleteSelectedMany", { count: selectedCount })
                 : t("docs.deleteOne")
           }
-          description={t("docs.deleteDesc")}
+          description={
+            confirm?.type === "filter" ? (
+              <div className="space-y-1">
+                <p>{t("docs.deleteDesc")}</p>
+                <pre className="bg-muted/40 max-h-32 overflow-auto rounded p-2 font-mono text-[11px]">
+                  {filter || "{}"}
+                </pre>
+              </div>
+            ) : (
+              t("docs.deleteDesc")
+            )
+          }
+          confirmText={
+            confirm?.type === "filter"
+              ? "DELETE"
+              : confirm?.type === "bulk"
+                ? String(selectedCount)
+                : undefined
+          }
           confirmLabel={t("common.delete")}
           onConfirm={onConfirm}
         />

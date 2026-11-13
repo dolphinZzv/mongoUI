@@ -56,6 +56,11 @@ export function GlobalSearchDialog({
   const [loading, setLoading] = React.useState(false)
   const [searched, setSearched] = React.useState(false)
   const [results, setResults] = React.useState<SearchHit[]>([])
+  const [partial, setPartial] = React.useState<{
+    scanned: number
+    total: number
+    timedOut: boolean
+  } | null>(null)
 
   React.useEffect(() => {
     if (!open) return
@@ -66,6 +71,7 @@ export function GlobalSearchDialog({
     if (!open) return
     setSearched(false)
     setResults([])
+    setPartial(null)
     if (selection.kind !== "welcome") {
       setConnectionId(selection.connectionId)
       if (selection.kind === "collection") setDatabase(selection.database)
@@ -105,6 +111,15 @@ export function GlobalSearchDialog({
         field: mode === "value" ? field.trim() || undefined : undefined,
       })
       setResults(res.results)
+      setPartial(
+        res.truncated || res.timedOut
+          ? {
+              scanned: res.scanned ?? 0,
+              total: res.totalCollections ?? 0,
+              timedOut: Boolean(res.timedOut),
+            }
+          : null,
+      )
       setSearched(true)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("search.failed"))
@@ -212,6 +227,14 @@ export function GlobalSearchDialog({
         </div>
 
         <div className="scrollbar-thin max-h-[45vh] overflow-auto">
+          {partial ? (
+            <p className="border-amber-500/40 bg-amber-500/10 mb-2 rounded-md border px-2 py-1 text-[11px] text-amber-700 dark:text-amber-300">
+              {t(partial.timedOut ? "search.partialTimeout" : "search.partial", {
+                scanned: partial.scanned,
+                total: partial.total,
+              })}
+            </p>
+          ) : null}
           {searched && !loading && results.length === 0 ? (
             <p className="text-muted-foreground py-6 text-center text-sm">{t("search.empty")}</p>
           ) : null}

@@ -1053,13 +1053,24 @@ export function DocumentsTab({
     const targetId = documentId(doc)
     setInlineBusy(true)
     try {
-      await api.update(connectionId, database, collection, {
-        filter: { _id: doc._id },
+      // Include the value we loaded in the filter so a concurrent edit of the
+      // same cell is detected instead of silently overwriting it.
+      const original = doc[column]
+      const res = await api.update(connectionId, database, collection, {
+        filter: {
+          _id: doc._id,
+          [column]: original === undefined ? { $exists: false } : original,
+        },
         update:
           value === undefined
             ? { $unset: { [column]: "" } }
             : { $set: { [column]: value } },
       })
+      if (res.matchedCount === 0) {
+        toast.error(t("docs.editConflict"))
+        await load({})
+        return false
+      }
       setResult((prev) => {
         if (!prev) return prev
         const nextDocuments = prev.documents.map((entry, index) => {

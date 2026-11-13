@@ -55,6 +55,39 @@ func hasScope(scopes []string, want string) bool {
 	return false
 }
 
+// pipelineWrites reports whether an aggregation pipeline contains a terminal
+// write stage. It accepts both JSON-decoded []any and typed stage slices.
+func pipelineWrites(args map[string]any) bool {
+	raw, ok := args["pipeline"]
+	if !ok {
+		return false
+	}
+	var stages []any
+	switch value := raw.(type) {
+	case []any:
+		stages = value
+	case []map[string]any:
+		for _, stage := range value {
+			stages = append(stages, stage)
+		}
+	default:
+		return false
+	}
+	for _, rawStage := range stages {
+		stage, ok := rawStage.(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, found := stage["$out"]; found {
+			return true
+		}
+		if _, found := stage["$merge"]; found {
+			return true
+		}
+	}
+	return false
+}
+
 // callTool dispatches a tool with full local access (stdio transport).
 func (s *Server) callTool(name string, args map[string]any) (string, error) {
 	return s.callToolWithScopes(name, args, allScopes)
@@ -76,6 +109,11 @@ func (s *Server) callToolWithScopes(name string, args map[string]any, scopes []s
 		}
 		if group == readGroup && !hasScope(scopes, scopeRead) {
 			return "", fmt.Errorf("tool %q requires a token with the %s scope", name, scopeRead)
+		}
+		// Aggregation is a read-group tool but $out/$merge mutate data. A
+		// read-scoped PAT must not be able to write through this side door.
+		if t.name == "mongoui_aggregate" && !hasScope(scopes, scopeWrite) && pipelineWrites(args) {
+			return "", fmt.Errorf("tool %q requires a token with the %s scope when the pipeline contains $out or $merge", name, scopeWrite)
 		}
 		return t.run(s, args)
 	}
@@ -198,8 +236,26 @@ var tools = []tool{
 			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
 			"filter": objP("query filter"), "sort": objP("sort spec"), "projection": objP("projection spec"),
 			"skip": numP("documents to skip"), "limit": numP("max documents (default 50, max 1000)"),
+			"includeTotal": boolP("count all matching documents (default true; set false for large collections)"),
 		}, "connectionId", "database", "collection"),
 		run: toolFind,
+	},
+	{
+		name:        "mongoui_count",
+		description: "Count documents matching a filter. Uses estimatedDocumentCount when the filter is empty.",
+		inputSchema: obj(map[string]any{
+			"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
+			"filter": objP("query filter (optional)"),
+		}, "connectionId", "database", "collection"),
+		run: toolCount,
+	},
+	{
+		name:        "mongoui_database_stats",
+		description: "Return dbStats for a database (collections, objects, dataSize, storageSize, indexes).",
+		inputSchema: obj(map[string]any{
+			"connectionId": connProp(), "database": strP("database name"),
+		}, "connectionId", "database"),
+		run: toolDatabaseStats,
 	},
 	{
 		name:        "mongoui_aggregate",
@@ -674,6 +730,55 @@ func toolCollectionSchema(s *Server, args map[string]any) (string, error) {
 	return jsonText(map[string]any{"sampled": len(docs), "fields": fields})
 }
 
+func toolCount(s *Server, args map[string]any) (string, error) {
+	coll, err := target(s, args)
+	if err != nil {
+		return "", err
+	}
+	filter := bson.D{}
+	if raw, ok := argObject(args, "filter"); ok {
+		if filter, err = toBSON(raw); err != nil {
+			return "", err
+		}
+	}
+	ctx, cancel := opCtx()
+	defer cancel()
+	if len(filter) == 0 {
+		count, err := coll.EstimatedDocumentCount(ctx)
+		if err != nil {
+			return "", err
+		}
+		return jsonText(map[string]any{"count": count, "estimated": true})
+	}
+	count, err := coll.CountDocuments(ctx, filter)
+	if err != nil {
+		return "", err
+	}
+	return jsonText(map[string]any{"count": count, "estimated": false})
+}
+
+func toolDatabaseStats(s *Server, args map[string]any) (string, error) {
+	id, err := argStr(args, "connectionId")
+	if err != nil {
+		return "", err
+	}
+	db, err := argStr(args, "database")
+	if err != nil {
+		return "", err
+	}
+	client, err := s.client(id)
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := opCtx()
+	defer cancel()
+	var res bson.M
+	if err := client.Database(db).RunCommand(ctx, bson.D{{Key: "dbStats", Value: 1}}).Decode(&res); err != nil {
+		return "", err
+	}
+	return jsonText(res)
+}
+
 func toolFind(s *Server, args map[string]any) (string, error) {
 	coll, err := target(s, args)
 	if err != nil {
@@ -706,9 +811,13 @@ func toolFind(s *Server, args map[string]any) (string, error) {
 	ctx, cancel := opCtx()
 	defer cancel()
 
-	total, err := coll.CountDocuments(ctx, filter)
-	if err != nil {
-		return "", err
+	includeTotal := argBool(args, "includeTotal", true)
+	var total int64
+	if includeTotal {
+		total, err = coll.CountDocuments(ctx, filter)
+		if err != nil {
+			return "", err
+		}
 	}
 	opts := options.Find().SetSkip(skip).SetLimit(limit)
 	if len(sortDoc) > 0 {
@@ -726,9 +835,13 @@ func toolFind(s *Server, args map[string]any) (string, error) {
 	if err := cursor.All(ctx, &docs); err != nil {
 		return "", err
 	}
-	return jsonText(map[string]any{
-		"documents": docs, "count": len(docs), "total": total, "skip": skip, "limit": limit,
-	})
+	out := map[string]any{
+		"documents": docs, "count": len(docs), "skip": skip, "limit": limit,
+	}
+	if includeTotal {
+		out["total"] = total
+	}
+	return jsonText(out)
 }
 
 func toolAggregate(s *Server, args map[string]any) (string, error) {

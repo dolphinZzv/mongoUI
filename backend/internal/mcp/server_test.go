@@ -90,7 +90,7 @@ func TestInitialize(t *testing.T) {
 func TestToolsListIncludesWritesByDefault(t *testing.T) {
 	s, _ := newTestServer(t, false)
 	names := toolNames(t, s)
-	for _, want := range []string{"mongoui_list_connections", "mongoui_find", "mongoui_sql", "mongoui_insert", "mongoui_delete"} {
+	for _, want := range []string{"mongoui_list_connections", "mongoui_find", "mongoui_count", "mongoui_database_stats", "mongoui_sql", "mongoui_insert", "mongoui_delete"} {
 		if !has(names, want) {
 			t.Errorf("missing tool %q in %v", want, names)
 		}
@@ -382,5 +382,50 @@ func TestHTTPPersonalAccessTokenScopes(t *testing.T) {
 	}
 	if !has(names, "mongoui_insert") {
 		t.Fatalf("write PAT should see write tools: %v", names)
+	}
+}
+
+func TestPipelineWrites(t *testing.T) {
+	cases := []struct {
+		name string
+		args map[string]any
+		want bool
+	}{
+		{"none", map[string]any{}, false},
+		{"read pipeline", map[string]any{"pipeline": []any{map[string]any{"$match": map[string]any{"a": 1}}}}, false},
+		{"out", map[string]any{"pipeline": []any{map[string]any{"$out": "archive"}}}, true},
+		{"merge", map[string]any{"pipeline": []any{map[string]any{"$merge": map[string]any{"into": "archive"}}}}, true},
+		{"typed stages", map[string]any{"pipeline": []map[string]any{{"$out": "archive"}}}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := pipelineWrites(tc.args); got != tc.want {
+				t.Fatalf("pipelineWrites() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReadPATCannotWriteThroughAggregate(t *testing.T) {
+	s, _ := newTestServer(t, false)
+	s.SetTokenAuthorizer(fakePATAuthorizer{
+		enabled: true,
+		tokens:  map[string][]string{"read-pat": {scopeRead}},
+	})
+	ts := httptest.NewServer(s.HTTPHandler())
+	defer ts.Close()
+
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mongoui_aggregate","arguments":{"connectionId":"x","database":"d","collection":"c","pipeline":[{"$out":"archive"}]}}}`
+	status, out := mcpRequest(t, ts.URL, "read-pat", body)
+	if status != http.StatusOK {
+		t.Fatalf("status %d", status)
+	}
+	result := out["result"].(map[string]any)
+	if result["isError"] != true {
+		t.Fatalf("read PAT aggregate write should fail: %#v", result)
+	}
+	text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, "write scope") {
+		t.Fatalf("unexpected error text: %q", text)
 	}
 }

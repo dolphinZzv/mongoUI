@@ -117,7 +117,7 @@ MCP 工具分为**读**与**写**两组，可以在界面右上角的「设置�
 
 ## 3. 工具参考
 
-共 21 个工具，分属于读 / 写两组（写分组默认关闭）。
+共 23 个工具，分属于读 / 写两组（写分组默认关闭）。
 
 ### 只读工具（读分组）
 
@@ -129,9 +129,11 @@ MCP 工具分为**读**与**写**两组，可以在界面右上角的「设置�
 | `mongoui_server_info` | `connectionId` | `buildInfo` |
 | `mongoui_list_databases` | `connectionId` | 库列表 + 大小 |
 | `mongoui_list_collections` | `connectionId`, `database` | 集合列表 |
+| `mongoui_database_stats` | `connectionId`, `database` | `dbStats`（集合数、文档数、数据/存储大小、索引数） |
 | `mongoui_collection_stats` | `connectionId`, `database`, `collection` | `collStats` |
 | `mongoui_collection_schema` | `connectionId`, `database`, `collection` | 抽样字段/类型统计 |
-| `mongoui_find` | `connectionId`, `database`, `collection`, `filter?`, `sort?`, `projection?`, `skip?`, `limit?` | 查询文档（Extended JSON） |
+| `mongoui_find` | `connectionId`, `database`, `collection`, `filter?`, `sort?`, `projection?`, `skip?`, `limit?`, `includeTotal?` | 查询文档（Extended JSON）；大集合可关闭总数统计 |
+| `mongoui_count` | `connectionId`, `database`, `collection`, `filter?` | 统计匹配文档数；空 filter 使用 estimatedDocumentCount |
 | `mongoui_aggregate` | `connectionId`, `database`, `collection`, `pipeline`, `limit?` | 聚合管道 |
 | `mongoui_sql` | `connectionId`, `database`, `query`, `limit?` | SQL 查询（SELECT） |
 | `mongoui_explain` | `connectionId`, `database`, `collection`, `type?`, `filter?`, `sort?`, `projection?`, `pipeline?`, `limit?`, `verbosity?` | 执行计划（find / 聚合） |

@@ -221,7 +221,10 @@ export function ResultTable({
           </TableHeader>
           <TableBody>
             {documents.map((doc, index) => (
-              <TableRow key={index}>
+              <TableRow
+                key={index}
+                style={{ contentVisibility: "auto", containIntrinsicSize: "auto 2rem" }}
+              >
                 {displayColumns.map((column) => {
                   const value = doc[column]
                   const isPinned = pinnedSet.has(column)

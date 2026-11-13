@@ -166,11 +166,10 @@ docker run -d --name mongoui -p 8080:8080 -v mongoui-data:/data \
 docker compose up -d
 ```
 
-对公网暴露时建议同时设置 MCP 令牌：
+对公网暴露时请启用账号登录，并为 MCP 客户端创建个人访问令牌（PAT）：
 
 ```bash
 docker run -d -p 8080:8080 -v mongoui-data:/data \
-  -e MONGOUI_MCP_TOKEN=change-me \
   ghcr.io/dolphinzzv/mongoui:latest
 ```
 
@@ -319,7 +318,7 @@ await window.mongouiAgent.call("mongoui_find", {
 - 启用后所有 `/api/*` 需要登录（`/api/health` 除外）；静态前端不受影响，登录页始终能打开。
 - 密码使用 bcrypt 哈希，TOTP 密钥、密码哈希与 OIDC 客户端密钥经 AES-256-GCM 加密后保存在 `<data>/auth.json`；会话签名密钥由主密钥派生（`MONGOUI_SECRET_KEY`），**更换主密钥会导致会话失效并需重新登录**。旧的单账号配置会自动迁移为一个名为 `admin` 的管理员。
 - **自我保护**：账号管理、定时备份、MCP 服务端开关与自动更新均为管理员专属；读写 / 只读账号即使直接调用 API 也会收到 403。
-- 启用登录后 `/mcp` 不接受网页会话，需使用个人访问令牌（PAT）或静态 `MONGOUI_MCP_TOKEN`；PAT 的 scope 会限制可用的读 / 写工具。
+- 启用登录后 `/mcp` 不接受网页会话，需使用个人访问令牌（PAT）；PAT 的 scope 会限制可用的读 / 写工具。
 - 重置：删除 `<data>/auth.json` 重启，会重新进入首次设置。
 
 ### 个人访问令牌（PAT）与作用域
@@ -343,8 +342,8 @@ curl -H "Authorization: Bearer moui_pat_xxx" -H "Content-Type: application/json"
 - 只读账号只能创建 `read` 令牌；读写账号不能创建带 `admin` 的令牌。
 - 降级账号角色后，已有令牌会立即按新角色收窄有效权限。
 - 令牌不能用于创建 / 列出 / 删除其他令牌，也不能修改密码；这些操作必须使用浏览器登录会话。
-- 令牌同样受连接只读标记约束；`/api/health` 保持公开，`/mcp` 使用 PAT（或静态 `MONGOUI_MCP_TOKEN`）。
-- 用于 MCP 时，`read` 令牌只能列出/调用读工具，`write` 令牌才能使用写工具；静态 `MONGOUI_MCP_TOKEN` 视为全权限兼容令牌。
+- 令牌同样受连接只读标记约束；`/api/health` 保持公开，`/mcp` 使用 PAT。
+- 用于 MCP 时，`read` 令牌只能列出/调用读工具，`write` 令牌才能使用写工具。
 
 ### 单点登录（OIDC）
 
@@ -370,7 +369,6 @@ curl -H "Authorization: Bearer moui_pat_xxx" -H "Content-Type: application/json"
 | `-data` | `MONGOUI_DATA` | `data` | 连接配置存储目录（`connections.json`） |
 | `-web` | — | 空 | 从指定目录提供前端资源（覆盖内嵌版本） |
 | `-mcp-readonly` | `MONGOUI_MCP_READONLY` | 关 | 兼容参数：等价于关闭 MCP 写分组 |
-| `-mcp-token` | `MONGOUI_MCP_TOKEN` | 空 | 可选的静态 MCP Bearer 令牌；启用登录后也可改用 PAT |
 | `-tls-cert` | `MONGOUI_TLS_CERT` | 空 | TLS 证书；与 `-tls-key` 同时设置时启用 HTTPS |
 | `-tls-key` | `MONGOUI_TLS_KEY` | 空 | TLS 私钥 |
 | — | `MONGOUI_KNOWN_HOSTS` | `~/.ssh/known_hosts` | SSH 跳板机主机密钥校验文件 |
@@ -497,7 +495,7 @@ gh auth login --with-token < token.txt
 - **请求约束**：请求体限制 32MB，聚合结果默认限量，服务端设置读 / 写 / 空闲超时，并返回 `X-Content-Type-Options` / `X-Frame-Options` / `Referrer-Policy` 等响应头。
 - **凭据脱敏**：连接列表接口对 URI 密码与 SSH 凭据脱敏（密码显示为 `xxxxxxxx`、SSH 密钥清空）；完整凭据仅在编辑弹窗按单个连接获取。
 - **登录**：首次启动引导设置账号密码或 TOTP，之后所有 `/api/*` 需要登录会话或 PAT（`/api/health` 除外）。可额外启用 **OIDC 单点登录**（授权码 + PKCE + JWKS 校验），其回调同样受签名 Cookie 会话保护。
-- **MCP**：启用账号登录后 `/mcp` 需要 PAT（推荐）或静态 `MONGOUI_MCP_TOKEN`；未启用登录时默认无鉴权，对外暴露前请配置鉴权并可在界面关闭写分组或整体关闭 MCP。
+- **MCP**：启用账号登录后 `/mcp` 需要 PAT；未启用登录时默认无鉴权，对外暴露前请启用登录并创建 PAT，也可在界面关闭写分组或整体关闭 MCP。
 
 > 不建议把 `data/` 提交到版本库（已在 `.gitignore` 中忽略），也只建议在可信网络 / 反向代理鉴权之后暴露服务。
 
@@ -567,7 +565,7 @@ git push origin main v0.2.26
 Linux 用 `--network host`，或把连接串指向宿主机 IP；Docker Desktop 用 `host.docker.internal:27017`。
 
 **Q：`/mcp` 需要鉴权吗？**
-启用账号登录后需要 PAT 或 `MONGOUI_MCP_TOKEN`；未启用登录时默认没有，请仅在内网 / 反向代理之后暴露。
+启用账号登录后需要 PAT；未启用登录时默认没有，请仅在内网 / 反向代理之后暴露。
 
 ## 贡献
 

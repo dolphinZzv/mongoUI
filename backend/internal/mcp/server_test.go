@@ -14,24 +14,24 @@ import (
 	"mongoui/internal/mongoclient"
 )
 
-func newTestServer(t *testing.T, readOnly bool, token string) (*Server, *config.Store) {
+func newTestServer(t *testing.T, readOnly bool) (*Server, *config.Store) {
 	t.Helper()
 	store, err := config.NewStore(filepath.Join(t.TempDir(), "connections.json"))
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}
 	settings := config.NewSettings(config.MCPSettings{Enabled: true, Read: true, Write: !readOnly})
-	return New(store, mongoclient.NewManager(), "test", token, settings), store
+	return New(store, mongoclient.NewManager(), "test", settings), store
 }
 
 // newTestServerWithConfig builds a server with explicit MCP settings.
-func newTestServerWithConfig(t *testing.T, cfg config.MCPSettings, token string) (*Server, *config.Store) {
+func newTestServerWithConfig(t *testing.T, cfg config.MCPSettings) (*Server, *config.Store) {
 	t.Helper()
 	store, err := config.NewStore(filepath.Join(t.TempDir(), "connections.json"))
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}
-	return New(store, mongoclient.NewManager(), "test", token, config.NewSettings(cfg)), store
+	return New(store, mongoclient.NewManager(), "test", config.NewSettings(cfg)), store
 }
 
 // call runs one JSON-RPC message and returns the decoded response.
@@ -75,7 +75,7 @@ func has(names []string, want string) bool {
 }
 
 func TestInitialize(t *testing.T) {
-	s, _ := newTestServer(t, false, "")
+	s, _ := newTestServer(t, false)
 	resp := call(t, s, "initialize", nil)
 	result := resp["result"].(map[string]any)
 	if result["protocolVersion"] != protocolVersion {
@@ -88,7 +88,7 @@ func TestInitialize(t *testing.T) {
 }
 
 func TestToolsListIncludesWritesByDefault(t *testing.T) {
-	s, _ := newTestServer(t, false, "")
+	s, _ := newTestServer(t, false)
 	names := toolNames(t, s)
 	for _, want := range []string{"mongoui_list_connections", "mongoui_find", "mongoui_sql", "mongoui_insert", "mongoui_delete"} {
 		if !has(names, want) {
@@ -98,7 +98,7 @@ func TestToolsListIncludesWritesByDefault(t *testing.T) {
 }
 
 func TestReadOnlyHidesAndRejectsWrites(t *testing.T) {
-	s, _ := newTestServer(t, true, "")
+	s, _ := newTestServer(t, true)
 	names := toolNames(t, s)
 	if has(names, "mongoui_insert") || has(names, "mongoui_delete") || has(names, "mongoui_drop_database") {
 		t.Fatalf("write tools advertised in read-only mode: %v", names)
@@ -122,7 +122,7 @@ func TestReadOnlyHidesAndRejectsWrites(t *testing.T) {
 }
 
 func TestReadOnlyConnectionRejectsWrite(t *testing.T) {
-	s, store := newTestServer(t, false, "")
+	s, store := newTestServer(t, false)
 	conn, err := store.Add(config.Connection{Name: "ro", URI: "mongodb://127.0.0.1:27017", ReadOnly: true})
 	if err != nil {
 		t.Fatal(err)
@@ -144,7 +144,7 @@ func TestReadOnlyConnectionRejectsWrite(t *testing.T) {
 }
 
 func TestListConnectionsEmpty(t *testing.T) {
-	s, _ := newTestServer(t, false, "")
+	s, _ := newTestServer(t, false)
 	resp := call(t, s, "tools/call", map[string]any{"name": "mongoui_list_connections", "arguments": map[string]any{}})
 	result := resp["result"].(map[string]any)
 	if result["isError"] == true {
@@ -157,7 +157,7 @@ func TestListConnectionsEmpty(t *testing.T) {
 }
 
 func TestUnknownTool(t *testing.T) {
-	s, _ := newTestServer(t, false, "")
+	s, _ := newTestServer(t, false)
 	resp := call(t, s, "tools/call", map[string]any{"name": "nope", "arguments": map[string]any{}})
 	if resp["response"] != nil {
 		t.Fatal("unexpected response field")
@@ -169,7 +169,7 @@ func TestUnknownTool(t *testing.T) {
 }
 
 func TestHTTPTransport(t *testing.T) {
-	s, _ := newTestServer(t, false, "")
+	s, _ := newTestServer(t, false)
 	ts := httptest.NewServer(s.HTTPHandler())
 	defer ts.Close()
 
@@ -192,36 +192,8 @@ func TestHTTPTransport(t *testing.T) {
 	}
 }
 
-func TestHTTPTokenRequired(t *testing.T) {
-	s, _ := newTestServer(t, false, "secret")
-	ts := httptest.NewServer(s.HTTPHandler())
-	defer ts.Close()
-
-	body := `{"jsonrpc":"2.0","id":1,"method":"initialize"}`
-	resp, err := http.Post(ts.URL, "application/json", strings.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", resp.StatusCode)
-	}
-
-	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer secret")
-	resp2, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp2.Body.Close()
-	if resp2.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp2.StatusCode)
-	}
-}
-
 func TestStdioRoundTrip(t *testing.T) {
-	s, _ := newTestServer(t, false, "")
+	s, _ := newTestServer(t, false)
 	in := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize"}` + "\n" +
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n" +
 		`{"jsonrpc":"2.0","id":2,"method":"tools/list"}` + "\n")
@@ -239,7 +211,7 @@ func TestStdioRoundTrip(t *testing.T) {
 }
 
 func TestReadGroupOnlyHidesWrites(t *testing.T) {
-	s, _ := newTestServerWithConfig(t, config.MCPSettings{Enabled: true, Read: true, Write: false}, "")
+	s, _ := newTestServerWithConfig(t, config.MCPSettings{Enabled: true, Read: true, Write: false})
 	names := toolNames(t, s)
 	if !has(names, "mongoui_find") || !has(names, "mongoui_sql") {
 		t.Fatalf("read tools missing: %v", names)
@@ -260,7 +232,7 @@ func TestReadGroupOnlyHidesWrites(t *testing.T) {
 
 func TestGroupsAreIndependent(t *testing.T) {
 	// Write group can be enabled while the read group is off.
-	s, _ := newTestServerWithConfig(t, config.MCPSettings{Enabled: true, Read: false, Write: true}, "")
+	s, _ := newTestServerWithConfig(t, config.MCPSettings{Enabled: true, Read: false, Write: true})
 	names := toolNames(t, s)
 	if has(names, "mongoui_find") || has(names, "mongoui_sql") {
 		t.Fatalf("read tools advertised with read group off: %v", names)
@@ -271,7 +243,7 @@ func TestGroupsAreIndependent(t *testing.T) {
 }
 
 func TestToolDefinitionsCarryGroup(t *testing.T) {
-	s, _ := newTestServerWithConfig(t, config.MCPSettings{Enabled: true, Read: true, Write: true}, "")
+	s, _ := newTestServerWithConfig(t, config.MCPSettings{Enabled: true, Read: true, Write: true})
 	resp := call(t, s, "tools/list", nil)
 	list := resp["result"].(map[string]any)["tools"].([]any)
 	byName := map[string]map[string]any{}
@@ -292,7 +264,7 @@ func TestToolDefinitionsCarryGroup(t *testing.T) {
 }
 
 func TestDisabledServerRejectsTransports(t *testing.T) {
-	s, _ := newTestServerWithConfig(t, config.MCPSettings{Enabled: false, Read: true, Write: false}, "")
+	s, _ := newTestServerWithConfig(t, config.MCPSettings{Enabled: false, Read: true, Write: false})
 
 	ts := httptest.NewServer(s.HTTPHandler())
 	defer ts.Close()
@@ -347,7 +319,7 @@ func mcpRequest(t *testing.T, url, token, body string) (int, map[string]any) {
 }
 
 func TestHTTPPersonalAccessTokenScopes(t *testing.T) {
-	s, _ := newTestServer(t, false, "")
+	s, _ := newTestServer(t, false)
 	s.SetTokenAuthorizer(fakePATAuthorizer{
 		enabled: true,
 		tokens: map[string][]string{

@@ -63,7 +63,6 @@ func main() {
 		pidFile      = flag.String("pidfile", "", "pid file path (default <data>/mongoui.pid)")
 		logFile      = flag.String("logfile", "", "log file path used by -daemon (default <data>/mongoui.log)")
 		mcpReadOnly  = flag.Bool("mcp-readonly", envBool("MONGOUI_MCP_READONLY"), "expose only read tools over MCP")
-		mcpToken     = flag.String("mcp-token", envOr("MONGOUI_MCP_TOKEN", ""), "require this bearer token for the MCP HTTP endpoint")
 		tlsCert      = flag.String("tls-cert", envOr("MONGOUI_TLS_CERT", ""), "TLS certificate file; enables HTTPS together with -tls-key")
 		tlsKey       = flag.String("tls-key", envOr("MONGOUI_TLS_KEY", ""), "TLS private key file")
 	)
@@ -165,10 +164,7 @@ func main() {
 	}
 
 	if authManager.Enabled() {
-		log.Printf("TOTP authentication enabled")
-		if *mcpToken == "" {
-			log.Printf("MCP HTTP endpoint requires a personal access token (or set MONGOUI_MCP_TOKEN)")
-		}
+		log.Printf("TOTP authentication enabled; MCP HTTP endpoint requires a personal access token")
 	} else {
 		log.Printf("TOTP not configured yet; open the UI to set it up")
 	}
@@ -195,7 +191,7 @@ func main() {
 		log.Printf("automatic updates disabled (version %q)", version)
 	}
 
-	mcpServer := mcp.New(store, mgr, version, *mcpToken, settings)
+	mcpServer := mcp.New(store, mgr, version, settings)
 	mcpServer.SetTokenAuthorizer(authManager)
 	apiServer := api.New(store, mgr, uiEmbedded, version, mcpServer.HTTPHandler(), authManager, settings)
 	if updater != nil {
@@ -309,7 +305,7 @@ func runMCP(args []string) int {
 	mgr := mongoclient.NewManager()
 	defer mgr.CloseAll()
 
-	srv := mcp.New(store, mgr, version, "", settings)
+	srv := mcp.New(store, mgr, version, settings)
 	if err := srv.ServeStdio(context.Background(), os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "mcp server: %v\n", err)
 		return 1

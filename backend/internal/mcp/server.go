@@ -11,7 +11,6 @@ package mcp
 import (
 	"bufio"
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,24 +46,22 @@ type Server struct {
 	store      *config.Store
 	mgr        *mongoclient.Manager
 	version    string
-	token      string
 	settings   *config.Settings
 	authorizer TokenAuthorizer
 }
 
 // New creates an MCP server backed by the given connection store and manager.
-// When token is non-empty, the HTTP transport requires a matching bearer token.
 // settings controls whether the server is enabled and which tool groups are
 // exposed. It may be nil, in which case safe defaults are used.
-func New(store *config.Store, mgr *mongoclient.Manager, version, token string, settings *config.Settings) *Server {
+func New(store *config.Store, mgr *mongoclient.Manager, version string, settings *config.Settings) *Server {
 	if settings == nil {
 		settings = config.NewSettings(config.DefaultMCPSettings())
 	}
-	return &Server{store: store, mgr: mgr, version: version, token: token, settings: settings}
+	return &Server{store: store, mgr: mgr, version: version, settings: settings}
 }
 
-// SetTokenAuthorizer enables personal access tokens for the HTTP transport.
-// The static -mcp-token remains supported for existing deployments.
+// SetTokenAuthorizer enables personal access token authentication for the HTTP
+// transport.
 func (s *Server) SetTokenAuthorizer(authorizer TokenAuthorizer) {
 	s.authorizer = authorizer
 }
@@ -294,13 +291,6 @@ func (s *Server) HTTPHandler() http.Handler {
 }
 
 func (s *Server) authorized(r *http.Request) ([]string, bool) {
-	if s.token != "" {
-		header := r.Header.Get("Authorization")
-		expected := "Bearer " + s.token
-		if subtle.ConstantTimeCompare([]byte(header), []byte(expected)) == 1 {
-			return allScopes, true
-		}
-	}
 	if s.authorizer != nil {
 		if scopes, ok := s.authorizer.TokenScopes(r); ok {
 			return scopes, true
@@ -309,10 +299,7 @@ func (s *Server) authorized(r *http.Request) ([]string, bool) {
 			return nil, false
 		}
 	}
-	// No auth server and no legacy token: preserve the original local-hosting
+	// No account system configured: preserve the original local-hosting
 	// behaviour where the MCP endpoint is open.
-	if s.token == "" && (s.authorizer == nil || !s.authorizer.Enabled()) {
-		return allScopes, true
-	}
-	return nil, false
+	return allScopes, true
 }

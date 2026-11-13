@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"go.mongodb.org/mongo-driver/bson"
+
 	"mongoui/internal/config"
 	"mongoui/internal/mongoclient"
 )
@@ -427,5 +429,27 @@ func TestReadPATCannotWriteThroughAggregate(t *testing.T) {
 	text := result["content"].([]any)[0].(map[string]any)["text"].(string)
 	if !strings.Contains(text, "write scope") {
 		t.Fatalf("unexpected error text: %q", text)
+	}
+}
+
+func TestBoundAggregatePipelineStopsAtTerminalStage(t *testing.T) {
+	read := []bson.D{{{Key: "$match", Value: bson.D{}}}}
+	bounded := boundAggregatePipeline(read, 10)
+	if len(bounded) != 2 || bounded[1][0].Key != "$limit" {
+		t.Fatalf("read pipeline should gain a limit: %#v", bounded)
+	}
+
+	for _, terminal := range []bson.D{
+		{{Key: "$out", Value: "archive"}},
+		{{Key: "$merge", Value: bson.D{{Key: "into", Value: "archive"}}}},
+	} {
+		pipeline := []bson.D{{{Key: "$match", Value: bson.D{}}}, terminal}
+		got := boundAggregatePipeline(pipeline, 10)
+		if len(got) != len(pipeline) {
+			t.Fatalf("terminal pipeline gained a stage: %#v", got)
+		}
+		if !hasTerminalStage(got[len(got)-1]) {
+			t.Fatalf("last stage is no longer terminal: %#v", got)
+		}
 	}
 }

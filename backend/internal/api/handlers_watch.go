@@ -35,6 +35,10 @@ func (a *API) watchCollection(w http.ResponseWriter, r *http.Request) {
 		serverError(w, fmt.Errorf("streaming is not supported by this server"))
 		return
 	}
+	// The HTTP server has a global WriteTimeout (120s). A change stream is
+	// intentionally long-lived, and heartbeats do not reset an absolute write
+	// deadline, so clear it for this response only.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 

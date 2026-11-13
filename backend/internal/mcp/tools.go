@@ -55,6 +55,30 @@ func hasScope(scopes []string, want string) bool {
 	return false
 }
 
+// hasTerminalStage reports whether a stage writes to another collection.
+// MongoDB requires $out/$merge to be the final stage, so callers must not append
+// a $limit after one.
+func hasTerminalStage(stage bson.D) bool {
+	for _, e := range stage {
+		if e.Key == "$out" || e.Key == "$merge" {
+			return true
+		}
+	}
+	return false
+}
+
+// boundAggregatePipeline appends a defensive $limit unless the pipeline already
+// ends in a terminal write stage. Appending after $out/$merge would make an
+// otherwise valid write pipeline fail.
+func boundAggregatePipeline(pipeline []bson.D, limit int64) []bson.D {
+	for _, stage := range pipeline {
+		if hasTerminalStage(stage) {
+			return pipeline
+		}
+	}
+	return append(pipeline, bson.D{{Key: "$limit", Value: limit}})
+}
+
 // pipelineWrites reports whether an aggregation pipeline contains a terminal
 // write stage. It accepts both JSON-decoded []any and typed stage slices.
 func pipelineWrites(args map[string]any) bool {
@@ -869,7 +893,7 @@ func toolAggregate(s *Server, args map[string]any) (string, error) {
 		pipeline = append(pipeline, stage)
 	}
 	limit := clampLimit(argInt(args, "limit", 0), 1000, 1000)
-	pipeline = append(pipeline, bson.D{{Key: "$limit", Value: limit}})
+	pipeline = boundAggregatePipeline(pipeline, limit)
 
 	ctx, cancel := opCtx()
 	defer cancel()

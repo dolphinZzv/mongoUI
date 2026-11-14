@@ -457,12 +457,22 @@ func TestBoundAggregatePipelineStopsAtTerminalStage(t *testing.T) {
 type fakeConnectionPAT struct {
 	fakePATAuthorizer
 	connections map[string][]string
+	writable    map[string][]string
 }
 
 func (f fakeConnectionPAT) TokenConnectionIDs(r *http.Request) ([]string, bool) {
 	raw := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 	ids, ok := f.connections[raw]
 	return ids, ok
+}
+
+func (f fakeConnectionPAT) TokenWritableConnectionIDs(r *http.Request) ([]string, bool) {
+	raw := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	ids, ok := f.writable[raw]
+	if !ok {
+		return nil, true
+	}
+	return ids, true
 }
 
 func TestHTTPConnectionAllowlist(t *testing.T) {
@@ -509,5 +519,41 @@ func TestHTTPConnectionAllowlist(t *testing.T) {
 	errText := result["content"].([]any)[0].(map[string]any)["text"].(string)
 	if !strings.Contains(errText, "not allowed") {
 		t.Fatalf("unexpected error: %s", errText)
+	}
+}
+
+func TestHTTPPerConnectionWriteRole(t *testing.T) {
+	s, store := newTestServer(t, false)
+	allowed, err := store.Add(config.Connection{Name: "allowed", URI: "mongodb://127.0.0.1:27017"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readOnly, err := store.Add(config.Connection{Name: "readonly", URI: "mongodb://127.0.0.1:27017"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetTokenAuthorizer(fakeConnectionPAT{
+		fakePATAuthorizer: fakePATAuthorizer{
+			enabled: true,
+			tokens:  map[string][]string{"pat": {scopeRead, scopeWrite}},
+		},
+		connections: map[string][]string{"pat": {allowed.ID, readOnly.ID}},
+		writable:    map[string][]string{"pat": {allowed.ID}},
+	})
+	ts := httptest.NewServer(s.HTTPHandler())
+	defer ts.Close()
+
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mongoui_delete","arguments":{"connectionId":"` + readOnly.ID + `","database":"d","collection":"c","filter":{}}}}`
+	status, out := mcpRequest(t, ts.URL, "pat", body)
+	if status != http.StatusOK {
+		t.Fatalf("status = %d", status)
+	}
+	result := out["result"].(map[string]any)
+	if result["isError"] != true {
+		t.Fatalf("read-only connection write should fail: %#v", result)
+	}
+	text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, "read-only") {
+		t.Fatalf("unexpected error: %s", text)
 	}
 }

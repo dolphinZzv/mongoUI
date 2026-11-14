@@ -217,6 +217,7 @@ export interface AuthUser {
   hasTOTP?: boolean
   email?: string
   connectionIds?: string[]
+  connectionRoles?: Record<string, "readonly" | "readwrite">
 }
 
 export interface AuthToken {

@@ -50,6 +50,12 @@ type ActorAuthorizer interface {
 	AuditActor(*http.Request) (username, tokenID string)
 }
 
+// WritableConnectionAuthorizer is an optional extension. A nil slice means all
+// allowed connections are writable; an empty non-nil slice means none are.
+type WritableConnectionAuthorizer interface {
+	TokenWritableConnectionIDs(*http.Request) ([]string, bool)
+}
+
 // AuditEvent is one MCP write-operation audit record.
 type AuditEvent struct {
 	Actor        string
@@ -170,13 +176,13 @@ type rpcResponse struct {
 // handle processes one JSON-RPC message with full access. Used by the local
 // stdio transport, which already runs as the server owner.
 func (s *Server) handle(raw []byte) []byte {
-	return s.handleWithScopes(raw, allScopes, nil, auditMeta{Actor: "stdio"})
+	return s.handleWithScopes(raw, allScopes, nil, nil, auditMeta{Actor: "stdio"})
 }
 
 // handleWithScopes processes one JSON-RPC message using the scopes and
 // connection allowlist granted to the HTTP caller. Write tools are hidden and
 // rejected for read-only PATs; tools targeting a disallowed connection fail.
-func (s *Server) handleWithScopes(raw []byte, scopes, connections []string, audit auditMeta) []byte {
+func (s *Server) handleWithScopes(raw []byte, scopes, connections, writable []string, audit auditMeta) []byte {
 	var req rpcRequest
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return encode(rpcResponse{JSONRPC: "2.0", Error: &rpcError{Code: -32700, Message: "parse error"}})
@@ -215,7 +221,7 @@ func (s *Server) handleWithScopes(raw []byte, scopes, connections []string, audi
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return encode(rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid params"}})
 		}
-		text, err := s.callToolWithScopes(params.Name, params.Arguments, scopes, connections, audit)
+		text, err := s.callToolWithScopes(params.Name, params.Arguments, scopes, connections, writable, audit)
 		if err != nil {
 			return encode(rpcResponse{
 				JSONRPC: "2.0",
@@ -304,7 +310,7 @@ func (s *Server) HTTPHandler() http.Handler {
 			actor, tokenID = aa.AuditActor(r)
 		}
 		audit := auditMeta{Actor: actor, TokenID: tokenID, IP: remoteIP(r)}
-		scopes, connections, ok := s.authorized(r)
+		scopes, connections, writable, ok := s.authorized(r)
 		if !ok {
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -326,7 +332,7 @@ func (s *Server) HTTPHandler() http.Handler {
 			}
 			w.Header().Set("Mcp-Session-Id", session)
 
-			resp := s.handleWithScopes(body, scopes, connections, audit)
+			resp := s.handleWithScopes(body, scopes, connections, writable, audit)
 
 			if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
 				w.Header().Set("Content-Type", "text/event-stream")
@@ -365,24 +371,32 @@ func remoteIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
-func (s *Server) authorized(r *http.Request) ([]string, []string, bool) {
+func (s *Server) authorized(r *http.Request) ([]string, []string, []string, bool) {
 	if s.authorizer != nil {
 		if scopes, ok := s.authorizer.TokenScopes(r); ok {
 			var connections []string
 			if scoped, ok := s.authorizer.(ConnectionAuthorizer); ok {
 				list, ok := scoped.TokenConnectionIDs(r)
 				if !ok {
-					return nil, nil, false
+					return nil, nil, nil, false
 				}
 				connections = list
 			}
-			return scopes, connections, true
+			var writable []string
+			if scoped, ok := s.authorizer.(WritableConnectionAuthorizer); ok {
+				list, ok := scoped.TokenWritableConnectionIDs(r)
+				if !ok {
+					return nil, nil, nil, false
+				}
+				writable = list
+			}
+			return scopes, connections, writable, true
 		}
 		if s.authorizer.Enabled() {
-			return nil, nil, false
+			return nil, nil, nil, false
 		}
 	}
 	// No account system configured: preserve the original local-hosting
 	// behaviour where the MCP endpoint is open.
-	return allScopes, nil, true
+	return allScopes, nil, nil, true
 }

@@ -755,6 +755,41 @@ func TestConnectionAllowlist(t *testing.T) {
 	}
 }
 
+func TestPerConnectionRoles(t *testing.T) {
+	m := newTestManager(t)
+	if _, err := m.SetupWithPassword("admin", "admin password"); err != nil {
+		t.Fatal(err)
+	}
+	user, err := m.CreatePasswordUser("alice", RoleReadWrite, "alice password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.UpdateUserConnectionRoles(user.ID, map[string]Role{
+		"prod": RoleReadOnly,
+		"dev":  RoleReadWrite,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	req := requestWithSession(m, user.ID)
+	if !m.CanAccessConnection(req, "prod") || !m.CanAccessConnection(req, "dev") {
+		t.Fatal("allowed connections denied")
+	}
+	if m.CanWriteConnection(req, "prod") {
+		t.Fatal("read-only connection should not be writable")
+	}
+	if !m.CanWriteConnection(req, "dev") {
+		t.Fatal("readwrite connection should be writable")
+	}
+	raw, _, err := m.CreateToken(user.ID, "role-token", []string{ScopeWrite}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writable, ok := m.TokenWritableConnectionIDs(requestWithToken(raw))
+	if !ok || len(writable) != 1 || writable[0] != "dev" {
+		t.Fatalf("writable ids = %#v, %v", writable, ok)
+	}
+}
+
 func TestUpdateUserConnectionsHandler(t *testing.T) {
 	m := newTestManager(t)
 	admin, err := m.SetupWithPassword("admin", "admin password")
@@ -779,9 +814,10 @@ func TestUpdateUserConnectionsHandler(t *testing.T) {
 		if candidate.ID != user.ID {
 			continue
 		}
-		if len(candidate.ConnectionIDs) != 2 ||
-			candidate.ConnectionIDs[0] != "c1" || candidate.ConnectionIDs[1] != "c2" {
-			t.Fatalf("connectionIds = %#v", candidate.ConnectionIDs)
+		if len(candidate.ConnectionRoles) != 2 ||
+			candidate.ConnectionRoles["c1"] != RoleReadWrite ||
+			candidate.ConnectionRoles["c2"] != RoleReadWrite {
+			t.Fatalf("connectionRoles = %#v", candidate.ConnectionRoles)
 		}
 		return
 	}

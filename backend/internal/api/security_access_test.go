@@ -121,3 +121,68 @@ func TestListConnectionsFiltersAllowlist(t *testing.T) {
 		t.Fatalf("filtered connections = %#v", envelope.Data)
 	}
 }
+
+func TestPerConnectionReadOnlyRejectsWrites(t *testing.T) {
+	store, err := config.NewStore(t.TempDir() + "/connections.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readOnly, err := store.Add(config.Connection{Name: "prod", URI: "mongodb://127.0.0.1:27017"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	write, err := store.Add(config.Connection{Name: "dev", URI: "mongodb://127.0.0.1:27017"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, err := auth.New(t.TempDir(), nil, []byte("test-master-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.SetupWithPassword("admin", "admin password"); err != nil {
+		t.Fatal(err)
+	}
+	user, err := manager.CreatePasswordUser("alice", auth.RoleReadWrite, "alice password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.UpdateUserConnectionRoles(user.ID, map[string]auth.Role{
+		readOnly.ID: auth.RoleReadOnly,
+		write.ID:    auth.RoleReadWrite,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	login := httptest.NewRequest(http.MethodPost, "/login",
+		strings.NewReader(`{"username":"alice","password":"alice password","method":"password"}`))
+	loginRec := httptest.NewRecorder()
+	manager.Routes().ServeHTTP(loginRec, login)
+	cookies := loginRec.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("login did not set a cookie")
+	}
+
+	api := New(store, mongoclient.NewManager(), true, "test", nil, manager)
+	router := chi.NewRouter()
+	router.Post("/{id}/write", func(w http.ResponseWriter, r *http.Request) {
+		if !api.requireWrite(w, r) {
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/"+readOnly.ID+"/write", nil)
+	req.AddCookie(cookies[0])
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("read-only connection status = %d, want 403", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/"+write.ID+"/write", nil)
+	req.AddCookie(cookies[0])
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("readwrite connection status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+}

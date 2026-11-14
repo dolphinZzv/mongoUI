@@ -46,6 +46,18 @@ func (t tool) toolGroup() toolGroup {
 	return readGroup
 }
 
+func writableAllowed(ids []string, connectionID string) bool {
+	if ids == nil {
+		return true
+	}
+	for _, id := range ids {
+		if id == connectionID {
+			return true
+		}
+	}
+	return false
+}
+
 func connectionAllowed(ids []string, connectionID string) bool {
 	if len(ids) == 0 {
 		return true
@@ -126,12 +138,12 @@ func pipelineWrites(args map[string]any) bool {
 
 // callTool dispatches a tool with full local access (stdio transport).
 func (s *Server) callTool(name string, args map[string]any) (string, error) {
-	return s.callToolWithScopes(name, args, allScopes, nil, auditMeta{Actor: "stdio"})
+	return s.callToolWithScopes(name, args, allScopes, nil, nil, auditMeta{Actor: "stdio"})
 }
 
 // callToolWithScopes rejects tools whose group is disabled or not granted to
 // the PAT that authorized the HTTP request.
-func (s *Server) callToolWithScopes(name string, args map[string]any, scopes, connections []string, audit auditMeta) (string, error) {
+func (s *Server) callToolWithScopes(name string, args map[string]any, scopes, connections, writable []string, audit auditMeta) (string, error) {
 	for _, t := range tools {
 		if t.name != name {
 			continue
@@ -154,8 +166,10 @@ func (s *Server) callToolWithScopes(name string, args map[string]any, scopes, co
 		if args == nil {
 			args = map[string]any{}
 		}
+		targetConnection := ""
 		if raw, ok := args["connectionId"]; ok {
 			id, _ := raw.(string)
+			targetConnection = id
 			if id != "" && !connectionAllowed(connections, id) {
 				return "", fmt.Errorf("token is not allowed to access connection %q", id)
 			}
@@ -167,6 +181,16 @@ func (s *Server) callToolWithScopes(name string, args map[string]any, scopes, co
 					return "", fmt.Errorf("token is not allowed to access connection %q", proposal.ConnectionID)
 				}
 			}
+		}
+		if targetConnection == "" && (t.name == "mongoui_apply_proposal" || t.name == "mongoui_rollback_proposal") {
+			if id := argStrDefault(args, "proposalId", ""); id != "" {
+				if proposal, found := s.proposals.get(id); found {
+					targetConnection = proposal.ConnectionID
+				}
+			}
+		}
+		if group == writeGroup && targetConnection != "" && !writableAllowed(writable, targetConnection) {
+			return "", fmt.Errorf("token is read-only for connection %q", targetConnection)
 		}
 		if t.name == "mongoui_list_connections" || t.name == "mongoui_list_proposals" {
 			args["_allowedConnections"] = connections

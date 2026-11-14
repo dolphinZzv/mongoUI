@@ -13,6 +13,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import type { AuthUser, Connection } from "@/lib/types"
@@ -22,10 +29,12 @@ interface UserConnectionsDialogProps {
   onOpenChange: (open: boolean) => void
   user: AuthUser | null
   connections: Connection[]
-  onSaved: (connectionIds: string[]) => void
+  onSaved: (roles: Record<string, "readonly" | "readwrite">) => void
 }
 
-/** Admin-only editor for a user's connection allowlist. Empty means all. */
+type ConnectionRole = "readonly" | "readwrite"
+
+/** Admin-only editor for per-connection read/write access. */
 export function UserConnectionsDialog({
   open,
   onOpenChange,
@@ -35,37 +44,46 @@ export function UserConnectionsDialog({
 }: UserConnectionsDialogProps) {
   const { t } = useI18n()
   const [all, setAll] = React.useState(true)
-  const [selected, setSelected] = React.useState<Set<string>>(new Set())
+  const [roles, setRoles] = React.useState<Record<string, ConnectionRole>>({})
   const [busy, setBusy] = React.useState(false)
 
   React.useEffect(() => {
     if (!open || !user) return
-    const ids = user.connectionIds ?? []
-    setAll(ids.length === 0)
-    setSelected(new Set(ids))
-    setBusy(false)
+    if (user.connectionRoles && Object.keys(user.connectionRoles).length > 0) {
+      setAll(false)
+      setRoles(user.connectionRoles)
+      return
+    }
+    if (user.connectionIds?.length) {
+      const fallback: ConnectionRole = user.role === "readonly" ? "readonly" : "readwrite"
+      setAll(false)
+      setRoles(Object.fromEntries(user.connectionIds.map((id) => [id, fallback])))
+      return
+    }
+    setAll(true)
+    setRoles({})
   }, [open, user])
 
   const toggle = (id: string, checked: boolean) => {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (checked) next.add(id)
-      else next.delete(id)
+    setRoles((prev) => {
+      const next = { ...prev }
+      if (checked) next[id] = "readwrite"
+      else delete next[id]
       return next
     })
   }
 
   const save = async () => {
     if (!user) return
-    const ids = all ? [] : [...selected]
-    if (!all && ids.length === 0) {
+    const value = all ? {} : roles
+    if (!all && Object.keys(value).length === 0) {
       toast.error(t("users.connectionsRequired"))
       return
     }
     setBusy(true)
     try {
-      await api.updateAuthUserConnections(user.id, ids)
-      onSaved(ids)
+      await api.updateAuthUserConnectionRoles(user.id, value)
+      onSaved(value)
       toast.success(t("users.connectionsSaved", { name: user.username }))
       onOpenChange(false)
     } catch (err) {
@@ -89,7 +107,7 @@ export function UserConnectionsDialog({
               checked={all}
               onCheckedChange={(value) => {
                 setAll(value === true)
-                if (value === true) setSelected(new Set())
+                if (value === true) setRoles({})
               }}
               className="mt-0.5"
             />
@@ -107,25 +125,47 @@ export function UserConnectionsDialog({
                 {t("users.connectionsEmpty")}
               </p>
             ) : null}
-            {connections.map((connection) => (
-              <label
-                key={connection.id}
-                className="hover:bg-accent/40 flex cursor-pointer items-center gap-2 rounded px-2 py-1.5"
-              >
-                <Checkbox
-                  checked={all || selected.has(connection.id)}
-                  disabled={all}
-                  onCheckedChange={(value) => toggle(connection.id, value === true)}
-                />
-                <Database className="text-muted-foreground size-3.5 shrink-0" />
-                <span className="min-w-0 flex-1 truncate text-sm">{connection.name}</span>
-                {connection.readOnly ? (
-                  <Badge variant="secondary" className="text-[9px]">
-                    {t("overview.readOnly")}
-                  </Badge>
-                ) : null}
-              </label>
-            ))}
+            {connections.map((connection) => {
+              const checked = all || Boolean(roles[connection.id])
+              return (
+                <div
+                  key={connection.id}
+                  className="hover:bg-accent/40 flex items-center gap-2 rounded px-2 py-1.5"
+                >
+                  <Checkbox
+                    checked={checked}
+                    disabled={all}
+                    onCheckedChange={(value) => toggle(connection.id, value === true)}
+                  />
+                  <Database className="text-muted-foreground size-3.5 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate text-sm">{connection.name}</span>
+                  {connection.readOnly ? (
+                    <Badge variant="secondary" className="text-[9px]">
+                      {t("overview.readOnly")}
+                    </Badge>
+                  ) : null}
+                  {checked && !all ? (
+                    <Select
+                      value={roles[connection.id] ?? "readwrite"}
+                      onValueChange={(value) =>
+                        setRoles((prev) => ({
+                          ...prev,
+                          [connection.id]: value as ConnectionRole,
+                        }))
+                      }
+                    >
+                      <SelectTrigger size="sm" className="w-28">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="readonly">{t("users.role.readonly")}</SelectItem>
+                        <SelectItem value="readwrite">{t("users.role.readwrite")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : null}
+                </div>
+              )
+            })}
           </div>
         </div>
 
@@ -133,7 +173,7 @@ export function UserConnectionsDialog({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {t("common.cancel")}
           </Button>
-          <Button onClick={() => void save()} disabled={busy || (!all && selected.size === 0)}>
+          <Button onClick={() => void save()} disabled={busy || (!all && Object.keys(roles).length === 0)}>
             {busy ? <Loader2 className="animate-spin" /> : null}
             {t("common.save")}
           </Button>

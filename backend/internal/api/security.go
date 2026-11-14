@@ -19,6 +19,10 @@ var errReadOnlyAccount = errors.New("read-only account; write operations are dis
 // connection profile.
 var errConnectionAccess = errors.New("account is not allowed to access this connection")
 
+// errConnectionReadOnly is returned when the account may read a connection but
+// its per-connection role does not allow writes.
+var errConnectionReadOnly = errors.New("connection is read-only for this account")
+
 // ensureWritable rejects writes for connections flagged read-only, so the flag
 // is enforced by the server rather than only hidden in the UI.
 func (a *API) ensureWritable(r *http.Request) error {
@@ -42,6 +46,10 @@ func (a *API) requireWrite(w http.ResponseWriter, r *http.Request) bool {
 		}
 		if !a.auth.CanWrite(r) {
 			fail(w, http.StatusForbidden, errReadOnlyAccount)
+			return false
+		}
+		if !a.auth.CanWriteConnection(r, chi.URLParam(r, "id")) {
+			fail(w, http.StatusForbidden, errConnectionReadOnly)
 			return false
 		}
 	}
@@ -71,8 +79,12 @@ func (a *API) requireAccountWrite(w http.ResponseWriter, r *http.Request) bool {
 // requireWritableConnection is requireWrite for an arbitrary connection id,
 // used when the target of a cross-connection copy is not the URL's connection.
 func (a *API) requireWritableConnection(w http.ResponseWriter, r *http.Request, id string) bool {
-	if a.auth != nil && !a.auth.CanWriteConnection(r, id) {
+	if a.auth != nil && !a.auth.CanAccessConnection(r, id) {
 		fail(w, http.StatusForbidden, errConnectionAccess)
+		return false
+	}
+	if a.auth != nil && !a.auth.CanWriteConnection(r, id) {
+		fail(w, http.StatusForbidden, errConnectionReadOnly)
 		return false
 	}
 	connection, ok := a.store.Get(id)

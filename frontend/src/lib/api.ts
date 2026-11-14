@@ -463,6 +463,14 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ connectionIds }),
     }),
+  updateAuthUserConnectionRoles: (
+    id: string,
+    connectionRoles: Record<string, "readonly" | "readwrite">,
+  ) =>
+    request<{ id: string }>(`/auth/users/${enc(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ connectionRoles }),
+    }),
   deleteAuthUser: (id: string) =>
     request<{ deleted: string }>(`/auth/users/${enc(id)}`, { method: "DELETE" }),
 

@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -365,9 +366,11 @@ type User struct {
 	Source       string  `json:"source,omitempty"`
 	Email        string  `json:"email,omitempty"`
 	Tokens       []Token `json:"tokens,omitempty"`
-	// ConnectionIDs restricts which connection profiles this account may use.
-	// An empty list means all connections (backward-compatible default).
-	ConnectionIDs []string `json:"connectionIds,omitempty"`
+	// ConnectionIDs is the legacy allowlist. ConnectionRoles is the current
+	// model: connection id -> readonly/readwrite. An empty map means all
+	// connections inherit the account role.
+	ConnectionIDs   []string        `json:"connectionIds,omitempty"`
+	ConnectionRoles map[string]Role `json:"connectionRoles,omitempty"`
 	// SessionVersion invalidates every existing browser session when it is
 	// incremented (password change, admin reset, sign out everywhere).
 	SessionVersion uint64 `json:"sessionVersion,omitempty"`
@@ -448,6 +451,21 @@ func (m *Manager) load() error {
 		}
 		if sc.Users[i].PasswordHash, err = m.decrypt(sc.Users[i].PasswordHash); err != nil {
 			return err
+		}
+		// Migrate the old allowlist to per-connection roles. An allowlisted
+		// connection inherited the account role before this field existed.
+		if len(sc.Users[i].ConnectionRoles) == 0 && len(sc.Users[i].ConnectionIDs) > 0 {
+			roles := make(map[string]Role, len(sc.Users[i].ConnectionIDs))
+			role := RoleReadWrite
+			if sc.Users[i].Role == RoleReadOnly {
+				role = RoleReadOnly
+			}
+			for _, id := range sc.Users[i].ConnectionIDs {
+				if strings.TrimSpace(id) != "" {
+					roles[id] = role
+				}
+			}
+			sc.Users[i].ConnectionRoles = roles
 		}
 	}
 	// Migrate the legacy single-account file to a users list.
@@ -1318,24 +1336,85 @@ func (m *Manager) TokenConnectionIDs(r *http.Request) ([]string, bool) {
 	if !ok {
 		return nil, false
 	}
-	if access.user.Role == RoleAdmin || len(access.user.ConnectionIDs) == 0 {
+	if access.user.Role == RoleAdmin || (len(access.user.ConnectionRoles) == 0 && len(access.user.ConnectionIDs) == 0) {
 		return nil, true
 	}
-	return append([]string(nil), access.user.ConnectionIDs...), true
+	ids := make([]string, 0, len(access.user.ConnectionRoles)+len(access.user.ConnectionIDs))
+	if len(access.user.ConnectionRoles) > 0 {
+		for id := range access.user.ConnectionRoles {
+			ids = append(ids, id)
+		}
+	} else {
+		ids = append(ids, access.user.ConnectionIDs...)
+	}
+	sort.Strings(ids)
+	return ids, true
+}
+
+// TokenWritableConnectionIDs returns the connection ids the PAT may mutate. A
+// nil slice means unrestricted; an empty non-nil slice means no writable
+// connections.
+func (m *Manager) TokenWritableConnectionIDs(r *http.Request) ([]string, bool) {
+	raw := bearerToken(r)
+	if raw == "" {
+		return nil, false
+	}
+	access, ok := m.accessForToken(raw)
+	if !ok {
+		return nil, false
+	}
+	if access.user.Role == RoleAdmin || (len(access.user.ConnectionRoles) == 0 && len(access.user.ConnectionIDs) == 0) {
+		return nil, true
+	}
+	ids := make([]string, 0)
+	if len(access.user.ConnectionRoles) > 0 {
+		for id, role := range access.user.ConnectionRoles {
+			if role != RoleReadOnly {
+				ids = append(ids, id)
+			}
+		}
+	} else if access.user.Role != RoleReadOnly {
+		ids = append(ids, access.user.ConnectionIDs...)
+	}
+	sort.Strings(ids)
+	return ids, true
 }
 
 // UpdateUserConnections replaces an account's allowlist. An empty slice means
 // all connections; ids are trimmed and de-duplicated.
 func (m *Manager) UpdateUserConnections(id string, ids []string) error {
-	seen := map[string]bool{}
-	clean := make([]string, 0, len(ids))
+	m.mu.Lock()
+	role := RoleReadWrite
+	for i := range m.users {
+		if m.users[i].ID == id {
+			role = defaultConnectionRole(m.users[i])
+			break
+		}
+	}
+	m.mu.Unlock()
+	roles := make(map[string]Role, len(ids))
 	for _, value := range ids {
 		value = strings.TrimSpace(value)
-		if value == "" || seen[value] {
+		if value != "" {
+			roles[value] = role
+		}
+	}
+	return m.UpdateUserConnectionRoles(id, roles)
+}
+
+// UpdateUserConnectionRoles replaces the per-connection roles. An empty map
+// means all connections inherit the account role.
+func (m *Manager) UpdateUserConnectionRoles(id string, roles map[string]Role) error {
+	clean := make(map[string]Role, len(roles))
+	for connectionID, role := range roles {
+		connectionID = strings.TrimSpace(connectionID)
+		if connectionID == "" {
 			continue
 		}
-		seen[value] = true
-		clean = append(clean, value)
+		if role != RoleReadOnly && role != RoleReadWrite {
+			return errors.New("connection role must be readonly or readwrite")
+		}
+		clean[connectionID] = role
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1343,10 +1422,13 @@ func (m *Manager) UpdateUserConnections(id string, ids []string) error {
 		if m.users[i].ID != id {
 			continue
 		}
-		old := m.users[i].ConnectionIDs
-		m.users[i].ConnectionIDs = clean
+		old := m.users[i].ConnectionRoles
+		oldIDs := m.users[i].ConnectionIDs
+		m.users[i].ConnectionRoles = clean
+		m.users[i].ConnectionIDs = nil
 		if err := m.save(); err != nil {
-			m.users[i].ConnectionIDs = old
+			m.users[i].ConnectionRoles = old
+			m.users[i].ConnectionIDs = oldIDs
 			return err
 		}
 		return nil
@@ -1380,16 +1462,44 @@ func (m *Manager) CanWrite(r *http.Request) bool {
 	return ok && access.user.Role != RoleReadOnly && hasScope(access.scopes, ScopeWrite)
 }
 
-func connectionAllowed(user User, connectionID string) bool {
-	if user.Role == RoleAdmin || len(user.ConnectionIDs) == 0 {
-		return true
+func defaultConnectionRole(user User) Role {
+	if user.Role == RoleReadOnly {
+		return RoleReadOnly
 	}
-	for _, id := range user.ConnectionIDs {
-		if id == connectionID {
-			return true
+	return RoleReadWrite
+}
+
+// connectionRole returns the effective role for a connection, or "" when the
+// account cannot access it.
+func connectionRole(user User, connectionID string) Role {
+	if user.Role == RoleAdmin {
+		return RoleAdmin
+	}
+	if len(user.ConnectionRoles) > 0 {
+		role, ok := user.ConnectionRoles[connectionID]
+		if !ok || !validRole(role) {
+			return ""
 		}
+		return role
 	}
-	return false
+	if len(user.ConnectionIDs) > 0 {
+		for _, id := range user.ConnectionIDs {
+			if id == connectionID {
+				return defaultConnectionRole(user)
+			}
+		}
+		return ""
+	}
+	return user.Role
+}
+
+func connectionAllowed(user User, connectionID string) bool {
+	return connectionRole(user, connectionID) != ""
+}
+
+func connectionWritable(user User, connectionID string) bool {
+	role := connectionRole(user, connectionID)
+	return role != "" && role != RoleReadOnly
 }
 
 // CanAccessConnection reports whether the caller may read the given connection.
@@ -1398,12 +1508,12 @@ func (m *Manager) CanAccessConnection(r *http.Request, connectionID string) bool
 	return ok && connectionAllowed(access.user, connectionID)
 }
 
-// CanWriteConnection combines the account/role write check with the per-user
-// connection allowlist. Admin accounts and empty allowlists are unrestricted.
+// CanWriteConnection combines the account/role write check with the
+// per-connection role. Admin accounts and empty maps are unrestricted.
 func (m *Manager) CanWriteConnection(r *http.Request, connectionID string) bool {
 	access, ok := m.requestAccess(r)
 	return ok && access.user.Role != RoleReadOnly &&
-		hasScope(access.scopes, ScopeWrite) && connectionAllowed(access.user, connectionID)
+		hasScope(access.scopes, ScopeWrite) && connectionWritable(access.user, connectionID)
 }
 
 // IsAdmin reports whether the caller may manage accounts and server settings.
@@ -1740,15 +1850,16 @@ func (m *Manager) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	out := make([]map[string]any, 0, len(users))
 	for _, user := range users {
 		out = append(out, map[string]any{
-			"id":            user.ID,
-			"username":      user.Username,
-			"role":          user.Role,
-			"createdAt":     user.CreatedAt,
-			"source":        userSource(user),
-			"hasPassword":   user.PasswordHash != "",
-			"hasTOTP":       user.Secret != "",
-			"email":         user.Email,
-			"connectionIds": append([]string{}, user.ConnectionIDs...),
+			"id":              user.ID,
+			"username":        user.Username,
+			"role":            user.Role,
+			"createdAt":       user.CreatedAt,
+			"source":          userSource(user),
+			"hasPassword":     user.PasswordHash != "",
+			"hasTOTP":         user.Secret != "",
+			"email":           user.Email,
+			"connectionIds":   append([]string{}, user.ConnectionIDs...),
+			"connectionRoles": user.ConnectionRoles,
 		})
 	}
 	ok(w, out)
@@ -1817,15 +1928,16 @@ func (m *Manager) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Role          *Role     `json:"role"`
-		Password      string    `json:"password"`
-		ConnectionIDs *[]string `json:"connectionIds"`
+		Role            *Role            `json:"role"`
+		Password        string           `json:"password"`
+		ConnectionIDs   *[]string        `json:"connectionIds"`
+		ConnectionRoles *map[string]Role `json:"connectionRoles"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		fail(w, http.StatusBadRequest, errors.New("invalid request body"))
 		return
 	}
-	if req.Role == nil && req.Password == "" && req.ConnectionIDs == nil {
+	if req.Role == nil && req.Password == "" && req.ConnectionIDs == nil && req.ConnectionRoles == nil {
 		fail(w, http.StatusBadRequest, errors.New("no fields to update"))
 		return
 	}
@@ -1844,7 +1956,12 @@ func (m *Manager) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if req.ConnectionIDs != nil {
+	if req.ConnectionRoles != nil {
+		if err := m.UpdateUserConnectionRoles(id, *req.ConnectionRoles); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+	} else if req.ConnectionIDs != nil {
 		if err := m.UpdateUserConnections(id, *req.ConnectionIDs); err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return

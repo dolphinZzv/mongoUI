@@ -74,7 +74,7 @@ mongoui                 # 启动服务，默认 0.0.0.0:8080
 }
 ```
 
-启用账号登录后，`/mcp` 只接受 PAT。PAT 的 scope 会同时限制 `tools/list` 和实际调用：只读令牌看不到也调不了写工具；账号的连接级 allowlist 也会约束 MCP 可访问的连接（空列表表示全部）。
+启用账号登录后，`/mcp` 只接受 PAT。PAT 的 scope 会同时限制 `tools/list` 和实际调用：只读令牌看不到也调不了写工具；账号的连接级权限也会约束 MCP 可读写的连接（每个连接可单独设为只读 / 读写，空列表表示全部）。
 
 ### AI 写操作提案与审批
 
@@ -112,7 +112,7 @@ MCP 工具分为**读**与**写**两组，可以在界面右上角的「设置�
 
 每个工具定义都会带上 `group`（`read` / `write`）以及标准的 `annotations.readOnlyHint`，方便客户端区分。
 
-使用 PAT 时还有一层 **scope** 保护：`read` 令牌只能看到/调用读工具，`write` 令牌才能看到/调用写工具。连接级 allowlist 同样生效：`mongoui_list_connections` 只返回授权连接，其他工具即使传入未授权 `connectionId` 也会被拒绝。
+使用 PAT 时还有一层 **scope** 保护：`read` 令牌只能看到/调用读工具，`write` 令牌才能看到/调用写工具。连接级权限同样生效：`mongoui_list_connections` 只返回授权连接，只读连接上的写工具会被拒绝，其他工具即使传入未授权 `connectionId` 也会被拒绝。
 
 此外，连接配置里的**只读模式**也会生效：标记为只读的连接即使用写工具也会返回错误。两层保护可以独立使用：
 
@@ -156,7 +156,7 @@ MCP 工具分为**读**与**写**两组，可以在界面右上角的「设置�
 | `mongoui_insert` | `connectionId`, `database`, `collection`, `documents: object[]`, `propose?` |
 | `mongoui_update` | `connectionId`, `database`, `collection`, `filter`, `update`, `many?`, `upsert?`, `propose?` |
 | `mongoui_delete` | `connectionId`, `database`, `collection`, `filter`, `many?`, `propose?` |
-| `mongoui_list_proposals` | `status?` | 列出写操作提案（按连接 allowlist 过滤） |
+| `mongoui_list_proposals` | `status?` | 列出写操作提案（按连接权限过滤） |
 | `mongoui_apply_proposal` | `proposalId` | 执行管理员已批准的提案 |
 | `mongoui_rollback_proposal` | `proposalId` | 回滚有快照的已执行提案 |
 | `mongoui_create_collection` | `connectionId`, `database`, `collection`, `capped?`, `size?`, `max?`, `propose?` |

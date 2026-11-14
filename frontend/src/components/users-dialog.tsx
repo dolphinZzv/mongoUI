@@ -505,12 +505,14 @@ export function UsersDialog({ open, onOpenChange }: UsersDialogProps) {
         onOpenChange={(value) => !value && setManagingConnections(null)}
         user={managingConnections}
         connections={connections}
-        onSaved={(ids) => {
+        onSaved={(roles) => {
           const id = managingConnections?.id
           if (!id) return
           setUsers((prev) =>
             prev.map((entry) =>
-              entry.id === id ? { ...entry, connectionIds: ids } : entry,
+              entry.id === id
+                ? { ...entry, connectionRoles: roles, connectionIds: undefined }
+                : entry,
             ),
           )
         }}

@@ -563,6 +563,7 @@ export interface AuditEntry {
   operation: string
   path: string
   status: number
+  error?: string
 }
 
 export interface SearchResult {

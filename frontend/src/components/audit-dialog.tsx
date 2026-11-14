@@ -132,7 +132,9 @@ export function AuditDialog({ open, onOpenChange, connections }: AuditDialogProp
                         : null}
                     </td>
                     <td className="px-2 py-1 font-mono">{entry.ip || "—"}</td>
-                    <td className="px-2 py-1 font-mono">{entry.status}</td>
+                    <td className="px-2 py-1 font-mono" title={entry.error}>
+                      {entry.status}
+                    </td>
                   </tr>
                 ))}
               </tbody>

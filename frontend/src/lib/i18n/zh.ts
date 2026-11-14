@@ -270,7 +270,7 @@ const zh: Record<string, string> = {
   "aiApprovals.desc": "在执行前审查 MCP / Agent 提交的写操作预览。",
   "aiApprovals.count": "待处理提案：{{count}}",
   "aiApprovals.empty": "当前没有待处理的写操作提案。",
-  "aiApprovals.matches": "影响 {{count}} 条文档",
+  "aiApprovals.matches": "影响 {{count}} 项",
   "aiApprovals.rollbackable": "已有回滚快照",
   "aiApprovals.approve": "批准",
   "aiApprovals.reject": "拒绝",

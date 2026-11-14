@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+
+	"mongoui/internal/mcp"
 )
 
 func TestAuditLogPersistsTail(t *testing.T) {
@@ -86,5 +88,21 @@ func TestAuditMiddlewareRecordsFailuresAndRemoteIP(t *testing.T) {
 	}
 	if entries[0].IP == "" {
 		t.Fatal("missing client IP")
+	}
+}
+
+func TestRecordMCPAudit(t *testing.T) {
+	log := newAuditLog("")
+	api := &API{audit: log}
+	api.RecordMCP(mcp.AuditEvent{
+		Actor: "agent", TokenID: "tok", IP: "10.0.0.1", Tool: "mongoui_delete",
+		ConnectionID: "c1", Database: "d1", Collection: "x", Status: "ok",
+	})
+	entries := log.list("c1", 10)
+	if len(entries) != 1 {
+		t.Fatalf("entries = %d", len(entries))
+	}
+	if entries[0].Method != "MCP" || entries[0].Actor != "agent" || entries[0].Operation != "mongoui_delete" {
+		t.Fatalf("entry = %#v", entries[0])
 	}
 }

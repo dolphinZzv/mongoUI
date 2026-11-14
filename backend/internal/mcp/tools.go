@@ -126,12 +126,12 @@ func pipelineWrites(args map[string]any) bool {
 
 // callTool dispatches a tool with full local access (stdio transport).
 func (s *Server) callTool(name string, args map[string]any) (string, error) {
-	return s.callToolWithScopes(name, args, allScopes, nil)
+	return s.callToolWithScopes(name, args, allScopes, nil, auditMeta{Actor: "stdio"})
 }
 
 // callToolWithScopes rejects tools whose group is disabled or not granted to
 // the PAT that authorized the HTTP request.
-func (s *Server) callToolWithScopes(name string, args map[string]any, scopes, connections []string) (string, error) {
+func (s *Server) callToolWithScopes(name string, args map[string]any, scopes, connections []string, audit auditMeta) (string, error) {
 	for _, t := range tools {
 		if t.name != name {
 			continue
@@ -171,7 +171,11 @@ func (s *Server) callToolWithScopes(name string, args map[string]any, scopes, co
 		if t.name == "mongoui_list_connections" || t.name == "mongoui_list_proposals" {
 			args["_allowedConnections"] = connections
 		}
-		return t.run(s, args)
+		text, err := t.run(s, args)
+		if group == writeGroup {
+			s.recordAudit(t.name, args, audit, err)
+		}
+		return text, err
 	}
 	return "", fmt.Errorf("unknown tool: %s", name)
 }
@@ -322,6 +326,7 @@ func init() {
 			inputSchema: obj(map[string]any{
 				"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
 				"pipeline": arrP("array of pipeline stages"), "limit": numP("optional result cap"),
+				"propose": boolP("preview and queue a $out/$merge aggregation for admin approval"),
 			}, "connectionId", "database", "collection", "pipeline"),
 			run: toolAggregate,
 		},
@@ -403,6 +408,7 @@ func init() {
 			inputSchema: obj(map[string]any{
 				"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
 				"capped": boolP("create a capped collection"), "size": numP("capped size in bytes"), "max": numP("max documents"),
+				"propose": boolP("preview and queue for admin approval instead of creating immediately"),
 			}, "connectionId", "database", "collection"),
 			group: writeGroup,
 			run:   toolCreateCollection,
@@ -412,6 +418,7 @@ func init() {
 			description: "Drop a collection.",
 			inputSchema: obj(map[string]any{
 				"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
+				"propose": boolP("preview and queue for admin approval instead of dropping immediately"),
 			}, "connectionId", "database", "collection"),
 			group: writeGroup,
 			run:   toolDropCollection,
@@ -421,6 +428,7 @@ func init() {
 			description: "Drop a database.",
 			inputSchema: obj(map[string]any{
 				"connectionId": connProp(), "database": strP("database name"),
+				"propose": boolP("preview and queue for admin approval instead of dropping immediately"),
 			}, "connectionId", "database"),
 			group: writeGroup,
 			run:   toolDropDatabase,
@@ -431,6 +439,7 @@ func init() {
 			inputSchema: obj(map[string]any{
 				"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
 				"keys": objP("index key spec"), "options": objP("index options"),
+				"propose": boolP("preview and queue for admin approval instead of creating immediately"),
 			}, "connectionId", "database", "collection", "keys"),
 			group: writeGroup,
 			run:   toolCreateIndex,
@@ -440,7 +449,8 @@ func init() {
 			description: "Drop an index by name.",
 			inputSchema: obj(map[string]any{
 				"connectionId": connProp(), "database": strP("database name"), "collection": strP("collection name"),
-				"name": strP("index name"),
+				"name":    strP("index name"),
+				"propose": boolP("preview and queue for admin approval instead of dropping immediately"),
 			}, "connectionId", "database", "collection", "name"),
 			group: writeGroup,
 			run:   toolDropIndex,
@@ -629,6 +639,33 @@ func clampLimit(n, def, max int64) int64 {
 }
 
 // --- tool implementations ---------------------------------------------------
+
+func (s *Server) recordAudit(tool string, args map[string]any, meta auditMeta, err error) {
+	if s.auditSink == nil {
+		return
+	}
+	connectionID := argStrDefault(args, "connectionId", "")
+	database := argStrDefault(args, "database", "")
+	collection := argStrDefault(args, "collection", "")
+	if (tool == "mongoui_apply_proposal" || tool == "mongoui_rollback_proposal") && connectionID == "" {
+		if id := argStrDefault(args, "proposalId", ""); id != "" {
+			if p, ok := s.proposals.get(id); ok {
+				connectionID, database, collection = p.ConnectionID, p.Database, p.Collection
+			}
+		}
+	}
+	status := "ok"
+	errText := ""
+	if err != nil {
+		status = "error"
+		errText = err.Error()
+	}
+	s.auditSink.RecordMCP(AuditEvent{
+		Actor: meta.Actor, TokenID: meta.TokenID, IP: meta.IP, Tool: tool,
+		ConnectionID: connectionID, Database: database, Collection: collection,
+		Status: status, Error: errText,
+	})
+}
 
 func toolListConnections(s *Server, args map[string]any) (string, error) {
 	conns := s.store.List()
@@ -933,6 +970,12 @@ func toolFind(s *Server, args map[string]any) (string, error) {
 }
 
 func toolAggregate(s *Server, args map[string]any) (string, error) {
+	if argBool(args, "propose", false) {
+		if !pipelineWrites(args) {
+			return "", fmt.Errorf("propose=true is only supported for pipelines with $out or $merge")
+		}
+		return s.createProposal("mongoui_aggregate", args)
+	}
 	coll, err := target(s, args)
 	if err != nil {
 		return "", err
@@ -1261,6 +1304,9 @@ func toolDelete(s *Server, args map[string]any) (string, error) {
 }
 
 func toolCreateCollection(s *Server, args map[string]any) (string, error) {
+	if argBool(args, "propose", false) {
+		return s.createProposal("mongoui_create_collection", args)
+	}
 	id, err := argStr(args, "connectionId")
 	if err != nil {
 		return "", err
@@ -1299,6 +1345,9 @@ func toolCreateCollection(s *Server, args map[string]any) (string, error) {
 }
 
 func toolDropCollection(s *Server, args map[string]any) (string, error) {
+	if argBool(args, "propose", false) {
+		return s.createProposal("mongoui_drop_collection", args)
+	}
 	id, err := argStr(args, "connectionId")
 	if err != nil {
 		return "", err
@@ -1319,6 +1368,9 @@ func toolDropCollection(s *Server, args map[string]any) (string, error) {
 }
 
 func toolDropDatabase(s *Server, args map[string]any) (string, error) {
+	if argBool(args, "propose", false) {
+		return s.createProposal("mongoui_drop_database", args)
+	}
 	id, err := argStr(args, "connectionId")
 	if err != nil {
 		return "", err
@@ -1343,6 +1395,9 @@ func toolDropDatabase(s *Server, args map[string]any) (string, error) {
 }
 
 func toolCreateIndex(s *Server, args map[string]any) (string, error) {
+	if argBool(args, "propose", false) {
+		return s.createProposal("mongoui_create_index", args)
+	}
 	id, err := argStr(args, "connectionId")
 	if err != nil {
 		return "", err
@@ -1392,6 +1447,9 @@ func toolCreateIndex(s *Server, args map[string]any) (string, error) {
 }
 
 func toolDropIndex(s *Server, args map[string]any) (string, error) {
+	if argBool(args, "propose", false) {
+		return s.createProposal("mongoui_drop_index", args)
+	}
 	id, err := argStr(args, "connectionId")
 	if err != nil {
 		return "", err

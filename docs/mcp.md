@@ -78,13 +78,13 @@ mongoui                 # 启动服务，默认 0.0.0.0:8080
 
 ### AI 写操作提案与审批
 
-写工具（insert / update / delete）传入 `"propose": true` 时不会直接修改数据，而是返回一个提案：
+所有破坏性写工具（insert / update / delete / create_collection / drop_collection / drop_database / create_index / drop_index，以及带 `$out` / `$merge` 的 aggregate）传入 `"propose": true` 时不会直接修改数据，而是返回一个提案：
 
 - 影响条数、前 5 条样例、过滤条件 / 更新内容
 - 最多 100 条旧文档的回滚快照（更新 / 删除）
 - 提案 ID 与 `pending` 状态
 
-管理员在网页端 **设置 → AI 写操作审批** 中审查，先批准再执行；已执行的更新 / 删除可回滚。MCP 侧可用 `mongoui_list_proposals` 查看状态、`mongoui_apply_proposal` 执行已批准提案、`mongoui_rollback_proposal` 回滚。执行前会重新计数，数据量变化时拒绝执行并要求重新提案。提案保存在内存中，30 分钟过期，最多保留 100 条，进程重启后失效。
+管理员在网页端 **设置 → AI 写操作审批** 中审查，先批准再执行；更新 / 删除 / 删除集合可就地恢复，其他操作至少会留下审计记录。MCP 侧可用 `mongoui_list_proposals` 查看状态、`mongoui_apply_proposal` 执行已批准提案、`mongoui_rollback_proposal` 回滚。执行前会重新计数，数据量变化时拒绝执行并要求重新提案。提案持久化到本地加密文件；配置 `MONGOUI_COORDINATION_URI` 后写入协调库的 `ai_proposals` 集合，多实例共享。提案 30 分钟过期，最多保留 100 条。
 
 未启用账号登录时，MCP HTTP 端点保持本地开放行为，适合单机开发；对外暴露前请先启用账号并创建 PAT。
 
@@ -144,7 +144,7 @@ MCP 工具分为**读**与**写**两组，可以在界面右上角的「设置�
 | `mongoui_collection_schema` | `connectionId`, `database`, `collection` | 抽样字段/类型统计 |
 | `mongoui_find` | `connectionId`, `database`, `collection`, `filter?`, `sort?`, `projection?`, `skip?`, `limit?`, `includeTotal?` | 查询文档（Extended JSON）；大集合可关闭总数统计 |
 | `mongoui_count` | `connectionId`, `database`, `collection`, `filter?` | 统计匹配文档数；空 filter 使用 estimatedDocumentCount |
-| `mongoui_aggregate` | `connectionId`, `database`, `collection`, `pipeline`, `limit?` | 聚合管道 |
+| `mongoui_aggregate` | `connectionId`, `database`, `collection`, `pipeline`, `limit?`, `propose?` | 聚合管道；`propose` 仅用于 `$out` / `$merge` |
 | `mongoui_sql` | `connectionId`, `database`, `query`, `limit?` | SQL 查询（SELECT） |
 | `mongoui_explain` | `connectionId`, `database`, `collection`, `type?`, `filter?`, `sort?`, `projection?`, `pipeline?`, `limit?`, `verbosity?` | 执行计划（find / 聚合） |
 | `mongoui_list_indexes` | `connectionId`, `database`, `collection` | 索引列表 |
@@ -159,11 +159,11 @@ MCP 工具分为**读**与**写**两组，可以在界面右上角的「设置�
 | `mongoui_list_proposals` | `status?` | 列出写操作提案（按连接 allowlist 过滤） |
 | `mongoui_apply_proposal` | `proposalId` | 执行管理员已批准的提案 |
 | `mongoui_rollback_proposal` | `proposalId` | 回滚有快照的已执行提案 |
-| `mongoui_create_collection` | `connectionId`, `database`, `collection`, `capped?`, `size?`, `max?` |
-| `mongoui_drop_collection` | `connectionId`, `database`, `collection` |
-| `mongoui_drop_database` | `connectionId`, `database` |
-| `mongoui_create_index` | `connectionId`, `database`, `collection`, `keys`, `options?` |
-| `mongoui_drop_index` | `connectionId`, `database`, `collection`, `name` |
+| `mongoui_create_collection` | `connectionId`, `database`, `collection`, `capped?`, `size?`, `max?`, `propose?` |
+| `mongoui_drop_collection` | `connectionId`, `database`, `collection`, `propose?` |
+| `mongoui_drop_database` | `connectionId`, `database`, `propose?` |
+| `mongoui_create_index` | `connectionId`, `database`, `collection`, `keys`, `options?`, `propose?` |
+| `mongoui_drop_index` | `connectionId`, `database`, `collection`, `name`, `propose?` |
 
 `filter` / `sort` / `projection` / `documents` / `pipeline` / `keys` / `options` 均为 **MongoDB Extended JSON**（relaxed），例如 `{"_id":{"$oid":"..."}}`、`{"createdAt":{"$date":"2024-01-01T00:00:00Z"}}`。
 

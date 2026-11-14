@@ -77,7 +77,18 @@ func NewStoreWithSecret(path string, cipher *Cipher) (*Store, error) {
 // Dir returns the directory holding the store file and the other on-disk state
 // (secret key, settings, audit log).
 func (s *Store) Dir() string {
+	if s == nil || s.path == "" {
+		return ""
+	}
 	return filepath.Dir(s.path)
+}
+
+// Cipher returns the configured encryption helper, if any.
+func (s *Store) Cipher() *Cipher {
+	if s == nil {
+		return nil
+	}
+	return s.cipher
 }
 
 func (s *Store) load() error {

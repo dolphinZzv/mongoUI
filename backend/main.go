@@ -195,6 +195,7 @@ func main() {
 	mcpServer.SetTokenAuthorizer(authManager)
 	apiServer := api.New(store, mgr, uiEmbedded, version, mcpServer.HTTPHandler(), authManager, settings)
 	apiServer.SetMCP(mcpServer)
+	mcpServer.SetAuditSink(apiServer)
 	if updater != nil {
 		apiServer.SetUpdater(updater)
 	}
@@ -208,6 +209,9 @@ func main() {
 		}
 		automationLease = lease
 		defer automationLease.Close()
+	}
+	if automationLease != nil {
+		mcpServer.SetProposalCollection(automationLease.Collection("ai_proposals"))
 	}
 	automationStore := automation.NewStore(settings, automationLease)
 	automationManager := automation.New(settings, store, mgr, automationLease, automationStore)

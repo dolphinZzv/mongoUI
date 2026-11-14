@@ -271,7 +271,7 @@ const en: Record<string, string> = {
   "aiApprovals.desc": "Review write previews proposed by MCP/agents before they touch data.",
   "aiApprovals.count": "Proposals: {{count}}",
   "aiApprovals.empty": "No write proposals waiting.",
-  "aiApprovals.matches": "{{count}} document(s) affected",
+  "aiApprovals.matches": "{{count}} item(s) affected",
   "aiApprovals.rollbackable": "Rollback snapshot available",
   "aiApprovals.approve": "Approve",
   "aiApprovals.reject": "Reject",

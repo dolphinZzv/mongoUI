@@ -122,9 +122,11 @@ export function AIProposalsDialog({ open, onOpenChange }: AIProposalsDialogProps
                   {preview}
                 </pre>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-muted-foreground text-xs">
-                    {t("aiApprovals.matches", { count: proposal.count })}
-                  </span>
+                  {proposal.count > 0 ? (
+                    <span className="text-muted-foreground text-xs">
+                      {t("aiApprovals.matches", { count: proposal.count })}
+                    </span>
+                  ) : null}
                   {proposal.rollbackable ? (
                     <Badge variant="outline" className="text-[9px]">
                       {t("aiApprovals.rollbackable")}

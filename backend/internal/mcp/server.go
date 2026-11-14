@@ -16,9 +16,13 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
+
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"mongoui/internal/config"
 	"mongoui/internal/mongoclient"
@@ -40,6 +44,30 @@ type ConnectionAuthorizer interface {
 	TokenConnectionIDs(*http.Request) ([]string, bool)
 }
 
+// ActorAuthorizer is implemented by the auth manager so MCP audit entries can
+// identify the account and PAT that performed a write.
+type ActorAuthorizer interface {
+	AuditActor(*http.Request) (username, tokenID string)
+}
+
+// AuditEvent is one MCP write-operation audit record.
+type AuditEvent struct {
+	Actor        string
+	TokenID      string
+	IP           string
+	Tool         string
+	ConnectionID string
+	Database     string
+	Collection   string
+	Status       string
+	Error        string
+}
+
+// AuditSink receives MCP write audit events from the API's audit log.
+type AuditSink interface {
+	RecordMCP(AuditEvent)
+}
+
 const (
 	scopeRead  = "read"
 	scopeWrite = "write"
@@ -55,6 +83,7 @@ type Server struct {
 	settings   *config.Settings
 	authorizer TokenAuthorizer
 	proposals  *proposalStore
+	auditSink  AuditSink
 }
 
 // New creates an MCP server backed by the given connection store and manager.
@@ -64,13 +93,33 @@ func New(store *config.Store, mgr *mongoclient.Manager, version string, settings
 	if settings == nil {
 		settings = config.NewSettings(config.DefaultMCPSettings())
 	}
-	return &Server{store: store, mgr: mgr, version: version, settings: settings, proposals: newProposalStore()}
+	server := &Server{store: store, mgr: mgr, version: version, settings: settings, proposals: newProposalStore()}
+	if store != nil {
+		if dir := store.Dir(); dir != "" {
+			server.proposals.configureLocal(filepath.Join(dir, "proposals.bson"), store.Cipher())
+		}
+	}
+	return server
+}
+
+// SetProposalCollection switches proposal persistence to the coordination
+// collection. Call it before serving requests when MONGOUI_COORDINATION_URI is
+// configured so approvals are shared across instances.
+func (s *Server) SetProposalCollection(coll *mongo.Collection) {
+	if coll != nil {
+		s.proposals.setCollection(coll)
+	}
 }
 
 // SetTokenAuthorizer enables personal access token authentication for the HTTP
 // transport.
 func (s *Server) SetTokenAuthorizer(authorizer TokenAuthorizer) {
 	s.authorizer = authorizer
+}
+
+// SetAuditSink attaches the server-side audit log for MCP write operations.
+func (s *Server) SetAuditSink(sink AuditSink) {
+	s.auditSink = sink
 }
 
 // enabled reports whether the MCP server capability is switched on.
@@ -92,6 +141,12 @@ func (s *Server) groupEnabled(group toolGroup) bool {
 }
 
 // --- JSON-RPC plumbing ------------------------------------------------------
+
+type auditMeta struct {
+	Actor   string
+	TokenID string
+	IP      string
+}
 
 type rpcRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -115,13 +170,13 @@ type rpcResponse struct {
 // handle processes one JSON-RPC message with full access. Used by the local
 // stdio transport, which already runs as the server owner.
 func (s *Server) handle(raw []byte) []byte {
-	return s.handleWithScopes(raw, allScopes, nil)
+	return s.handleWithScopes(raw, allScopes, nil, auditMeta{Actor: "stdio"})
 }
 
 // handleWithScopes processes one JSON-RPC message using the scopes and
 // connection allowlist granted to the HTTP caller. Write tools are hidden and
 // rejected for read-only PATs; tools targeting a disallowed connection fail.
-func (s *Server) handleWithScopes(raw []byte, scopes, connections []string) []byte {
+func (s *Server) handleWithScopes(raw []byte, scopes, connections []string, audit auditMeta) []byte {
 	var req rpcRequest
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return encode(rpcResponse{JSONRPC: "2.0", Error: &rpcError{Code: -32700, Message: "parse error"}})
@@ -160,7 +215,7 @@ func (s *Server) handleWithScopes(raw []byte, scopes, connections []string) []by
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return encode(rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid params"}})
 		}
-		text, err := s.callToolWithScopes(params.Name, params.Arguments, scopes, connections)
+		text, err := s.callToolWithScopes(params.Name, params.Arguments, scopes, connections, audit)
 		if err != nil {
 			return encode(rpcResponse{
 				JSONRPC: "2.0",
@@ -244,6 +299,11 @@ func (s *Server) HTTPHandler() http.Handler {
 			http.Error(w, "MCP server is disabled", http.StatusNotFound)
 			return
 		}
+		actor, tokenID := "", ""
+		if aa, ok := s.authorizer.(ActorAuthorizer); ok {
+			actor, tokenID = aa.AuditActor(r)
+		}
+		audit := auditMeta{Actor: actor, TokenID: tokenID, IP: remoteIP(r)}
 		scopes, connections, ok := s.authorized(r)
 		if !ok {
 			w.Header().Set("WWW-Authenticate", "Bearer")
@@ -266,7 +326,7 @@ func (s *Server) HTTPHandler() http.Handler {
 			}
 			w.Header().Set("Mcp-Session-Id", session)
 
-			resp := s.handleWithScopes(body, scopes, connections)
+			resp := s.handleWithScopes(body, scopes, connections, audit)
 
 			if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
 				w.Header().Set("Content-Type", "text/event-stream")
@@ -296,6 +356,13 @@ func (s *Server) HTTPHandler() http.Handler {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
+}
+
+func remoteIP(r *http.Request) string {
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
 }
 
 func (s *Server) authorized(r *http.Request) ([]string, []string, bool) {

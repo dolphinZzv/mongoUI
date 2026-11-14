@@ -13,6 +13,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+
+	"mongoui/internal/mcp"
 )
 
 const (
@@ -37,6 +39,7 @@ type auditEntry struct {
 	Operation    string `json:"operation"`
 	Path         string `json:"path"`
 	Status       int    `json:"status"`
+	Error        string `json:"error,omitempty"`
 }
 
 type auditLog struct {
@@ -206,5 +209,30 @@ func (a *API) listAudit(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	ok(w, map[string]any{
 		"entries": a.audit.list(r.URL.Query().Get("connectionId"), limit),
+	})
+}
+
+// RecordMCP appends an MCP write operation to the same audit ring used by the
+// HTTP API. MCP calls bypass the /api middleware, so the server calls this hook.
+func (a *API) RecordMCP(e mcp.AuditEvent) {
+	if a.audit == nil {
+		return
+	}
+	status := http.StatusOK
+	if e.Status == "error" {
+		status = http.StatusInternalServerError
+	}
+	a.audit.add(auditEntry{
+		Actor:        e.Actor,
+		TokenID:      e.TokenID,
+		IP:           e.IP,
+		ConnectionID: e.ConnectionID,
+		Database:     e.Database,
+		Collection:   e.Collection,
+		Method:       "MCP",
+		Operation:    e.Tool,
+		Path:         "/mcp",
+		Status:       status,
+		Error:        e.Error,
 	})
 }

@@ -39,9 +39,11 @@ func TestRestoreBackupIntegration(t *testing.T) {
 
 	api := New(store, mgr, true, "test", nil, nil)
 	defer api.backups.Close()
-	api.backups.dir = t.TempDir()
 	task := BackupTask{ID: "manual", ConnectionID: conn.ID, Database: dbName, Collection: "items", Format: "json"}
+	api.backups.mu.Lock()
+	api.backups.dir = t.TempDir()
 	api.backups.tasks = []BackupTask{task}
+	api.backups.mu.Unlock()
 	content := `[{"name":"Alice","n":1},{"name":"Bob","n":2}]`
 	if err := os.WriteFile(filepath.Join(api.backups.dir, "manual."+dbName+".items.json"), []byte(content), 0o600); err != nil {
 		t.Fatal(err)

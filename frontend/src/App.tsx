@@ -7,6 +7,7 @@ import { CollectionTabs } from "@/components/collection-tabs"
 import { ConnectionStatus } from "@/components/connection-status"
 import { FeedbackWidget } from "@/components/feedback-widget"
 import { HeaderSearch } from "@/components/header-search"
+import { DashboardView } from "@/components/dashboard-view"
 import { WelcomeScreen } from "@/components/welcome-screen"
 import { useAuth } from "@/components/auth-gate"
 import { LazyMount } from "@/components/lazy-mount"
@@ -287,7 +288,7 @@ export default function App() {
   // Keep the selection in sync when a connection disappears (or the URL points
   // at one that no longer exists).
   React.useEffect(() => {
-    if (loading || selection.kind === "welcome") return
+    if (loading || (selection.kind !== "connection" && selection.kind !== "collection")) return
     if (!connections.some((connection) => connection.id === selection.connectionId)) {
       navigate({ kind: "welcome" }, undefined, { replace: true })
     }
@@ -295,7 +296,7 @@ export default function App() {
 
   const selectedConnection = React.useMemo(
     () =>
-      selection.kind === "welcome"
+      selection.kind !== "connection" && selection.kind !== "collection"
         ? undefined
         : connections.find((connection) => connection.id === selection.connectionId),
     [connections, selection],
@@ -477,6 +478,27 @@ export default function App() {
   }, [activeTabKey, tabs, selection, activateTab, closeTab])
 
   const renderContent = () => {
+    if (selection.kind === "dashboard") {
+      return (
+        <React.Suspense fallback={<ContentFallback />}>
+          <DashboardView
+            connections={connections}
+            onOpenChart={(next, chart) => {
+              navigate(next, "documents", {
+                docs: {
+                  ...DOCS_QUERY_DEFAULTS,
+                  chart: {
+                    config: normalizeChartConfig(chart.config),
+                    filter: chart.filter ?? "{}",
+                  },
+                },
+              })
+            }}
+          />
+        </React.Suspense>
+      )
+    }
+
     if (selection.kind === "collection") {
       // On a deep link the view mounts before the (auto-)connect finishes;
       // wait for the connection so tabs do not fire against a dead client.
@@ -633,7 +655,9 @@ export default function App() {
               {/* The collection view already renders its own db/collection path,
                   so the top bar only shows the connection (scope) instead of
                   repeating it. */}
-              {selection.kind !== "welcome" && selectedConnection ? (
+              {selection.kind === "dashboard" ? (
+                <span className="font-medium">{t("dashboard.title")}</span>
+              ) : selection.kind !== "welcome" && selectedConnection ? (
                 <span className="font-medium">{selectedConnection.name}</span>
               ) : (
                 <span className="font-medium md:hidden">MongoUI</span>

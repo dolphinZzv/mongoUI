@@ -1,5 +1,6 @@
 import * as React from "react"
 import {
+  LayoutDashboard,
   Plus,
   RefreshCw,
   Search,
@@ -361,7 +362,10 @@ export function AppSidebar({
           delete next[confirm.connection.id]
           return next
         })
-        if (selection.kind !== "welcome" && selection.connectionId === confirm.connection.id) {
+        if (
+          (selection.kind === "connection" || selection.kind === "collection") &&
+          selection.connectionId === confirm.connection.id
+        ) {
           onSelect({ kind: "welcome" })
         }
         onRefresh()
@@ -524,6 +528,17 @@ export function AppSidebar({
             </Tooltip>
           ) : null}
         </div>
+      </div>
+
+      <div className="shrink-0 px-2 pt-2">
+        <Button
+          variant={selection.kind === "dashboard" ? "secondary" : "ghost"}
+          size="sm"
+          className="w-full justify-start"
+          onClick={() => onSelect({ kind: "dashboard" })}
+        >
+          <LayoutDashboard /> {t("dashboard.title")}
+        </Button>
       </div>
 
       <div className="flex shrink-0 items-center gap-1 border-b px-2 py-2">

@@ -72,7 +72,7 @@ export function GlobalSearchDialog({
     setSearched(false)
     setResults([])
     setPartial(null)
-    if (selection.kind !== "welcome") {
+    if (selection.kind === "connection" || selection.kind === "collection") {
       setConnectionId(selection.connectionId)
       if (selection.kind === "collection") setDatabase(selection.database)
     } else if (connections[0]) {

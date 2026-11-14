@@ -31,6 +31,10 @@ func (a *API) getSavedQueries(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, errors.New("scope is required"))
 		return
 	}
+	if !a.canAccessScope(r, scope) {
+		fail(w, http.StatusForbidden, errConnectionAccess)
+		return
+	}
 	ok(w, map[string]any{
 		"version": a.automationStore.SavedQueriesRevision(scope),
 		"queries": a.automationStore.GetSavedQueries(scope),
@@ -57,6 +61,10 @@ func (a *API) updateSavedQueries(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(in.Queries) > savedQueriesMax {
 		badRequest(w, errors.New("at most 100 saved queries are allowed per scope"))
+		return
+	}
+	if !a.canAccessScope(r, scope) {
+		fail(w, http.StatusForbidden, errConnectionAccess)
 		return
 	}
 	queries := make([]config.SavedQuery, 0, len(in.Queries))

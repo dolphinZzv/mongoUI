@@ -27,14 +27,30 @@ type chartViewsInput struct {
 
 // getChartViews lists shared chart views. With ?connectionId= it returns every
 // scope of that connection (used by pinned charts on the overview).
+func (a *API) canAccessScope(r *http.Request, scope string) bool {
+	if a.auth == nil {
+		return true
+	}
+	parts := strings.SplitN(scope, "::", 2)
+	return len(parts) == 2 && parts[0] != "" && a.auth.CanAccessConnection(r, parts[0])
+}
+
 func (a *API) getChartViews(w http.ResponseWriter, r *http.Request) {
 	if connectionID := strings.TrimSpace(r.URL.Query().Get("connectionId")); connectionID != "" {
+		if a.auth != nil && !a.auth.CanAccessConnection(r, connectionID) {
+			fail(w, http.StatusForbidden, errConnectionAccess)
+			return
+		}
 		ok(w, map[string]any{"scopes": a.settings.ChartViewsForConnection(connectionID)})
 		return
 	}
 	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
 	if scope == "" {
 		badRequest(w, errors.New("scope or connectionId is required"))
+		return
+	}
+	if !a.canAccessScope(r, scope) {
+		fail(w, http.StatusForbidden, errConnectionAccess)
 		return
 	}
 	ok(w, map[string]any{
@@ -61,6 +77,10 @@ func (a *API) updateChartViews(w http.ResponseWriter, r *http.Request) {
 	}
 	if utf8.RuneCountInString(scope) > chartViewScopeMax {
 		badRequest(w, errors.New("scope is too long"))
+		return
+	}
+	if !a.canAccessScope(r, scope) {
+		fail(w, http.StatusForbidden, errConnectionAccess)
 		return
 	}
 	if len(in.Views) > chartViewsMax {

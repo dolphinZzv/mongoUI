@@ -122,6 +122,7 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 			r.Use(a.auditMiddleware)
 
 			r.Get("/audit", a.listAudit)
+			r.Get("/audit/export", a.exportAudit)
 			r.Get("/ai/proposals", a.listAIProposals)
 			r.Post("/ai/proposals/{id}/approve", a.approveAIProposal)
 			r.Post("/ai/proposals/{id}/reject", a.rejectAIProposal)
@@ -160,6 +161,7 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 			r.Post("/backups/{id}/run", a.runBackup)
 			r.Get("/backups/{id}/files", a.backupFiles)
 			r.Get("/backups/{id}/files/{file}", a.downloadBackup)
+			r.Post("/backups/{id}/restore", a.restoreBackup)
 
 			r.Get("/mcp", a.getMCPSettings)
 			r.Put("/mcp", a.updateMCPSettings)

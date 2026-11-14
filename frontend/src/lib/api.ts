@@ -273,6 +273,12 @@ export const api = {
     const suffix = query.toString()
     return request<{ entries: AuditEntry[] }>(`/audit${suffix ? `?${suffix}` : ""}`)
   },
+  exportAudit: (params?: { connectionId?: string; limit?: number }) => {
+    const query = new URLSearchParams({ format: "jsonl" })
+    if (params?.connectionId) query.set("connectionId", params.connectionId)
+    if (params?.limit) query.set("limit", String(params.limit))
+    return download(`/audit/export?${query.toString()}`)
+  },
   listAIProposals: () =>
     request<{ proposals: AIProposal[] }>("/ai/proposals", { cache: "no-store" }),
   approveAIProposal: (id: string) =>
@@ -493,6 +499,11 @@ export const api = {
   runBackup: (id: string) =>
     request<{ started: boolean }>(`/backups/${enc(id)}/run`, { method: "POST" }),
   listBackupFiles: (id: string) => request<{ files: BackupFile[] }>(`/backups/${enc(id)}/files`),
+  restoreBackup: (id: string, file: string, drop: boolean) =>
+    request<{ insertedCount: number }>(`/backups/${enc(id)}/restore`, {
+      method: "POST",
+      body: JSON.stringify({ file, drop }),
+    }),
 
   // MCP -------------------------------------------------------------------------
   mcpSettings: () => request<MCPSettings>("/mcp"),

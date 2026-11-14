@@ -135,6 +135,8 @@ export function buildPath(selection: Selection, tab?: string, docs?: DocsQuerySt
   switch (selection.kind) {
     case "welcome":
       return "/"
+    case "dashboard":
+      return "/dashboard"
     case "connection":
       return `/connections/${seg(selection.connectionId)}`
     case "collection": {
@@ -192,6 +194,10 @@ export function parseLocation(pathname: string, search: string): RouteState {
     })
   const params = new URLSearchParams(search)
   const tab = params.get("tab") ?? undefined
+
+  if (parts[0] === "dashboard") {
+    return { selection: { kind: "dashboard" } }
+  }
 
   if (parts[0] === "connections" && parts[1]) {
     if (parts.length >= 6 && parts[2] === "databases" && parts[4] === "collections") {

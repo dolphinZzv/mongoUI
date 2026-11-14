@@ -49,7 +49,7 @@ export function SlowQueriesDialog({
 
   React.useEffect(() => {
     if (!open) return
-    if (selection.kind !== "welcome") {
+    if (selection.kind === "connection" || selection.kind === "collection") {
       setConnectionId(selection.connectionId)
       if (selection.kind === "collection") setDatabase(selection.database)
     } else if (connections[0]) {

@@ -1,8 +1,9 @@
 import * as React from "react"
-import { Download, History, Loader2, Play, Plus, RefreshCw, Trash2 } from "lucide-react"
+import { Download, History, Loader2, Play, Plus, RefreshCw, RotateCcw, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { AsyncProgress } from "@/components/async-progress"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -49,6 +50,11 @@ export function BackupsDialog({ open, onOpenChange }: BackupsDialogProps) {
   const [openTaskId, setOpenTaskId] = React.useState<string | null>(null)
   const [files, setFiles] = React.useState<BackupFile[]>([])
   const [filesLoading, setFilesLoading] = React.useState(false)
+  const [restoreTarget, setRestoreTarget] = React.useState<{
+    task: BackupTask
+    file: BackupFile
+  } | null>(null)
+  const [restoreDrop, setRestoreDrop] = React.useState(false)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -262,6 +268,19 @@ export function BackupsDialog({ open, onOpenChange }: BackupsDialogProps) {
                       <span className="text-muted-foreground shrink-0">
                         {new Date(file.modified).toLocaleString()}
                       </span>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="size-6"
+                        title={t("backups.restore")}
+                        aria-label={t("backups.restore")}
+                        onClick={() => {
+                          setRestoreDrop(false)
+                          setRestoreTarget({ task, file })
+                        }}
+                      >
+                        <RotateCcw className="size-3.5" />
+                      </Button>
                       <a
                         href={`/api/backups/${encodeURIComponent(task.id)}/files/${encodeURIComponent(file.name)}`}
                         download
@@ -348,6 +367,48 @@ export function BackupsDialog({ open, onOpenChange }: BackupsDialogProps) {
           </Button>
         )}
       </DialogContent>
+
+      <ConfirmDialog
+        open={restoreTarget !== null}
+        onOpenChange={(value) => !value && setRestoreTarget(null)}
+        title={t("backups.restoreTitle")}
+        description={
+          restoreTarget ? (
+            <div className="space-y-2">
+              <p>{t("backups.restoreDesc", {
+                path: `${restoreTarget.task.database}.${restoreTarget.task.collection}`,
+                file: restoreTarget.file.name,
+              })}</p>
+              <label className="flex items-center gap-2 text-xs">
+                <Switch checked={restoreDrop} onCheckedChange={setRestoreDrop} />
+                {t("backups.restoreDrop")}
+              </label>
+            </div>
+          ) : null
+        }
+        confirmText={restoreTarget?.task.collection}
+        confirmLabel={t("backups.restore")}
+        onConfirm={async () => {
+          if (!restoreTarget) return
+          try {
+            const result = await api.restoreBackup(
+              restoreTarget.task.id,
+              restoreTarget.file.name,
+              restoreDrop,
+            )
+            toast.success(t("backups.restored", { count: result.insertedCount }))
+            setRestoreTarget(null)
+            await load()
+            if (openTaskId === restoreTarget.task.id) {
+              const files = await api.listBackupFiles(restoreTarget.task.id)
+              setFiles(files.files ?? [])
+            }
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : t("backups.restoreFailed"))
+            throw err
+          }
+        }}
+      />
     </Dialog>
   )
 }

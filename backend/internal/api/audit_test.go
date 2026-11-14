@@ -1,11 +1,23 @@
 package api
 
 import (
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"mongoui/internal/mcp"
 )
@@ -104,5 +116,99 @@ func TestRecordMCPAudit(t *testing.T) {
 	}
 	if entries[0].Method != "MCP" || entries[0].Actor != "agent" || entries[0].Operation != "mongoui_delete" {
 		t.Fatalf("entry = %#v", entries[0])
+	}
+}
+
+func TestAuditExport(t *testing.T) {
+	log := newAuditLog("")
+	log.add(auditEntry{Actor: "alice", ConnectionID: "c1", Database: "d", Collection: "c", Method: "POST", Operation: "insert", Status: 200})
+	log.add(auditEntry{Actor: "bob", ConnectionID: "c2", Method: "MCP", Operation: "mongoui_delete", Status: 500, Error: "denied"})
+	api := &API{audit: log}
+
+	rec := httptest.NewRecorder()
+	api.exportAudit(rec, httptest.NewRequest(http.MethodGet, "/audit/export?format=jsonl", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Header().Get("Content-Disposition"), ".jsonl") {
+		t.Fatalf("disposition = %q", rec.Header().Get("Content-Disposition"))
+	}
+	lines := strings.Split(strings.TrimSpace(rec.Body.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("lines = %d: %s", len(lines), rec.Body.String())
+	}
+	if !strings.Contains(lines[0], `"operation":"mongoui_delete"`) && !strings.Contains(lines[0], `"actor":"bob"`) {
+		t.Fatalf("newest entry missing: %s", lines[0])
+	}
+
+	rec = httptest.NewRecorder()
+	api.exportAudit(rec, httptest.NewRequest(http.MethodGet, "/audit/export?format=csv&connectionId=c1", nil))
+	if !strings.Contains(rec.Body.String(), "alice") || strings.Contains(rec.Body.String(), "bob") {
+		t.Fatalf("csv filter failed: %s", rec.Body.String())
+	}
+}
+
+func TestAuditCoordinationCollection(t *testing.T) {
+	uri := os.Getenv("MONGOUI_TEST_MONGO_URI")
+	if uri == "" {
+		t.Skip("set MONGOUI_TEST_MONGO_URI to run the MongoDB integration tests")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Disconnect(context.Background())
+	db := client.Database(fmt.Sprintf("mongoui_audit_%d", time.Now().UnixNano()))
+	t.Cleanup(func() { _ = db.Drop(context.Background()) })
+	coll := db.Collection("audit")
+
+	a := newAuditLog("")
+	a.SetCollection(coll)
+	a.add(auditEntry{Actor: "alice", ConnectionID: "c1", Method: "POST", Operation: "insert", Status: 200})
+	b := newAuditLog("")
+	b.SetCollection(coll)
+	entries := b.list("c1", 10)
+	if len(entries) != 1 || entries[0].Actor != "alice" {
+		t.Fatalf("coordinated entries = %#v", entries)
+	}
+}
+
+func TestAuditWebhookForwarding(t *testing.T) {
+	received := make(chan struct {
+		body []byte
+		sig  string
+	}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		received <- struct {
+			body []byte
+			sig  string
+		}{body: body, sig: r.Header.Get("X-Mongoui-Signature")}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	log := newAuditLog("")
+	log.SetWebhook(server.URL, "secret")
+	log.add(auditEntry{Actor: "alice", ConnectionID: "c1", Method: "MCP", Operation: "mongoui_delete", Status: 200})
+	select {
+	case message := <-received:
+		var entry auditEntry
+		if err := json.Unmarshal(message.body, &entry); err != nil {
+			t.Fatal(err)
+		}
+		if entry.Actor != "alice" || entry.Operation != "mongoui_delete" {
+			t.Fatalf("forwarded entry = %#v", entry)
+		}
+		mac := hmac.New(sha256.New, []byte("secret"))
+		_, _ = mac.Write(message.body)
+		want := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+		if message.sig != want {
+			t.Fatalf("signature = %q, want %q", message.sig, want)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("audit webhook was not called")
 	}
 }

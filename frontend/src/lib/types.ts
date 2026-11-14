@@ -514,6 +514,7 @@ export interface IndexInfo {
 
 export type Selection =
   | { kind: "welcome" }
+  | { kind: "dashboard" }
   | { kind: "connection"; connectionId: string }
   | { kind: "collection"; connectionId: string; database: string; collection: string }
 

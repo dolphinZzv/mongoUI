@@ -1,7 +1,14 @@
 package api
 
 import (
+	"bytes"
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/csv"
+	"encoding/hex"
 	"encoding/json"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -13,6 +20,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"mongoui/internal/mcp"
 )
@@ -28,18 +38,19 @@ const (
 )
 
 type auditEntry struct {
-	Time         string `json:"time"`
-	Actor        string `json:"actor,omitempty"`
-	TokenID      string `json:"tokenId,omitempty"`
-	IP           string `json:"ip,omitempty"`
-	ConnectionID string `json:"connectionId,omitempty"`
-	Database     string `json:"database,omitempty"`
-	Collection   string `json:"collection,omitempty"`
-	Method       string `json:"method"`
-	Operation    string `json:"operation"`
-	Path         string `json:"path"`
-	Status       int    `json:"status"`
-	Error        string `json:"error,omitempty"`
+	Time         string    `json:"time" bson:"time"`
+	Actor        string    `json:"actor,omitempty" bson:"actor,omitempty"`
+	TokenID      string    `json:"tokenId,omitempty" bson:"tokenId,omitempty"`
+	IP           string    `json:"ip,omitempty" bson:"ip,omitempty"`
+	ConnectionID string    `json:"connectionId,omitempty" bson:"connectionId,omitempty"`
+	Database     string    `json:"database,omitempty" bson:"database,omitempty"`
+	Collection   string    `json:"collection,omitempty" bson:"collection,omitempty"`
+	Method       string    `json:"method" bson:"method"`
+	Operation    string    `json:"operation" bson:"operation"`
+	Path         string    `json:"path" bson:"path"`
+	Status       int       `json:"status" bson:"status"`
+	Error        string    `json:"error,omitempty" bson:"error,omitempty"`
+	ExpireAt     time.Time `json:"-" bson:"expireAt,omitempty"`
 }
 
 type auditLog struct {
@@ -47,17 +58,60 @@ type auditLog struct {
 	entries []auditEntry
 	// path is empty when persistence is disabled (e.g. in tests).
 	path string
+	// coll is the optional coordination collection used by multi-instance
+	// deployments.
+	coll          *mongo.Collection
+	webhookURL    string
+	webhookSecret string
+	webhookClient *http.Client
 }
 
 // newAuditLog creates a log persisted to <dataDir>/audit.jsonl. An empty
 // dataDir keeps it in memory only.
 func newAuditLog(dataDir string) *auditLog {
-	log := &auditLog{entries: make([]auditEntry, 0, auditCapacity)}
+	log := &auditLog{
+		entries:       make([]auditEntry, 0, auditCapacity),
+		webhookClient: &http.Client{Timeout: 5 * time.Second},
+	}
 	if dataDir != "" {
 		log.path = filepath.Join(dataDir, auditFileName)
 		log.load()
 	}
 	return log
+}
+
+// SetCollection switches audit persistence/listing to a coordination
+// collection. The local ring remains as a fallback if the coordination store is
+// temporarily unavailable.
+func (l *auditLog) SetCollection(coll *mongo.Collection) {
+	if l == nil || coll == nil {
+		return
+	}
+	l.mu.Lock()
+	l.coll = coll
+	l.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, _ = coll.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "time", Value: -1}},
+		Options: options.Index().SetName("audit_time"),
+	})
+	_, _ = coll.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "expireAt", Value: 1}},
+		Options: options.Index().SetName("audit_ttl").SetExpireAfterSeconds(0),
+	})
+}
+
+// SetWebhook forwards every new audit entry to an external SIEM/webhook. The
+// secret is used as an HMAC-SHA256 key in X-Mongoui-Signature.
+func (l *auditLog) SetWebhook(rawURL, secret string) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.webhookURL = strings.TrimSpace(rawURL)
+	l.webhookSecret = secret
 }
 
 // load reads the tail of the persisted log so entries survive a restart.
@@ -84,13 +138,59 @@ func (l *auditLog) add(entry auditEntry) {
 	if entry.Time == "" {
 		entry.Time = time.Now().UTC().Format(time.RFC3339)
 	}
+	entry.ExpireAt = time.Now().UTC().Add(90 * 24 * time.Hour)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.entries = append(l.entries, entry)
 	if len(l.entries) > auditCapacity {
 		l.entries = l.entries[len(l.entries)-auditCapacity:]
 	}
+	if l.coll != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err := l.coll.InsertOne(ctx, entry)
+		cancel()
+		if err == nil {
+			l.forward(entry)
+			return
+		}
+	}
 	l.persist(entry)
+	l.forward(entry)
+}
+
+func (l *auditLog) forward(entry auditEntry) {
+	url, secret, client := l.webhookURL, l.webhookSecret, l.webhookClient
+	if url == "" || client == nil {
+		return
+	}
+	go func() {
+		body, err := json.Marshal(entry)
+		if err != nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+		if err != nil {
+			log.Printf("audit webhook: %v", err)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if secret != "" {
+			mac := hmac.New(sha256.New, []byte(secret))
+			mac.Write(body)
+			req.Header.Set("X-Mongoui-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("audit webhook: %v", err)
+			return
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			log.Printf("audit webhook: HTTP %d", resp.StatusCode)
+		}
+	}()
 }
 
 // persist appends the entry as one JSON line, rotating the file first when it
@@ -133,6 +233,25 @@ func (l *auditLog) rotate() {
 func (l *auditLog) list(connectionID string, limit int) []auditEntry {
 	if limit <= 0 || limit > auditCapacity {
 		limit = 200
+	}
+	l.mu.Lock()
+	coll := l.coll
+	l.mu.Unlock()
+	if coll != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		filter := bson.M{}
+		if connectionID != "" {
+			filter["connectionId"] = connectionID
+		}
+		cursor, err := coll.Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "time", Value: -1}}).SetLimit(int64(limit)))
+		if err == nil {
+			defer cursor.Close(ctx)
+			var out []auditEntry
+			if err := cursor.All(ctx, &out); err == nil {
+				return out
+			}
+		}
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -210,6 +329,50 @@ func (a *API) listAudit(w http.ResponseWriter, r *http.Request) {
 	ok(w, map[string]any{
 		"entries": a.audit.list(r.URL.Query().Get("connectionId"), limit),
 	})
+}
+
+func (a *API) exportAudit(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > auditCapacity {
+		limit = auditCapacity
+	}
+	entries := a.audit.list(r.URL.Query().Get("connectionId"), limit)
+	format := strings.ToLower(r.URL.Query().Get("format"))
+	if format == "" {
+		format = "jsonl"
+	}
+	name := "mongoui-audit-" + time.Now().UTC().Format("20060102-150405")
+	if format == "csv" {
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+name+".csv\"")
+		w.Header().Set("Cache-Control", "no-store")
+		cw := csv.NewWriter(w)
+		_ = cw.Write([]string{"time", "actor", "tokenId", "ip", "connectionId", "database", "collection", "method", "operation", "path", "status", "error"})
+		for _, e := range entries {
+			_ = cw.Write([]string{e.Time, e.Actor, e.TokenID, e.IP, e.ConnectionID, e.Database, e.Collection, e.Method, e.Operation, e.Path, strconv.Itoa(e.Status), e.Error})
+		}
+		cw.Flush()
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-ndjson; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+name+".jsonl\"")
+	w.Header().Set("Cache-Control", "no-store")
+	enc := json.NewEncoder(w)
+	for _, e := range entries {
+		_ = enc.Encode(e)
+	}
+}
+
+func (a *API) SetAuditCollection(coll *mongo.Collection) {
+	if a.audit != nil {
+		a.audit.SetCollection(coll)
+	}
+}
+
+func (a *API) SetAuditWebhook(url, secret string) {
+	if a.audit != nil {
+		a.audit.SetWebhook(url, secret)
+	}
 }
 
 // RecordMCP appends an MCP write operation to the same audit ring used by the

@@ -61,7 +61,7 @@ MongoUI 是一个用 Go + React 编写的 MongoDB 可视化管理工具。前端
 - **聚合管道**：在 Query 工作台里切换到聚合模式，多行 JSON 编辑器 + 常用模板，表格 / JSON / 图表结果视图；可切换源数据库 / 集合执行跨库管道，按源集合记住上次管道，支持最近 / 收藏 / 团队共享保存，一键复制为 `db.getSiblingDB(...).<c>.aggregate(...)`。
 - **执行计划（Explain）**：对 find / 聚合运行 `explain`，展示关键指标；当命中全表扫描时给出**索引建议并可一键创建**，超过 100ms 的查询会标记为慢查询。
 - **查询结果可视化**：把结果切换为柱状 / 折线 / 面积 / 饼图，自选 X 轴与数值聚合，纯 SVG 实现、无额外依赖。
-- **连接 Dashboard**：图表视图保存在服务端并可标记为 pinned，连接概览会把同一连接下的图表组成团队共享 Dashboard；支持筛选、时间范围与自动刷新。
+- **共享 Dashboard**：图表视图保存在服务端并可标记为 pinned；`/dashboard` 会把所有已连接、已授权的固定图表汇总成跨连接团队 Dashboard，连接概览则展示单连接视图。支持链接分享、时间范围与图表级自动刷新。
 - **全库搜索**：在一个数据库的集合中按「值」或「字段名」模糊搜索，给出每个集合的命中数与样例；使用 `$facet` 单次扫描、受限并发与部分结果提示，避免全库扫描串行拖慢数据库。
 - **导出为 SQL / mongosh**：把当前查询导出为 SQL `SELECT` 或 `db.<c>.find(...)` 片段，方便沉淀为脚本。
 
@@ -77,11 +77,11 @@ MongoUI 是一个用 Go + React 编写的 MongoDB 可视化管理工具。前端
 
 - **MCP server**：内置 Model Context Protocol（stdio / HTTP），工具分读 / 写两组，可分别开关；HTTP 支持个人访问令牌（PAT）按 scope 限制读写。所有破坏性写工具支持 `propose: true` 先预览影响与样例，管理员在 **设置 → AI 写操作审批** 中批准、执行或回滚；提案持久化，多实例可通过协调库共享，MCP 写操作也进入审计。
 - **浏览器 Agent（WebMCP）**：把连接 / 查询 / 聚合 / 索引等操作暴露给浏览器内 agent，默认关闭、需显式开启。
-- **写操作审计**：记录通过界面或 API 执行的写操作（成功与失败），包含操作者、PAT、IP、连接 / 库 / 集合 / 操作 / 状态；登录、改密、令牌与账号变更也计入，并持久化到服务端。AI 提案的批准 / 执行 / 回滚同样经过审计。
+- **写操作审计**：记录通过界面、API 或 MCP 执行的写操作（成功与失败），包含操作者、PAT、IP、连接 / 库 / 集合 / 操作 / 状态；登录、改密、令牌与账号变更也计入。支持 JSONL / CSV 导出、协调库集中存储与可签名 Webhook 转发（SIEM）。AI 提案的批准 / 执行 / 回滚同样经过审计。
 - **多账号与角色**：账号密码和 / 或 TOTP 登录，分 `管理员 / 读写 / 只读` 角色；只读账号的写操作在服务端被拒。管理员还可为每个账号配置**连接级权限**：每个连接可单独设为只读 / 读写（空表示全部继承账号角色），PAT 继承同一限制。
 - **个人访问令牌（PAT）**：为 API 客户端签发带作用域（`read` / `write` / `admin`）的令牌，权限不会超过账号当前角色。
 - **单点登录（OIDC）**：接入任意 OpenID Connect 提供方，支持发现、PKCE、JWKS 校验与「用户组 → 角色」映射，可限制邮箱域名 / 邮箱。
-- **定时备份**：按计划把集合导出为 JSON/CSV 文件，保留最近若干份，并记录上次运行状态。
+- **定时备份与恢复**：按计划把集合导出为 JSON/CSV 文件，保留最近若干份，并记录上次运行状态；历史文件可一键恢复（可选先清空目标集合），恢复同样受只读连接限制。
 - **定时数据报表**：按计划对集合执行只读 find / 聚合，把结果（最多 500 行）通过 Webhook 或 SMTP 邮件发送，作为轻量团队日报 / 周报。
 - **内置反馈**：右下角 Feedback 入口通过服务端 `gh` CLI 创建 GitHub Issue，支持关闭并从设置菜单重新打开。
 - **登录（账号密码 / TOTP）**、后退 / 前进与刷新可恢复的 URL 状态。
@@ -255,6 +255,7 @@ LIMIT 20
 | 视图 | URL |
 | --- | --- |
 | 首页 | `/` |
+| 跨连接 Dashboard | `/dashboard` |
 | 连接概览 | `/connections/{connectionId}` |
 | 集合视图 | `/connections/{connectionId}/databases/{db}/collections/{collection}` |
 | 集合标签页 | 上表 URL 后追加 `?tab=documents\|sql\|aggregation\|indexes\|schema\|stats` |
@@ -380,8 +381,10 @@ curl -H "Authorization: Bearer moui_pat_xxx" -H "Content-Type: application/json"
 | — | `MONGOUI_REPO` | `dolphinZzv/mongoUI` | 自更新检查与反馈 Issue 的目标仓库 |
 | — | `MONGOUI_FEEDBACK_REPO` | 同 `MONGOUI_REPO` | 单独指定反馈 Issue 的目标仓库 |
 | — | `MONGOUI_DISABLE_AUTOUPDATE` | 关 | 设为真值时禁用内置自动更新 |
-| — | `MONGOUI_COORDINATION_URI` | 空 | 多实例协调用 MongoDB URI；设置后告警/Runbook 配置存于此库，并通过租约选主 |
-| — | `MONGOUI_COORDINATION_DATABASE` | `mongoui` | 协调库名（存放 `locks` 与 `automation` 集合） |
+| — | `MONGOUI_COORDINATION_URI` | 空 | 多实例协调用 MongoDB URI；设置后告警/Runbook/报表、AI 提案与审计存于此库，并通过租约选主 |
+| — | `MONGOUI_COORDINATION_DATABASE` | `mongoui` | 协调库名（存放 `locks`、`automation`、`ai_proposals`、`audit` 集合） |
+| — | `MONGOUI_AUDIT_WEBHOOK_URL` | 空 | 把新审计事件 POST 到 SIEM / Webhook；可选 HMAC 签名 |
+| — | `MONGOUI_AUDIT_WEBHOOK_SECRET` | 空 | 审计 Webhook 的 HMAC-SHA256 密钥（`X-Mongoui-Signature`） |
 | — | `MONGOUI_ALLOW_PRIVATE_WEBHOOKS` | 关 | 允许 Webhook 指向内网/回环地址（默认拦截，防 SSRF） |
 | — | `MONGOUI_RESTART_AFTER_UPDATE` | 关 | 更新后干净退出以便服务管理器重启（`service` 安装时自动设置） |
 
@@ -589,7 +592,7 @@ React 19 · TypeScript · [Vite](https://vitejs.dev/) · Tailwind CSS v4 · [Rad
 
 ## 路线图
 
-- 定时备份的历史记录浏览 / 下载与失败重试
+- 定时备份的失败重试与 S3 / 对象存储后端
 - 跨连接迁移的断点续传与限速
 
 ## 许可证

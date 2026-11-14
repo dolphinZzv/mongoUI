@@ -62,6 +62,9 @@ export function ConfirmDialog({
     try {
       await onConfirm()
       onOpenChange(false)
+    } catch {
+      // The caller is responsible for surfacing the error; keep the dialog
+      // open so the operation can be retried.
     } finally {
       setBusy(false)
     }

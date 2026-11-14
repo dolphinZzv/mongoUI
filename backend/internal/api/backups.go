@@ -18,6 +18,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+
+	"mongoui/internal/config"
 )
 
 const (
@@ -539,4 +541,103 @@ func (a *API) downloadBackup(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+name+"\"")
 	http.ServeContent(w, r, name, info.ModTime(), file)
+}
+
+// restoreBackup parses a previously written backup file and inserts it back
+// into the task's collection. Restores are admin-only and refuse read-only
+// connections, matching the normal write path.
+func (a *API) restoreBackup(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAdmin(w, r) {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	task, found := a.backupTask(id)
+	if !found {
+		fail(w, http.StatusNotFound, errors.New("backup task not found"))
+		return
+	}
+	connection, found := a.store.Get(task.ConnectionID)
+	if !found {
+		fail(w, http.StatusNotFound, config.ErrNotFound)
+		return
+	}
+	if connection.ReadOnly {
+		fail(w, http.StatusForbidden, errReadOnly)
+		return
+	}
+	var req struct {
+		File string `json:"file"`
+		Drop bool   `json:"drop"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		badRequest(w, err)
+		return
+	}
+	if a.backups.dir == "" || !strings.HasPrefix(req.File, id+".") ||
+		strings.ContainsAny(req.File, "/\\") || strings.Contains(req.File, "..") {
+		badRequest(w, errors.New("invalid backup file"))
+		return
+	}
+	content, err := os.ReadFile(filepath.Join(a.backups.dir, req.File))
+	if err != nil {
+		fail(w, http.StatusNotFound, errors.New("backup file not found"))
+		return
+	}
+	docs, err := parseImportContent(task.Format, string(content))
+	if err != nil {
+		badRequest(w, err)
+		return
+	}
+	if len(docs) == 0 {
+		badRequest(w, errors.New("backup contains no documents"))
+		return
+	}
+	client, err := a.mgr.Get(task.ConnectionID)
+	if err != nil {
+		a.dbErr(w, err)
+		return
+	}
+	coll := client.Database(task.Database).Collection(task.Collection)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	defer cancel()
+	if req.Drop {
+		if err := coll.Drop(ctx); err != nil && !isNamespaceNotFound(err) {
+			a.dbErr(w, err)
+			return
+		}
+	}
+	inserted := 0
+	for start := 0; start < len(docs); start += importBatchSize {
+		end := start + importBatchSize
+		if end > len(docs) {
+			end = len(docs)
+		}
+		batch := make([]any, 0, end-start)
+		for _, doc := range docs[start:end] {
+			batch = append(batch, doc)
+		}
+		if _, err := coll.InsertMany(ctx, batch); err != nil {
+			a.dbErr(w, err)
+			return
+		}
+		inserted += end - start
+	}
+	ok(w, map[string]any{
+		"insertedCount": inserted,
+		"database":      task.Database,
+		"collection":    task.Collection,
+		"file":          req.File,
+		"dropped":       req.Drop,
+	})
+}
+
+func (a *API) backupTask(id string) (BackupTask, bool) {
+	a.backups.mu.Lock()
+	defer a.backups.mu.Unlock()
+	for _, task := range a.backups.tasks {
+		if task.ID == id {
+			return task, true
+		}
+	}
+	return BackupTask{}, false
 }

@@ -196,6 +196,7 @@ func main() {
 	apiServer := api.New(store, mgr, uiEmbedded, version, mcpServer.HTTPHandler(), authManager, settings)
 	apiServer.SetMCP(mcpServer)
 	mcpServer.SetAuditSink(apiServer)
+	apiServer.SetAuditWebhook(os.Getenv("MONGOUI_AUDIT_WEBHOOK_URL"), os.Getenv("MONGOUI_AUDIT_WEBHOOK_SECRET"))
 	if updater != nil {
 		apiServer.SetUpdater(updater)
 	}
@@ -212,6 +213,7 @@ func main() {
 	}
 	if automationLease != nil {
 		mcpServer.SetProposalCollection(automationLease.Collection("ai_proposals"))
+		apiServer.SetAuditCollection(automationLease.Collection("audit"))
 	}
 	automationStore := automation.NewStore(settings, automationLease)
 	automationManager := automation.New(settings, store, mgr, automationLease, automationStore)

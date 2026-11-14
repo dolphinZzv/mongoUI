@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Loader2, RefreshCw, ScrollText } from "lucide-react"
+import { Download, Loader2, RefreshCw, ScrollText } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { api } from "@/lib/api"
+import { downloadBlob } from "@/lib/download"
 import { useI18n } from "@/lib/i18n"
 import type { AuditEntry, Connection } from "@/lib/types"
 
@@ -35,6 +36,7 @@ export function AuditDialog({ open, onOpenChange, connections }: AuditDialogProp
   const [connectionId, setConnectionId] = React.useState<string>(ALL)
   const [entries, setEntries] = React.useState<AuditEntry[]>([])
   const [loading, setLoading] = React.useState(false)
+  const [exporting, setExporting] = React.useState(false)
 
   const load = React.useCallback(
     async (id: string) => {
@@ -57,6 +59,22 @@ export function AuditDialog({ open, onOpenChange, connections }: AuditDialogProp
 
   const connectionName = (id?: string) =>
     id ? (connections.find((c) => c.id === id)?.name ?? id) : "—"
+
+  const exportAudit = async () => {
+    setExporting(true)
+    try {
+      const file = await api.exportAudit({
+        connectionId: connectionId === ALL ? undefined : connectionId,
+        limit: 1000,
+      })
+      downloadBlob(file.filename, file.blob)
+      toast.success(t("audit.exported"))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("audit.exportFailed"))
+    } finally {
+      setExporting(false)
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -87,6 +105,9 @@ export function AuditDialog({ open, onOpenChange, connections }: AuditDialogProp
             disabled={loading}
           >
             {loading ? <Loader2 className="animate-spin" /> : <RefreshCw />} {t("common.refresh")}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => void exportAudit()} disabled={exporting}>
+            {exporting ? <Loader2 className="animate-spin" /> : <Download />} {t("audit.export")}
           </Button>
         </div>
 

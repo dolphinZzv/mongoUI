@@ -24,6 +24,7 @@ const chart: ChartShareState = {
 describe("buildPath", () => {
   it("encodes welcome, connection and collection routes", () => {
     expect(buildPath({ kind: "welcome" })).toBe("/")
+    expect(buildPath({ kind: "dashboard" })).toBe("/dashboard")
     expect(buildPath({ kind: "connection", connectionId: "a/b" })).toBe("/connections/a%2Fb")
     expect(buildPath(collection)).toBe(
       "/connections/conn%201/databases/db%2Fone/collections/users%3Fx",
@@ -81,6 +82,7 @@ describe("parseLocation", () => {
     expect(parsed.docs?.chart?.config.type).toBe("line")
     expect(parseLocation("/connections/c1", "?tab=nope").tab).toBeUndefined()
     expect(parseLocation("/", "").selection.kind).toBe("welcome")
+    expect(parseLocation("/dashboard", "").selection.kind).toBe("dashboard")
   })
 })
 

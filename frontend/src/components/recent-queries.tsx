@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useI18n } from "@/lib/i18n"
+import type { RecentQueryMeta } from "@/hooks/useRecentQueries"
 import { cn } from "@/lib/utils"
 
 interface RecentQueriesProps {
@@ -19,6 +20,7 @@ interface RecentQueriesProps {
   onClear: () => void
   onToggleFavorite?: (query: string) => void
   onRemoveFavorite?: (query: string) => void
+  metaFor?: (query: string) => RecentQueryMeta | undefined
   className?: string
 }
 
@@ -34,9 +36,26 @@ export function RecentQueries({
   onClear,
   onToggleFavorite,
   onRemoveFavorite,
+  metaFor,
   className,
 }: RecentQueriesProps) {
   const { t } = useI18n()
+  const details = (query: string) => {
+    const meta = metaFor?.(query)
+    if (!meta) return null
+    const parts: string[] = []
+    if (meta.rows !== undefined) parts.push(t("recent.rows", { count: meta.rows }))
+    if (meta.durationMs !== undefined) {
+      parts.push(t("recent.duration", { ms: Math.round(meta.durationMs) }))
+    }
+    if (meta.at) parts.push(new Date(meta.at).toLocaleTimeString())
+    if (parts.length === 0) return null
+    return (
+      <span className="text-muted-foreground block text-[10px]">
+        {parts.join(" · ")}
+      </span>
+    )
+  }
   if (items.length === 0 && favorites.length === 0) return null
 
   return (
@@ -63,8 +82,11 @@ export function RecentQueries({
                 className="font-mono text-xs"
               >
                 <Star className="size-3.5 shrink-0 fill-amber-400 text-amber-400" />
-                <span className="truncate" title={query}>
-                  {shorten(query)}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate" title={query}>
+                    {shorten(query)}
+                  </span>
+                  {details(query)}
                 </span>
                 <button
                   type="button"
@@ -98,8 +120,11 @@ export function RecentQueries({
               onSelect={() => onPick(query)}
               className="font-mono text-xs"
             >
-              <span className="truncate" title={query}>
-                {shorten(query)}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate" title={query}>
+                  {shorten(query)}
+                </span>
+                {details(query)}
               </span>
               {onToggleFavorite ? (
                 <button

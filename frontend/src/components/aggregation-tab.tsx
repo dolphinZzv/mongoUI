@@ -102,6 +102,7 @@ export function AggregationTab({
     favorites: favoritePipelines,
     toggleFavorite: toggleFavoritePipeline,
     removeFavorite: removeFavoritePipeline,
+    metaFor: recentPipelineMeta,
   } = useRecentQueries(`agg:${connectionId}:${sourceDatabase}:${sourceCollection}`)
 
   const explainRequest = React.useMemo(
@@ -210,7 +211,13 @@ export function AggregationTab({
         hasMore: Boolean(res.hasMore),
       })
       setRan(true)
-      if (record) pushRecentPipeline(pipeline)
+      if (record) {
+        pushRecentPipeline(pipeline, {
+          rows: res.documents.length,
+          durationMs: res.durationMs,
+          at: Date.now(),
+        })
+      }
     } catch (err) {
       if (isAbortError(err)) return
       toast.error(err instanceof Error ? err.message : t("agg.failed"))
@@ -349,6 +356,7 @@ export function AggregationTab({
               onClear={clearRecentPipelines}
               onToggleFavorite={toggleFavoritePipeline}
               onRemoveFavorite={removeFavoritePipeline}
+              metaFor={recentPipelineMeta}
             />
             <Button onClick={() => void run()} disabled={loading} size="sm">
               {loading ? <Loader2 className="animate-spin" /> : <Play />}

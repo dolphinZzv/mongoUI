@@ -408,6 +408,8 @@ const zh: Record<string, string> = {
   "queryLibrary.conflict": "团队查询已变更，正在重新加载",
   "queryLibrary.failed": "加载团队查询失败",
   "queryLibrary.count": "已保存 {{count}} 条",
+  "recent.rows": "{{count}} 行",
+  "recent.duration": "{{ms}} ms",
   "recent.title": "最近查询",
   "recent.clear": "清空历史",
   "sidebar.connect": "连接",

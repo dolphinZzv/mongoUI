@@ -194,6 +194,7 @@ export function DocumentsTab({
     clear: clearRecent,
     toggleFavorite: toggleFavoriteFilter,
     removeFavorite: removeFavoriteFilter,
+    metaFor: recentFilterMeta,
   } = useRecentQueries(`docs:${connectionId}:${database}:${collection}`)
 
   const pinnedQueries = usePinnedQueries()
@@ -1287,6 +1288,7 @@ export function DocumentsTab({
             onClear={clearRecent}
             onToggleFavorite={toggleFavoriteFilter}
             onRemoveFavorite={removeFavoriteFilter}
+            metaFor={recentFilterMeta}
           />
           <QueryLibrary
             scope={`${connectionId}::${database}::${collection}`}

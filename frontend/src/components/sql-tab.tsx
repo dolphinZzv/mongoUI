@@ -77,6 +77,7 @@ export function SqlTab({ connectionId, database, collection, modeSwitch }: SqlTa
     favorites: favoriteSql,
     toggleFavorite: toggleFavoriteSql,
     removeFavorite: removeFavoriteSql,
+    metaFor: recentSqlMeta,
   } = useRecentQueries(`sql:${connectionId}:${database}`)
 
   // Complete collection and field names alongside the SQL keywords.
@@ -174,7 +175,14 @@ export function SqlTab({ connectionId, database, collection, modeSwitch }: SqlTa
         )
         setResult(res)
         setRan(true)
-        if (record) pushRecent(query)
+        if (record) {
+          pushRecent(query, {
+            rows: res.documents.length,
+            total: res.total,
+            durationMs: res.durationMs,
+            at: Date.now(),
+          })
+        }
       } catch (err) {
         if (isAbortError(err)) return
         toast.error(err instanceof Error ? err.message : t("sql.failed"))
@@ -256,6 +264,7 @@ export function SqlTab({ connectionId, database, collection, modeSwitch }: SqlTa
               onClear={clearRecent}
               onToggleFavorite={toggleFavoriteSql}
               onRemoveFavorite={removeFavoriteSql}
+              metaFor={recentSqlMeta}
             />
           </div>
         </div>

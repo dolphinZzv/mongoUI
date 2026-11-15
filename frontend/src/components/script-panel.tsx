@@ -56,7 +56,7 @@ export function ScriptPanel({ connectionId, database, collection, readOnly, onCl
   const [result, setResult] = React.useState<ScriptResult | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [runbooksOpen, setRunbooksOpen] = React.useState(false)
-  const { items: recent, push, clear } = useRecentQueries(`script:${connectionId}:${database}`)
+  const { items: recent, push, clear, metaFor: recentMeta } = useRecentQueries(`script:${connectionId}:${database}`)
 
   const run = React.useCallback(async () => {
     if (!script.trim()) {
@@ -145,6 +145,7 @@ export function ScriptPanel({ connectionId, database, collection, readOnly, onCl
             items={recent}
             onPick={(value) => setScript(value)}
             onClear={clear}
+            metaFor={recentMeta}
             className="ml-auto"
           />
         </div>

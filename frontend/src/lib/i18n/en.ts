@@ -409,6 +409,8 @@ const en: Record<string, string> = {
   "queryLibrary.conflict": "Saved queries changed; reloading",
   "queryLibrary.failed": "Could not load saved queries",
   "queryLibrary.count": "{{count}} saved",
+  "recent.rows": "{{count}} rows",
+  "recent.duration": "{{ms}} ms",
   "recent.title": "Recent queries",
   "recent.clear": "Clear history",
   "sidebar.connect": "Connect",

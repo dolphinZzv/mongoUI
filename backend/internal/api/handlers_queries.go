@@ -17,6 +17,7 @@ const (
 	savedQueryTextMax  = 64 << 10
 	savedQueryKindSQL  = "sql"
 	savedQueryKindAgg  = "aggregation"
+	savedQueryKindMQL  = "mql"
 )
 
 type savedQueriesInput struct {
@@ -81,8 +82,8 @@ func (a *API) updateSavedQueries(w http.ResponseWriter, r *http.Request) {
 			badRequest(w, errors.New("saved query name must be 1-80 characters"))
 			return
 		}
-		if query.Kind != savedQueryKindSQL && query.Kind != savedQueryKindAgg {
-			badRequest(w, errors.New("saved query kind must be sql or aggregation"))
+		if query.Kind != savedQueryKindSQL && query.Kind != savedQueryKindAgg && query.Kind != savedQueryKindMQL {
+			badRequest(w, errors.New("saved query kind must be sql, aggregation or mql"))
 			return
 		}
 		if query.Text == "" || len(query.Text) > savedQueryTextMax {

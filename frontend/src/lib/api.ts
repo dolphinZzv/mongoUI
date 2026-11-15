@@ -3,6 +3,7 @@ import type {
   AggregateResult,
   AIFilterInput,
   AIFilterResult,
+  AIFixMQLInput,
   AISettings,
   AlertRule,
   AlertRuntimeState,
@@ -534,6 +535,8 @@ export const api = {
     request<AITestResult>("/ai/test", { method: "POST", body: JSON.stringify(input) }),
   generateAIFilter: (input: AIFilterInput) =>
     request<AIFilterResult>("/ai/filter", { method: "POST", body: JSON.stringify(input) }),
+  fixMQL: (input: AIFixMQLInput) =>
+    request<AIFilterResult>("/ai/fix-mql", { method: "POST", body: JSON.stringify(input) }),
 
   // shared chart views ------------------------------------------------------------
   getAlerts: () =>

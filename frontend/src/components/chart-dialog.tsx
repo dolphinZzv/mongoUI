@@ -10,6 +10,7 @@ import {
 import { ChartFilterBox } from "@/components/chart-filter-box"
 import { ChartView } from "@/components/chart-view"
 import { useChartFilter } from "@/hooks/useChartFilter"
+import { api } from "@/lib/api"
 import { copyToClipboard } from "@/lib/clipboard"
 import { useI18n } from "@/lib/i18n"
 import { encodeChartParam } from "@/lib/router"
@@ -129,6 +130,22 @@ export function ChartDialog({
               ? () => {
                   onApplyFilter(filterText)
                   onOpenChange(false)
+                }
+              : undefined
+          }
+          onFixWithAI={
+            connectionId && database && collection
+              ? async (query, error) => {
+                  const result = await api.fixMQL({
+                    query,
+                    error,
+                    connectionId,
+                    database,
+                    collection,
+                    fields: columns,
+                    fieldTypes: fieldTypes ?? {},
+                  })
+                  return JSON.stringify(result.filter, null, 2)
                 }
               : undefined
           }

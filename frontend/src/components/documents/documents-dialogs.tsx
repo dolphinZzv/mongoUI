@@ -123,6 +123,8 @@ interface DocumentsDialogsProps {
   builderOpen: boolean
   onBuilderOpenChange: (open: boolean) => void
   fieldTypes: Record<string, string>
+  mqlFields: string[]
+  mqlFieldTypes: Record<string, string>
   onApplyBuilder: (filter: string, projection: string) => void
   /** Push the chart's filter back to the documents query. */
   onApplyChartFilter: (filter: string) => void
@@ -190,6 +192,8 @@ export function DocumentsDialogs({
   builderOpen,
   onBuilderOpenChange,
   fieldTypes,
+  mqlFields,
+  mqlFieldTypes,
   onApplyBuilder,
   onApplyChartFilter,
 }: DocumentsDialogsProps) {
@@ -446,8 +450,8 @@ export function DocumentsDialogs({
           connectionId={connectionId}
           database={database}
           collection={collection}
-          fields={columns}
-          fieldTypes={fieldTypes}
+          fields={mqlFields}
+          fieldTypes={mqlFieldTypes}
           value={filter}
           projection={projection}
           onApply={onApplyBuilder}

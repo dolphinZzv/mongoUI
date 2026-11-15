@@ -163,6 +163,7 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 			r.Put("/ai", a.updateAISettings)
 			r.Post("/ai/test", a.testAISettings)
 			r.Post("/ai/filter", a.generateAIFilter)
+			r.Post("/ai/fix-mql", a.fixAIFilter)
 			r.Post("/feedback", a.submitFeedback)
 
 			r.Get("/backups", a.listBackups)

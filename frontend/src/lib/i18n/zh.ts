@@ -1248,7 +1248,17 @@ const zh: Record<string, string> = {
   "filter.tpl.objectId": "按 ObjectId",
 
   // Mongo 查询构造器
+  "mql.entryHint": "MongoDB Query Language — Enter 运行，Shift+Enter 换行",
+  "mql.fixAI": "AI 修复",
+  "mql.fixing": "修复中…",
+  "mql.fixAIHint": "调用已配置的 AI 服务修复当前 MQL 错误",
+  "mql.fixApplied": "AI 已修复草稿，请确认后点击运行。",
+  "mql.fixFailed": "AI 无法修复这段 MQL",
+  "mql.valid": "JSON 合法",
+  "mql.clear": "清空过滤",
+  "filter.visual": "可视化",
   "filter.builder": "查询构造器",
+  "filter.sourceInvalid": "当前 MQL 过滤无法解析，构造器已从空条件开始。请先修复过滤，或使用下方 AI 修复。",
   "filter.builderTitle": "查询构造器",
   "filter.builderDesc": "可视化构造过滤条件并选择要显示的列，条件之间用 AND / OR 组合，值会尽量按 JSON 解析。",
   "filter.combinator": "组合方式",

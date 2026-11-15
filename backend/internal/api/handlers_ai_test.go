@@ -1,9 +1,11 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"mongoui/internal/config"
@@ -142,5 +144,52 @@ func TestAITestEndpointRequiresCredentials(t *testing.T) {
 		`{"provider":"openai","baseURL":"https://api.openai.com/v1"}`)
 	if status != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d", status, http.StatusServiceUnavailable)
+	}
+}
+
+func TestFixMQLWithAI(t *testing.T) {
+	t.Setenv("MONGOUI_ALLOW_PRIVATE_AI", "1")
+	var prompt string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if len(body.Messages) > 0 {
+			prompt = body.Messages[len(body.Messages)-1].Content
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"status\":\"active\",\"age\":{\"$gte\":18}}"}}]}`))
+	}))
+	defer server.Close()
+
+	handler, _ := aiTestAPI(t)
+	status, env := doJSON(t, handler, http.MethodPut, "/api/ai",
+		`{"provider":"openai","baseURL":"`+server.URL+`","model":"test","apiKey":"secret"}`)
+	if status != http.StatusOK {
+		t.Fatalf("configure AI status = %d body %#v", status, env)
+	}
+	status, env = doJSON(t, handler, http.MethodPost, "/api/ai/fix-mql",
+		`{"query":"{\"status\":\"active\",\"age\":}","error":"line 1, column 24: unexpected token","database":"db","collection":"users","fields":["status","age"],"fieldTypes":{"status":"string","age":"int"}}`)
+	if status != http.StatusOK {
+		t.Fatalf("fix MQL status = %d body %#v", status, env)
+	}
+	data := dataOf(t, env)
+	filter, ok := data["filter"].(map[string]any)
+	if !ok || filter["status"] != "active" {
+		t.Fatalf("unexpected fixed filter: %#v", data)
+	}
+	if !strings.Contains(prompt, "Invalid MQL") || !strings.Contains(prompt, "unexpected token") {
+		t.Fatalf("prompt did not include repair context: %s", prompt)
+	}
+}
+
+func TestFixMQLRequiresQuery(t *testing.T) {
+	handler, _ := aiTestAPI(t)
+	status, _ := doJSON(t, handler, http.MethodPost, "/api/ai/fix-mql", `{"query":"","error":"oops"}`)
+	if status != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", status, http.StatusBadRequest)
 	}
 }

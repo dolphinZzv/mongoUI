@@ -1255,7 +1255,17 @@ const en: Record<string, string> = {
   "filter.tpl.objectId": "By ObjectId",
 
   // mongo query builder
+  "mql.entryHint": "MongoDB Query Language — Enter runs, Shift+Enter adds a line",
+  "mql.fixAI": "AI fix",
+  "mql.fixing": "Fixing…",
+  "mql.fixAIHint": "Ask the configured AI provider to repair this MQL error",
+  "mql.fixApplied": "AI repaired the draft. Review it, then press Run.",
+  "mql.fixFailed": "AI could not repair this MQL",
+  "mql.valid": "JSON valid",
+  "mql.clear": "Clear filter",
+  "filter.visual": "Visual",
   "filter.builder": "Query builder",
+  "filter.sourceInvalid": "The MQL filter could not be parsed, so the builder started empty. Fix the filter first or use AI repair below.",
   "filter.builderTitle": "Query builder",
   "filter.builderDesc":
     "Build a filter visually and choose which columns are returned. Conditions are combined with AND / OR, and values are parsed as JSON when possible.",

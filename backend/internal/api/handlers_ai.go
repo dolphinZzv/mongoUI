@@ -17,6 +17,8 @@ import (
 const (
 	aiMaxDescription = 4000
 	aiMaxFields      = 200
+	aiMaxMQLText     = 32 << 10
+	aiMaxMQLerror    = 4 << 10
 	aiFilterTimeout  = 90 * time.Second
 	aiTestTimeout    = 45 * time.Second
 )
@@ -185,6 +187,17 @@ type aiFilterOutput struct {
 	Model    string         `json:"model"`
 }
 
+type aiFixMQLInput struct {
+	Query        string            `json:"query"`
+	Error        string            `json:"error"`
+	Description  string            `json:"description"`
+	ConnectionID string            `json:"connectionId"`
+	Database     string            `json:"database"`
+	Collection   string            `json:"collection"`
+	Fields       []string          `json:"fields"`
+	FieldTypes   map[string]string `json:"fieldTypes"`
+}
+
 // generateAIFilter converts a natural-language description into a Mongo find
 // filter using the server's BYOK provider. It never returns the API key.
 func (a *API) generateAIFilter(w http.ResponseWriter, r *http.Request) {
@@ -236,6 +249,106 @@ func (a *API) generateAIFilter(w http.ResponseWriter, r *http.Request) {
 		Provider: cfg.Provider,
 		Model:    cfg.Model,
 	})
+}
+
+// fixAIFilter repairs an invalid MongoDB find filter using the caller's BYOK
+// model. The original text and parser error are sent as context; the response
+// is validated as a single filter object before it reaches the editor.
+func (a *API) fixAIFilter(w http.ResponseWriter, r *http.Request) {
+	var in aiFixMQLInput
+	if err := decodeJSON(r, &in); err != nil {
+		badRequest(w, err)
+		return
+	}
+	in.Query = strings.TrimSpace(in.Query)
+	in.Error = strings.TrimSpace(in.Error)
+	in.Description = strings.TrimSpace(in.Description)
+	if in.Query == "" {
+		badRequest(w, errors.New("query is required"))
+		return
+	}
+	if len(in.Query) > aiMaxMQLText {
+		badRequest(w, fmt.Errorf("query must be at most %d KiB", aiMaxMQLText>>10))
+		return
+	}
+	if len(in.Error) > aiMaxMQLerror {
+		in.Error = in.Error[:aiMaxMQLerror]
+	}
+	if utf8.RuneCountInString(in.Description) > aiMaxDescription {
+		badRequest(w, fmt.Errorf("description must be at most %d characters", aiMaxDescription))
+		return
+	}
+	if len(in.Fields) > aiMaxFields {
+		in.Fields = in.Fields[:aiMaxFields]
+	}
+	for i, field := range in.Fields {
+		in.Fields[i] = strings.TrimSpace(field)
+	}
+
+	cfg, err := a.settings.GetAI(a.aiUserKey(r))
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if err := validateAIConfig(cfg); err != nil {
+		fail(w, http.StatusServiceUnavailable, err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), aiFilterTimeout)
+	defer cancel()
+	raw, err := ai.GenerateFilter(ctx, cfg, buildAIFixMQLPrompt(in))
+	if err != nil {
+		fail(w, http.StatusBadGateway, err)
+		return
+	}
+	filter, err := extractFilterJSON(raw)
+	if err != nil {
+		fail(w, http.StatusBadGateway, fmt.Errorf("AI returned an invalid filter: %w", err))
+		return
+	}
+	ok(w, aiFilterOutput{
+		Filter:   filter,
+		Provider: cfg.Provider,
+		Model:    cfg.Model,
+	})
+}
+
+func buildAIFixMQLPrompt(in aiFixMQLInput) string {
+	var b strings.Builder
+	b.WriteString("You repair invalid MongoDB Query Language (MQL) find filters.\n")
+	b.WriteString("Return exactly one valid JSON object and nothing else. No markdown fences, comments or explanations.\n")
+	b.WriteString("Preserve the author's intent and make the smallest correction that produces valid MongoDB syntax.\n")
+	b.WriteString("Use only the supplied field names and MongoDB query operators. ")
+	b.WriteString("For dates use Extended JSON such as {\"$date\":\"2026-01-01T00:00:00Z\"}; for ObjectIds use {\"$oid\":\"...\"}.\n")
+	b.WriteString("Do not invent data, and do not turn the filter into an aggregation pipeline.\n")
+	if in.Database != "" || in.Collection != "" {
+		b.WriteString("Target: " + in.Database + "." + in.Collection + "\n")
+	}
+	b.WriteString("Available fields and BSON types:\n")
+	if len(in.Fields) == 0 {
+		b.WriteString("- (none supplied; keep field names from the original query)\n")
+	}
+	for _, field := range in.Fields {
+		if field == "" {
+			continue
+		}
+		kind := strings.TrimSpace(in.FieldTypes[field])
+		if kind == "" {
+			kind = "unknown"
+		}
+		b.WriteString(fmt.Sprintf("- %s (%s)\n", field, kind))
+	}
+	b.WriteString("Invalid MQL:\n")
+	b.WriteString(in.Query)
+	b.WriteString("\nParser error:\n")
+	b.WriteString(in.Error)
+	if in.Description != "" {
+		b.WriteString("\nUser intent:\n")
+		b.WriteString(in.Description)
+	}
+	b.WriteString("\n")
+	return b.String()
 }
 
 func aiView(cfg config.AISettings) aiSettingsView {

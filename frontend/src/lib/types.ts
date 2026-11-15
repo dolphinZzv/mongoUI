@@ -391,6 +391,17 @@ export interface AIFilterResult {
   model: string
 }
 
+export interface AIFixMQLInput {
+  query: string
+  error: string
+  description?: string
+  connectionId: string
+  database: string
+  collection: string
+  fields: string[]
+  fieldTypes: Record<string, string>
+}
+
 export interface AlertRule {
   id: string
   name: string
@@ -465,7 +476,7 @@ export interface RunbookRuntimeState {
 export interface SavedQuery {
   id: string
   name: string
-  kind: "sql" | "aggregation"
+  kind: "sql" | "aggregation" | "mql"
   text: string
   updatedAt?: string
   updatedBy?: string

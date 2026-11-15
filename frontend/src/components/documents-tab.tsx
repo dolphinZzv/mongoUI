@@ -1,11 +1,9 @@
 import * as React from "react"
 import {
   BarChart3,
-  Braces,
   ChevronDown,
   Columns3,
   LineChart,
-  ListFilter,
   Pin,
   PinOff,
   Rows3,
@@ -14,6 +12,7 @@ import {
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { QueryLibrary } from "@/components/query-library"
 import { RecentQueries } from "@/components/recent-queries"
 import { AsyncProgress } from "@/components/async-progress"
 import { ColumnsPicker } from "@/components/documents/columns-picker"
@@ -337,6 +336,41 @@ export function DocumentsTab({
     }
     return types
   }, [allColumns, documents])
+
+  // MQL completion should cover the whole collection, not only the current
+  // page. Schema sampling is best-effort: a failure leaves page fields usable.
+  const [schemaMQLFields, setSchemaMQLFields] = React.useState<string[]>([])
+  const [schemaMQLTypes, setSchemaMQLTypes] = React.useState<Record<string, string>>({})
+  React.useEffect(() => {
+    let cancelled = false
+    void api
+      .collectionSchema(connectionId, database, collection)
+      .then((schema) => {
+        if (cancelled) return
+        const fields: string[] = []
+        const types: Record<string, string> = {}
+        for (const field of schema.fields) {
+          fields.push(field.name)
+          const dominant = Object.entries(field.types).sort((a, b) => b[1] - a[1])[0]?.[0]
+          if (dominant) types[field.name] = dominant
+        }
+        setSchemaMQLFields(fields)
+        setSchemaMQLTypes(types)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [connectionId, database, collection])
+
+  const mqlFields = React.useMemo(
+    () => Array.from(new Set([...allColumns, ...schemaMQLFields])),
+    [allColumns, schemaMQLFields],
+  )
+  const mqlFieldTypes = React.useMemo(
+    () => ({ ...schemaMQLTypes, ...fieldTypes }),
+    [schemaMQLTypes, fieldTypes],
+  )
 
   const buildVisualizeConfig = React.useCallback(
     (selected: string[]): ChartConfig => {
@@ -1221,7 +1255,24 @@ export function DocumentsTab({
           readOnly={readOnly}
           onInsert={() => setEditing({ mode: "insert" })}
           queryError={queryError}
-          suggestions={allColumns}
+          suggestions={mqlFields}
+          onOpenBuilder={() => setBuilderOpen(true)}
+          onClear={() => {
+            setFilter("{}")
+            void load({ skip: 0, filter: "{}" })
+          }}
+          onFixWithAI={async (query, error) => {
+            const result = await api.fixMQL({
+              query,
+              error,
+              connectionId,
+              database,
+              collection,
+              fields: mqlFields,
+              fieldTypes: mqlFieldTypes,
+            })
+            return JSON.stringify(result.filter, null, 2)
+          }}
         />
 
         {/* Secondary query tools, grouped and scrollable on narrow screens. */}
@@ -1237,17 +1288,15 @@ export function DocumentsTab({
             onToggleFavorite={toggleFavoriteFilter}
             onRemoveFavorite={removeFavoriteFilter}
           />
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9"
-            onClick={() => setBuilderOpen(true)}
-            title={t("filter.builder")}
-            aria-label={t("filter.builder")}
-          >
-            <ListFilter />
-            <span className="hidden sm:inline">{t("filter.builder")}</span>
-          </Button>
+          <QueryLibrary
+            scope={`${connectionId}::${database}::${collection}`}
+            kind="mql"
+            text={filter}
+            onPick={(query) => {
+              setFilter(query)
+              void load({ skip: 0, filter: query })
+            }}
+          />
           <Button
             variant={isFilterPinned ? "secondary" : "outline"}
             size="sm"
@@ -1281,17 +1330,6 @@ export function DocumentsTab({
             onPin={pinView}
             onDelete={deleteView}
           />
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9"
-            onClick={formatQuery}
-            title={t("docs.formatQuery")}
-            aria-label={t("docs.formatQuery")}
-          >
-            <Braces />
-            <span className="hidden lg:inline">{t("docs.format")}</span>
-          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -1667,6 +1705,8 @@ export function DocumentsTab({
         builderOpen={builderOpen}
         onBuilderOpenChange={setBuilderOpen}
         fieldTypes={fieldTypes}
+        mqlFields={mqlFields}
+        mqlFieldTypes={mqlFieldTypes}
         onApplyBuilder={(nextFilter, nextProjection) => {
           setFilter(nextFilter)
           setProjection(nextProjection)

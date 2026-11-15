@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Loader2 } from "lucide-react"
+import { Loader2, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { useI18n } from "@/lib/i18n"
+import { jsonObjectError } from "@/lib/jsonText"
 import { api } from "@/lib/api"
 import { GroupEditor } from "./query-builder/group-editor"
 import { ProjectionEditor } from "./query-builder/projection-editor"
@@ -61,6 +62,7 @@ export function MongoQueryBuilder({
   const [root, setRoot] = React.useState<GroupNode>(() => parseFilter(value))
   const [describe, setDescribe] = React.useState("")
   const [generating, setGenerating] = React.useState(false)
+  const [fixingSource, setFixingSource] = React.useState(false)
   const [projectionState, setProjectionState] = React.useState<ProjectionState>(() =>
     parseProjection(projection),
   )
@@ -73,6 +75,7 @@ export function MongoQueryBuilder({
     if (open) {
       const seededRoot = parseFilter(value)
       const seededProjection = parseProjection(projection)
+      setSourceError(jsonObjectError(value))
       setRoot(seededRoot)
       setProjectionState(seededProjection)
       baselineRef.current = JSON.stringify(seededRoot) + "|" + JSON.stringify(seededProjection)
@@ -80,6 +83,7 @@ export function MongoQueryBuilder({
   }, [open, value, projection])
 
   const dirty = JSON.stringify(root) + "|" + JSON.stringify(projectionState) !== baselineRef.current
+  const [sourceError, setSourceError] = React.useState<string | null>(() => jsonObjectError(value))
 
   React.useEffect(() => {
     if (!open || !dirty) return
@@ -115,6 +119,29 @@ export function MongoQueryBuilder({
     onOpenChange(false)
   }
 
+  const fixSource = async () => {
+    if (!sourceError || fixingSource) return
+    setFixingSource(true)
+    try {
+      const result = await api.fixMQL({
+        query: value,
+        error: sourceError,
+        connectionId,
+        database,
+        collection,
+        fields,
+        fieldTypes,
+      })
+      setRoot(parseFilter(JSON.stringify(result.filter)))
+      setSourceError(null)
+      toast.success(t("mql.fixApplied"))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("mql.fixFailed"))
+    } finally {
+      setFixingSource(false)
+    }
+  }
+
   const generate = async () => {
     const description = describe.trim()
     if (!description || generating) return
@@ -147,6 +174,21 @@ export function MongoQueryBuilder({
         </DialogHeader>
 
         <div className="scrollbar-thin max-h-[55vh] space-y-4 overflow-auto pr-1">
+          {sourceError ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
+              <span className="min-w-0 flex-1">{t("filter.sourceInvalid")}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-[11px]"
+                onClick={() => void fixSource()}
+                disabled={fixingSource}
+              >
+                {fixingSource ? <Loader2 className="animate-spin" /> : <Sparkles />}
+                {fixingSource ? t("mql.fixing") : t("mql.fixAI")}
+              </Button>
+            </div>
+          ) : null}
           <div className="flex gap-2">
             <Input
               value={describe}

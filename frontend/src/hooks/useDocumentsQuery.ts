@@ -5,7 +5,7 @@ import { api, isAbortError } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { DOCS_QUERY_DEFAULTS, type ChartShareState, type DocsQueryState } from "@/lib/router"
 import type { FindResult } from "@/lib/types"
-import { jsonError } from "@/lib/jsonText"
+import { jsonObjectError } from "@/lib/jsonText"
 
 /** Signature of the parts that only change when the user runs a query. */
 function appliedQueryKey(filter: string, sort: string, projection: string): string {
@@ -251,9 +251,9 @@ export function useDocumentsQuery({
   const sortActive =
     Boolean(sort.trim()) && normalizedJSON(sort) !== normalizedJSON(DOCS_QUERY_DEFAULTS.sort)
   const projectionActive = Boolean(projection.trim()) && normalizedJSON(projection) !== "{}"
-  const filterError = React.useMemo(() => jsonError(filter), [filter])
-  const sortError = React.useMemo(() => jsonError(sort), [sort])
-  const projectionError = React.useMemo(() => jsonError(projection), [projection])
+  const filterError = React.useMemo(() => jsonObjectError(filter), [filter])
+  const sortError = React.useMemo(() => jsonObjectError(sort), [sort])
+  const projectionError = React.useMemo(() => jsonObjectError(projection), [projection])
   const queryError = filterError ?? sortError ?? projectionError
   const queryDirty = appliedQueryKey(filter, sort, projection) !== appliedQuery
 

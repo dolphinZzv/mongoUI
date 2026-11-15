@@ -15,7 +15,8 @@ export function useChartFilter(initial: string, delayMs = 500) {
 
   const parsed = React.useMemo<unknown | null>(() => {
     try {
-      return JSON.parse(debounced.trim() || "{}") as unknown
+      const value = JSON.parse(debounced.trim() || "{}") as unknown
+      return value && typeof value === "object" && !Array.isArray(value) ? value : null
     } catch {
       return null
     }

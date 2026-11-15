@@ -937,7 +937,6 @@ const zh: Record<string, string> = {
   "dashboard.share": "复制链接",
   "dashboard.linkCopied": "仪表盘链接已复制",
   "dashboard.filter": "全局筛选",
-  "dashboard.filterDesc": "会叠加在每张固定图表自己的筛选之上",
   "dashboard.refresh": "自动刷新",
   "dashboard.refreshOff": "关闭",
   "dashboard.refreshEvery": "每 {{seconds}} 秒",

@@ -940,7 +940,6 @@ const en: Record<string, string> = {
   "dashboard.share": "Copy link",
   "dashboard.linkCopied": "Dashboard link copied",
   "dashboard.filter": "Filter all charts",
-  "dashboard.filterDesc": "Applied on top of each pinned chart filter",
   "dashboard.refresh": "Auto refresh",
   "dashboard.refreshOff": "Off",
   "dashboard.refreshEvery": "Every {{seconds}}s",

@@ -173,10 +173,7 @@ export function DashboardView({ connections, onOpenChart }: DashboardViewProps) 
       </div>
 
       <div className="border-b px-4 py-3">
-        <div className="mb-1 flex items-center gap-2">
-          <span className="text-xs font-medium">{t("dashboard.filter")}</span>
-          <span className="text-muted-foreground text-[11px]">{t("dashboard.filterDesc")}</span>
-        </div>
+        <span className="text-xs font-medium">{t("dashboard.filter")}</span>
         <ChartFilterBox
           value={filterText}
           onChange={setFilterText}

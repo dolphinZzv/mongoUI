@@ -825,7 +825,7 @@ const zh: Record<string, string> = {
   "chart.searchFields": "搜索字段",
   "chart.rawHint": "显示前 {{shown}} 条原始文档，共 {{total}} 条",
   "chart.downsampled": "为性能已降采样为 {{shown}} 个点",
-  "chart.keyboardHint": "聚焦图表后可用方向键浏览数据点，回车按该点过滤。",
+  "chart.keyboardHint": "鼠标悬停显示竖线与数值；聚焦后可用方向键浏览，回车按该点过滤。",
   "chart.showMore": "显示更多",
   "chart.useAggregate": "改为聚合",
   "chart.crowded": "分类过多，图表可读性较差。",

@@ -202,6 +202,7 @@ export function ChartView({
   const [brushMode, setBrushMode] = React.useState(false)
   const [brush, setBrush] = React.useState<{ start: number; end: number } | null>(null)
   const [focusIndex, setFocusIndex] = React.useState<number | null>(null)
+  const [hoverIndex, setHoverIndex] = React.useState<number | null>(null)
   const rootRef = React.useRef<HTMLDivElement>(null)
   const [isFullscreen, setIsFullscreen] = React.useState(false)
   const [viewportHeight, setViewportHeight] = React.useState(
@@ -491,6 +492,7 @@ export function ChartView({
   // Reset zoom when the query changes and keep an existing window in bounds.
   React.useEffect(() => {
     setZoom(null)
+    setHoverIndex(null)
   }, [fetchKey])
 
   React.useEffect(() => {
@@ -679,6 +681,8 @@ export function ChartView({
 
   const hasData =
     scatterMode ? Boolean(scatter && scatter.points.length > 0) : data.categories.length > 0 && series.length > 0
+  const activeIndex = hoverIndex ?? focusIndex
+  const bandWidth = plotWidth / Math.max(1, data.categories.length)
 
   const crowded =
     data.categories.length > (config.type === "pie" ? 12 : 40) ||
@@ -881,6 +885,35 @@ export function ChartView({
     const n = baseData.categories.length
     const fraction = (clientX - rect.left - margin.left) / Math.max(1, plotWidth)
     return Math.max(0, Math.min(n, fraction * n))
+  }
+
+  const categoryAtClientX = (clientX: number): number | null => {
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect) return null
+    const n = data.categories.length
+    if (n === 0) return null
+    const fraction = (clientX - rect.left - margin.left) / Math.max(1, plotWidth)
+    if (fraction < 0 || fraction > 1) return null
+    return Math.max(0, Math.min(n - 1, Math.floor(fraction * n)))
+  }
+
+  const hoverCategory = (event: React.PointerEvent<SVGSVGElement>) => {
+    if (brushMode || scatterMode || horizontal || config.type === "pie") return
+    const index = categoryAtClientX(event.clientX)
+    if (index === null) {
+      setHoverIndex(null)
+      if (focusIndex === null) hideTooltip()
+      return
+    }
+    if (index === hoverIndex) return
+    setHoverIndex(index)
+    const band = plotWidth / Math.max(1, data.categories.length)
+    setTooltipAt(
+      margin.left + (index + 0.5) * band,
+      margin.top + 16,
+      data.categories[index],
+      series.map((item) => ({ name: item.name, value: item.values[index] ?? 0 })),
+    )
   }
 
   const currentZoom = () => zoom ?? { start: 0, end: baseData.categories.length }
@@ -1261,7 +1294,12 @@ export function ChartView({
               tabIndex={0}
               onBlur={() => {
                 setFocusIndex(null)
+                setHoverIndex(null)
                 hideTooltip()
+              }}
+              onPointerLeave={() => {
+                setHoverIndex(null)
+                if (focusIndex === null) hideTooltip()
               }}
               onKeyDown={(event) => {
                 if (data.categories.length === 0) return
@@ -1288,6 +1326,7 @@ export function ChartView({
                 if (pointersRef.current.size === 2) startPinch()
               }}
               onPointerMove={(event) => {
+                hoverCategory(event)
                 if (
                   event.pointerType !== "touch" ||
                   brushMode ||
@@ -1449,16 +1488,34 @@ export function ChartView({
                   )}
                 </>
               )}
-              {focusIndex !== null && !scatterMode ? (
-                <line
-                  x1={margin.left + (focusIndex + 0.5) * (plotWidth / Math.max(1, data.categories.length))}
-                  x2={margin.left + (focusIndex + 0.5) * (plotWidth / Math.max(1, data.categories.length))}
-                  y1={margin.top}
-                  y2={margin.top + plotHeight}
-                  stroke="var(--ring)"
-                  strokeDasharray="3 3"
-                  pointerEvents="none"
-                />
+              {activeIndex !== null && !scatterMode && !horizontal && config.type !== "pie" ? (
+                <g pointerEvents="none">
+                  <line
+                    x1={margin.left + (activeIndex + 0.5) * bandWidth}
+                    x2={margin.left + (activeIndex + 0.5) * bandWidth}
+                    y1={margin.top}
+                    y2={margin.top + plotHeight}
+                    stroke="var(--ring)"
+                    strokeDasharray="3 3"
+                  />
+                  {!stacked && !percentStacked && config.type !== "combo"
+                    ? series.map((item, index) => {
+                        const value = item.values[activeIndex]
+                        if (value === undefined) return null
+                        return (
+                          <circle
+                            key={`hover-dot-${index}`}
+                            cx={margin.left + (activeIndex + 0.5) * bandWidth}
+                            cy={yFor(value)}
+                            r={4}
+                            fill={CHART_COLORS[data.series.indexOf(item) % CHART_COLORS.length]}
+                            stroke="var(--background)"
+                            strokeWidth={2}
+                          />
+                        )
+                      })
+                    : null}
+                </g>
               ) : null}
               {brushMode ? (
                 <g>

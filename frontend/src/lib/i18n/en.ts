@@ -828,7 +828,7 @@ const en: Record<string, string> = {
   "chart.searchFields": "Search fields",
   "chart.rawHint": "Showing first {{shown}} of {{total}} raw documents",
   "chart.downsampled": "Downsampled to {{shown}} points for performance",
-  "chart.keyboardHint": "Focus the chart and use the arrow keys to inspect points; Enter filters by the selected point.",
+  "chart.keyboardHint": "Hover the chart for a crosshair and values; focus and use arrow keys for keyboard inspection, Enter to filter.",
   "chart.showMore": "Show more",
   "chart.useAggregate": "Use aggregation",
   "chart.crowded": "Too many categories to read comfortably.",

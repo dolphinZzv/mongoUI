@@ -720,6 +720,11 @@ const zh: Record<string, string> = {
   "result.exportJson": "导出 JSON",
   "result.exportCsv": "导出 CSV",
   "result.cancel": "取消查询",
+  "result.columns": "选择列",
+  "result.showAllColumns": "显示全部列",
+  "result.selectAll": "选择本页全部行",
+  "result.selectRow": "选择第 {{row}} 行",
+  "result.selected": "已选 {{count}} 行",
   "result.queryTime": "查询耗时",
   "result.chart": "图表",
 

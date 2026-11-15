@@ -1,6 +1,17 @@
 import * as React from "react"
-import { Pin, PinOff } from "lucide-react"
+import { Columns3, Pin, PinOff } from "lucide-react"
 
+import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Table,
   TableBody,
@@ -64,6 +75,10 @@ interface ResultTableProps {
   columns: string[]
   /** localStorage scope for the pinned-column choice, e.g. `sql:conn:db:col`. */
   storageKey: string
+  /** Optional row selection used by the query result toolbar. */
+  selectable?: boolean
+  selected?: Set<number>
+  onSelectedChange?: (next: Set<number>) => void
   /** Optional raw-value → display-label mappings from the collection prefs. */
   dictionaries?: ColumnDictionaries
   renderers?: ColumnRenderers
@@ -76,10 +91,15 @@ interface ResultTableProps {
  * stay visible while scrolling horizontally; both choices are remembered per
  * `storageKey`.
  */
+const EMPTY_SELECTION = new Set<number>()
+
 export function ResultTable({
   documents,
   columns,
   storageKey,
+  selectable = false,
+  selected = EMPTY_SELECTION,
+  onSelectedChange,
   dictionaries,
   renderers,
   colors,
@@ -108,14 +128,49 @@ export function ResultTable({
     [columns, prefs.order],
   )
   // Only pin columns that are actually present in this result.
+  const hiddenSet = React.useMemo(() => new Set(prefs.hidden), [prefs.hidden])
   const pinnedColumns = React.useMemo(
-    () => orderedColumns.filter((column) => prefs.pinned.includes(column)),
-    [orderedColumns, prefs.pinned],
+    () =>
+      orderedColumns.filter(
+        (column) => prefs.pinned.includes(column) && !hiddenSet.has(column),
+      ),
+    [orderedColumns, prefs.pinned, hiddenSet],
+  )
+  const visibleColumns = React.useMemo(
+    () => orderedColumns.filter((column) => !hiddenSet.has(column)),
+    [orderedColumns, hiddenSet],
   )
   const displayColumns = React.useMemo(() => {
     const pinnedSet = new Set(pinnedColumns)
-    return [...pinnedColumns, ...orderedColumns.filter((column) => !pinnedSet.has(column))]
-  }, [orderedColumns, pinnedColumns])
+    return [
+      ...pinnedColumns.filter((column) => !hiddenSet.has(column)),
+      ...visibleColumns.filter((column) => !pinnedSet.has(column)),
+    ]
+  }, [pinnedColumns, visibleColumns, hiddenSet])
+  const allSelected = documents.length > 0 && documents.every((_, index) => selected.has(index))
+  const someSelected = documents.some((_, index) => selected.has(index))
+
+  const toggleAll = (checked: boolean) => {
+    if (!onSelectedChange) return
+    onSelectedChange(checked ? new Set(documents.map((_, index) => index)) : new Set())
+  }
+
+  const toggleRow = (index: number, checked: boolean) => {
+    if (!onSelectedChange) return
+    const next = new Set(selected)
+    if (checked) next.add(index)
+    else next.delete(index)
+    onSelectedChange(next)
+  }
+
+  const toggleColumn = (column: string, visible: boolean) => {
+    setPrefs((prev) => ({
+      ...prev,
+      hidden: visible
+        ? prev.hidden.filter((item) => item !== column)
+        : [...new Set([...prev.hidden, column])],
+    }))
+  }
 
   const frozen = useFrozenColumns(pinnedColumns)
   const pinnedSet = React.useMemo(() => new Set(pinnedColumns), [pinnedColumns])
@@ -158,14 +213,63 @@ export function ResultTable({
 
   return (
     <>
-      <div
-        ref={frozen.scrollRef}
-        onScroll={frozen.onScroll}
-        className="scrollbar-thin min-h-0 flex-1 overflow-auto"
-      >
-        <Table>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="bg-background flex shrink-0 items-center justify-end gap-1 border-b px-2 py-1">
+          {selectable && selected.size > 0 ? (
+            <span className="text-muted-foreground mr-auto text-[11px]">{selected.size}</span>
+          ) : null}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                title={t("result.columns")}
+                aria-label={t("result.columns")}
+                data-testid="query-columns"
+              >
+                <Columns3 />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="max-h-80 w-56 overflow-auto">
+              <DropdownMenuLabel>{t("result.columns")}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {orderedColumns.map((column) => (
+                <DropdownMenuCheckboxItem
+                  key={column}
+                  checked={!hiddenSet.has(column)}
+                  onCheckedChange={(checked) => toggleColumn(column, Boolean(checked))}
+                  onSelect={(event) => event.preventDefault()}
+                  className="font-mono text-xs"
+                >
+                  {column}
+                </DropdownMenuCheckboxItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() => setPrefs((prev) => ({ ...prev, hidden: [] }))}
+              >
+                {t("result.showAllColumns")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        <div
+          ref={frozen.scrollRef}
+          onScroll={frozen.onScroll}
+          className="scrollbar-thin min-h-0 flex-1 overflow-auto"
+        >
+          <Table>
           <TableHeader className="bg-background sticky top-0 z-20">
             <TableRow className="hover:bg-transparent">
+              {selectable ? (
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                    onCheckedChange={(checked) => toggleAll(Boolean(checked))}
+                    aria-label={t("result.selectAll")}
+                  />
+                </TableHead>
+              ) : null}
               {displayColumns.map((column) => {
                 const isPinned = pinnedSet.has(column)
                 const left = frozen.offsets[column]
@@ -223,8 +327,19 @@ export function ResultTable({
             {documents.map((doc, index) => (
               <TableRow
                 key={index}
+                data-selected={selectable && selected.has(index) ? "true" : undefined}
+                className={selectable && selected.has(index) ? "bg-primary/5" : undefined}
                 style={{ contentVisibility: "auto", containIntrinsicSize: "auto 2rem" }}
               >
+                {selectable ? (
+                  <TableCell className="w-10">
+                    <Checkbox
+                      checked={selected.has(index)}
+                      onCheckedChange={(checked) => toggleRow(index, Boolean(checked))}
+                      aria-label={t("result.selectRow", { row: index + 1 })}
+                    />
+                  </TableCell>
+                ) : null}
                 {displayColumns.map((column) => {
                   const value = doc[column]
                   const isPinned = pinnedSet.has(column)
@@ -265,7 +380,8 @@ export function ResultTable({
               </TableRow>
             ))}
           </TableBody>
-        </Table>
+          </Table>
+        </div>
       </div>
       <CellValueDialog
         open={valuePreview !== null}

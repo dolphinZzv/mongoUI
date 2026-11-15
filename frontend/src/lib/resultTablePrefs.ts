@@ -13,6 +13,8 @@ export interface ResultTablePrefs {
   /** Explicit column order; new columns are appended after it. */
   order: string[]
   pinned: string[]
+  /** Columns hidden from this result table. */
+  hidden: string[]
 }
 
 export function resultTablePrefsKey(storageKey: string): string {
@@ -20,7 +22,7 @@ export function resultTablePrefsKey(storageKey: string): string {
 }
 
 function defaultPrefs(): ResultTablePrefs {
-  return { order: [], pinned: [...DEFAULT_RESULT_PINNED] }
+  return { order: [], pinned: [...DEFAULT_RESULT_PINNED], hidden: [] }
 }
 
 function stringList(value: unknown): string[] {
@@ -37,7 +39,7 @@ export function readResultTablePrefs(key: string): ResultTablePrefs {
     if (raw === null) return defaultPrefs()
     const parsed = JSON.parse(raw) as unknown
     // Legacy format: a bare array stored only the pinned columns.
-    if (Array.isArray(parsed)) return { order: [], pinned: stringList(parsed) }
+    if (Array.isArray(parsed)) return { order: [], pinned: stringList(parsed), hidden: [] }
     if (!parsed || typeof parsed !== "object") return defaultPrefs()
     const prefs = parsed as Partial<ResultTablePrefs>
     return {
@@ -45,6 +47,7 @@ export function readResultTablePrefs(key: string): ResultTablePrefs {
       pinned: Array.isArray(prefs.pinned)
         ? stringList(prefs.pinned)
         : [...DEFAULT_RESULT_PINNED],
+      hidden: stringList(prefs.hidden),
     }
   } catch {
     return defaultPrefs()

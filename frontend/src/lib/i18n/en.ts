@@ -723,6 +723,11 @@ const en: Record<string, string> = {
   "result.exportJson": "Export JSON",
   "result.exportCsv": "Export CSV",
   "result.cancel": "Cancel query",
+  "result.columns": "Choose columns",
+  "result.showAllColumns": "Show all columns",
+  "result.selectAll": "Select all rows on this page",
+  "result.selectRow": "Select row {{row}}",
+  "result.selected": "{{count}} selected",
   "result.queryTime": "Query time",
   "result.chart": "Chart",
 

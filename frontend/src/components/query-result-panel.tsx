@@ -1,3 +1,5 @@
+import * as React from "react"
+
 import {
   Ban,
   BarChart3,
@@ -88,16 +90,27 @@ export function QueryResultPanel({
   colors,
 }: QueryResultPanelProps) {
   const { t } = useI18n()
-  const canExport = ran && documents.length > 0
+  const [selected, setSelected] = React.useState<Set<number>>(new Set())
+  const selectedDocuments = React.useMemo(
+    () => documents.filter((_, index) => selected.has(index)),
+    [documents, selected],
+  )
+  const exportDocuments = selected.size > 0 ? selectedDocuments : documents
+  const canExport = ran && exportDocuments.length > 0
+
+  React.useEffect(() => {
+    setSelected(new Set())
+  }, [documents])
 
   const copyResults = async () => {
-    const ok = await copyToClipboard(resultToJSON(documents))
+    const ok = await copyToClipboard(resultToJSON(exportDocuments))
     if (ok) toast.success(t("common.copied"))
     else toast.error(t("common.copyFailed"))
   }
 
   const exportResults = (format: "json" | "csv") => {
-    const content = format === "csv" ? resultToCSV(documents) : resultToJSON(documents)
+    const content =
+      format === "csv" ? resultToCSV(exportDocuments) : resultToJSON(exportDocuments)
     downloadText(
       resultExportName(storageKey, format),
       content,
@@ -130,6 +143,11 @@ export function QueryResultPanel({
         >
           <BarChart3 /> {t("result.chart")}
         </Button>
+        {selected.size > 0 ? (
+          <span className="text-muted-foreground text-[11px]">
+            {t("result.selected", { count: selected.size })}
+          </span>
+        ) : null}
         {pagination && ran && pagination.count > 0 ? (
           <div className="flex items-center gap-0.5" data-testid="query-pagination">
             <Button
@@ -224,6 +242,9 @@ export function QueryResultPanel({
           documents={documents}
           columns={columns}
           storageKey={storageKey}
+          selectable={ran}
+          selected={selected}
+          onSelectedChange={setSelected}
           dictionaries={dictionaries}
           renderers={renderers}
           colors={colors}

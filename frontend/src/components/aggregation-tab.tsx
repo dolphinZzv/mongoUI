@@ -19,7 +19,7 @@ import { QueryLibrary } from "@/components/query-library"
 import { QueryResultPanel } from "@/components/query-result-panel"
 import { RecentQueries } from "@/components/recent-queries"
 import { useRecentQueries } from "@/hooks/useRecentQueries"
-import { api } from "@/lib/api"
+import { api, isAbortError } from "@/lib/api"
 import { copyToClipboard } from "@/lib/clipboard"
 import { useI18n } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
@@ -89,6 +89,7 @@ export function AggregationTab({
   const [durationMs, setDurationMs] = React.useState<number | undefined>()
   const [loading, setLoading] = React.useState(false)
   const [ran, setRan] = React.useState(false)
+  const abortRef = React.useRef<AbortController | null>(null)
   const [view, setView] = React.useState<"table" | "json" | "chart">("table")
   const [mode, setMode] = React.useState<"visual" | "json">("visual")
   const [explainOpen, setExplainOpen] = React.useState(false)
@@ -159,6 +160,16 @@ export function AggregationTab({
     }
   }, [connectionId, sourceDatabase])
 
+  React.useEffect(() => () => abortRef.current?.abort(), [])
+
+  const cancel = () => {
+    if (!abortRef.current) return
+    abortRef.current.abort()
+    abortRef.current = null
+    setLoading(false)
+    toast.info(t("docs.cancelled"))
+  }
+
   const run = async () => {
     let parsed: unknown
     try {
@@ -175,6 +186,9 @@ export function AggregationTab({
       toast.error(t("agg.sourceRequired"))
       return
     }
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
     setLoading(true)
     setDurationMs(undefined)
     try {
@@ -184,15 +198,20 @@ export function AggregationTab({
         sourceCollection,
         parsed,
         limit.trim() ? Number(limit) : undefined,
+        controller.signal,
       )
       setDocuments(res.documents)
       setDurationMs(res.durationMs)
       setRan(true)
       pushRecentPipeline(pipeline)
     } catch (err) {
+      if (isAbortError(err)) return
       toast.error(err instanceof Error ? err.message : t("agg.failed"))
     } finally {
-      setLoading(false)
+      if (abortRef.current === controller) {
+        abortRef.current = null
+        setLoading(false)
+      }
     }
   }
 
@@ -363,6 +382,8 @@ export function AggregationTab({
         durationMs={durationMs}
         notRunText={t("agg.notRun")}
         emptyText={t("agg.empty")}
+        loading={loading}
+        onCancel={cancel}
         dictionaries={columnPrefs.dictionaries}
         renderers={columnPrefs.renderers}
         colors={columnPrefs.colors}

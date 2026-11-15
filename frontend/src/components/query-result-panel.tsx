@@ -1,10 +1,20 @@
-import { BarChart3, Braces, Table2 } from "lucide-react"
+import { Ban, BarChart3, Braces, Copy, Download, FileJson, FileSpreadsheet, Table2 } from "lucide-react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { ChartView } from "@/components/chart-view"
 import { ResultTable } from "@/components/documents/result-table"
 import { JsonView } from "@/components/json-view"
 import { QueryDuration } from "@/components/query-duration"
+import { copyToClipboard } from "@/lib/clipboard"
+import { downloadText } from "@/lib/download"
+import { resultExportName, resultToCSV, resultToJSON } from "@/lib/resultExport"
 import type {
   ColumnColorRules,
   ColumnDictionaries,
@@ -29,6 +39,8 @@ interface QueryResultPanelProps {
   durationMs?: number
   notRunText: string
   emptyText: string
+  loading?: boolean
+  onCancel?: () => void
   dictionaries?: ColumnDictionaries
   renderers?: ColumnRenderers
   colors?: ColumnColorRules
@@ -50,11 +62,29 @@ export function QueryResultPanel({
   durationMs,
   notRunText,
   emptyText,
+  loading = false,
+  onCancel,
   dictionaries,
   renderers,
   colors,
 }: QueryResultPanelProps) {
   const { t } = useI18n()
+  const canExport = ran && documents.length > 0
+
+  const copyResults = async () => {
+    const ok = await copyToClipboard(resultToJSON(documents))
+    if (ok) toast.success(t("common.copied"))
+    else toast.error(t("common.copyFailed"))
+  }
+
+  const exportResults = (format: "json" | "csv") => {
+    const content = format === "csv" ? resultToCSV(documents) : resultToJSON(documents)
+    downloadText(
+      resultExportName(storageKey, format),
+      content,
+      format === "csv" ? "text/csv;charset=utf-8" : "application/json",
+    )
+  }
 
   return (
     <>
@@ -81,6 +111,45 @@ export function QueryResultPanel({
         >
           <BarChart3 /> {t("result.chart")}
         </Button>
+        <span className="bg-border mx-1 h-5 w-px" />
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => void copyResults()}
+          disabled={!canExport}
+          title={t("result.copy")}
+          aria-label={t("result.copy")}
+          data-testid="query-copy"
+        >
+          <Copy />
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              disabled={!canExport}
+              title={t("result.export")}
+              aria-label={t("result.export")}
+              data-testid="query-export"
+            >
+              <Download />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => exportResults("json")}>
+              <FileJson /> {t("result.exportJson")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => exportResults("csv")}>
+              <FileSpreadsheet /> {t("result.exportCsv")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {loading && onCancel ? (
+          <Button variant="outline" size="sm" onClick={onCancel} data-testid="query-cancel">
+            <Ban /> {t("result.cancel")}
+          </Button>
+        ) : null}
         <span className="text-muted-foreground ml-auto flex items-center gap-2 text-xs">
           <span>
             {ran

@@ -718,6 +718,11 @@ const en: Record<string, string> = {
   // shared result view
   "result.table": "Table",
   "result.json": "JSON",
+  "result.copy": "Copy results",
+  "result.export": "Export results",
+  "result.exportJson": "Export JSON",
+  "result.exportCsv": "Export CSV",
+  "result.cancel": "Cancel query",
   "result.queryTime": "Query time",
   "result.chart": "Chart",
 

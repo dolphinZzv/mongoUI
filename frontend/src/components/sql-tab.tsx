@@ -9,7 +9,7 @@ import { QueryLibrary } from "@/components/query-library"
 import { QueryResultPanel } from "@/components/query-result-panel"
 import { RecentQueries } from "@/components/recent-queries"
 import { SqlEditor } from "@/components/sql-editor"
-import { api } from "@/lib/api"
+import { api, isAbortError } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { useRecentQueries } from "@/hooks/useRecentQueries"
 import { columnPrefsKey, readColumnPrefs } from "@/lib/columnPrefs"
@@ -67,6 +67,7 @@ export function SqlTab({ connectionId, database, collection, modeSwitch }: SqlTa
   )
   const [loading, setLoading] = React.useState(false)
   const [ran, setRan] = React.useState(false)
+  const abortRef = React.useRef<AbortController | null>(null)
   const [view, setView] = React.useState<"table" | "json" | "chart">("table")
   const [suggestions, setSuggestions] = React.useState<string[]>([])
   const {
@@ -142,11 +143,24 @@ export function SqlTab({ connectionId, database, collection, modeSwitch }: SqlTa
     }
   }, [query, queryStorageKey])
 
+  React.useEffect(() => () => abortRef.current?.abort(), [])
+
+  const cancel = React.useCallback(() => {
+    if (!abortRef.current) return
+    abortRef.current.abort()
+    abortRef.current = null
+    setLoading(false)
+    toast.info(t("docs.cancelled"))
+  }, [t])
+
   const run = React.useCallback(async () => {
     if (!query.trim()) {
       toast.error(t("sql.writeFirst"))
       return
     }
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
     setLoading(true)
     try {
       const res = await api.runSQL(
@@ -154,14 +168,19 @@ export function SqlTab({ connectionId, database, collection, modeSwitch }: SqlTa
         database,
         query,
         limit.trim() ? Number(limit) : undefined,
+        controller.signal,
       )
       setResult(res)
       setRan(true)
       pushRecent(query)
     } catch (err) {
+      if (isAbortError(err)) return
       toast.error(err instanceof Error ? err.message : t("sql.failed"))
     } finally {
-      setLoading(false)
+      if (abortRef.current === controller) {
+        abortRef.current = null
+        setLoading(false)
+      }
     }
   }, [connectionId, database, query, limit, t, pushRecent])
 
@@ -252,6 +271,8 @@ export function SqlTab({ connectionId, database, collection, modeSwitch }: SqlTa
         durationMs={result?.durationMs}
         notRunText={t("sql.notRun")}
         emptyText={t("sql.empty")}
+        loading={loading}
+        onCancel={cancel}
         dictionaries={columnPrefs.dictionaries}
         renderers={columnPrefs.renderers}
         colors={columnPrefs.colors}

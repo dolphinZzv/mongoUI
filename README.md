@@ -219,7 +219,7 @@ MQL 解析失败时，错误会带行列号；点击 **AI 修复** 会把原始�
 
 ### Query 工作台（SQL / 聚合）
 
-集合视图的 **Query** 标签页把 SQL 与聚合管道收进同一个工作台，顶部切换 `SQL` / `聚合` 模式。SQL 模式支持 `Ctrl/⌘ + Enter` 运行，翻译为 find / aggregation 执行；也可以直接写跨库查询：
+集合视图的 **Query** 标签页把 SQL 与聚合管道收进同一个工作台，顶部切换 `SQL` / `聚合` 模式。SQL 模式支持 `Ctrl/⌘ + Enter` 运行，翻译为 find / aggregation 执行；长查询可随时取消。结果面板支持表格 / JSON / 图表、复制 JSON、导出 JSON / CSV，列宽与固定列按查询范围记忆。也可以直接写跨库查询：
 
 ```sql
 SELECT status, COUNT(*) AS n, SUM(total) AS revenue

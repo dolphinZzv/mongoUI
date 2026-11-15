@@ -715,6 +715,11 @@ const zh: Record<string, string> = {
   // shared result view
   "result.table": "表格",
   "result.json": "JSON",
+  "result.copy": "复制结果",
+  "result.export": "导出结果",
+  "result.exportJson": "导出 JSON",
+  "result.exportCsv": "导出 CSV",
+  "result.cancel": "取消查询",
   "result.queryTime": "查询耗时",
   "result.chart": "图表",
 

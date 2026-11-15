@@ -227,6 +227,7 @@ func aggregateWrites(stages []bson.D) bool {
 type aggregateRequest struct {
 	Pipeline json.RawMessage `json:"pipeline"`
 	Limit    int64           `json:"limit"`
+	Skip     int64           `json:"skip"`
 }
 
 func (a *API) aggregate(w http.ResponseWriter, r *http.Request) {
@@ -258,17 +259,24 @@ func (a *API) aggregate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	limit := req.Limit
+	if limit <= 0 {
+		limit = maxLimit
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+	}
+	skip := req.Skip
+	if skip < 0 {
+		skip = 0
+	}
 	pipeline := mongo.Pipeline(stages)
 	if !terminal {
-		// Bound the result so a single aggregation cannot exhaust memory.
-		limit := req.Limit
-		if limit <= 0 {
-			limit = maxLimit
+		// Fetch one extra row so the UI can tell whether another page exists.
+		if skip > 0 {
+			pipeline = append(pipeline, bson.D{{Key: "$skip", Value: skip}})
 		}
-		if limit > maxLimit {
-			limit = maxLimit
-		}
-		pipeline = append(pipeline, bson.D{{Key: "$limit", Value: limit}})
+		pipeline = append(pipeline, bson.D{{Key: "$limit", Value: limit + 1}})
 	}
 
 	ctx, cancel := withTimeout(r)
@@ -287,6 +295,10 @@ func (a *API) aggregate(w http.ResponseWriter, r *http.Request) {
 		a.dbErr(w, err)
 		return
 	}
+	hasMore := int64(len(docs)) > limit
+	if hasMore {
+		docs = docs[:limit]
+	}
 	durationMs := float64(time.Since(start).Microseconds()) / 1000
 	raw, err := toExtJSON(docs)
 	if err != nil {
@@ -297,6 +309,9 @@ func (a *API) aggregate(w http.ResponseWriter, r *http.Request) {
 		"data": map[string]any{
 			"documents":  raw,
 			"count":      len(docs),
+			"skip":       skip,
+			"limit":      limit,
+			"hasMore":    hasMore,
 			"durationMs": durationMs,
 		},
 	})

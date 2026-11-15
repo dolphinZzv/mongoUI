@@ -70,6 +70,9 @@ export interface FindResult {
 export interface AggregateResult {
   documents: MongoDocument[]
   count: number
+  skip?: number
+  limit?: number
+  hasMore?: boolean
   durationMs?: number
 }
 
@@ -117,6 +120,7 @@ export interface SQLResult {
   limit: number
   columns: string[] | null
   mql: Record<string, unknown>
+  hasMore?: boolean
   durationMs?: number
 }
 

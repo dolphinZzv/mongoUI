@@ -153,36 +153,48 @@ export function SqlTab({ connectionId, database, collection, modeSwitch }: SqlTa
     toast.info(t("docs.cancelled"))
   }, [t])
 
-  const run = React.useCallback(async () => {
-    if (!query.trim()) {
-      toast.error(t("sql.writeFirst"))
-      return
-    }
-    abortRef.current?.abort()
-    const controller = new AbortController()
-    abortRef.current = controller
-    setLoading(true)
-    try {
-      const res = await api.runSQL(
-        connectionId,
-        database,
-        query,
-        limit.trim() ? Number(limit) : undefined,
-        controller.signal,
-      )
-      setResult(res)
-      setRan(true)
-      pushRecent(query)
-    } catch (err) {
-      if (isAbortError(err)) return
-      toast.error(err instanceof Error ? err.message : t("sql.failed"))
-    } finally {
-      if (abortRef.current === controller) {
-        abortRef.current = null
-        setLoading(false)
+  const execute = React.useCallback(
+    async (skipValue: number | undefined, record: boolean) => {
+      if (!query.trim()) {
+        toast.error(t("sql.writeFirst"))
+        return
       }
-    }
-  }, [connectionId, database, query, limit, t, pushRecent])
+      abortRef.current?.abort()
+      const controller = new AbortController()
+      abortRef.current = controller
+      setLoading(true)
+      try {
+        const res = await api.runSQL(
+          connectionId,
+          database,
+          query,
+          limit.trim() ? Number(limit) : undefined,
+          controller.signal,
+          skipValue,
+        )
+        setResult(res)
+        setRan(true)
+        if (record) pushRecent(query)
+      } catch (err) {
+        if (isAbortError(err)) return
+        toast.error(err instanceof Error ? err.message : t("sql.failed"))
+      } finally {
+        if (abortRef.current === controller) {
+          abortRef.current = null
+          setLoading(false)
+        }
+      }
+    },
+    [connectionId, database, query, limit, t, pushRecent],
+  )
+
+  const run = React.useCallback(() => execute(undefined, true), [execute])
+
+  const movePage = (direction: -1 | 1) => {
+    const currentSkip = result?.skip ?? 0
+    const size = result?.limit && result.limit > 0 ? result.limit : 50
+    void execute(Math.max(0, currentSkip + direction * size), false)
+  }
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
@@ -273,6 +285,17 @@ export function SqlTab({ connectionId, database, collection, modeSwitch }: SqlTa
         emptyText={t("sql.empty")}
         loading={loading}
         onCancel={cancel}
+        pagination={
+          result
+            ? {
+                skip: result.skip,
+                count: documents.length,
+                hasMore: Boolean(result.hasMore),
+                onPrev: () => movePage(-1),
+                onNext: () => movePage(1),
+              }
+            : undefined
+        }
         dictionaries={columnPrefs.dictionaries}
         renderers={columnPrefs.renderers}
         colors={columnPrefs.colors}

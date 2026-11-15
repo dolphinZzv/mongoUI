@@ -89,6 +89,7 @@ export function AggregationTab({
   const [durationMs, setDurationMs] = React.useState<number | undefined>()
   const [loading, setLoading] = React.useState(false)
   const [ran, setRan] = React.useState(false)
+  const [page, setPage] = React.useState({ skip: 0, limit: 0, hasMore: false })
   const abortRef = React.useRef<AbortController | null>(null)
   const [view, setView] = React.useState<"table" | "json" | "chart">("table")
   const [mode, setMode] = React.useState<"visual" | "json">("visual")
@@ -170,7 +171,7 @@ export function AggregationTab({
     toast.info(t("docs.cancelled"))
   }
 
-  const run = async () => {
+  const execute = async (skipValue: number, record: boolean) => {
     let parsed: unknown
     try {
       parsed = JSON.parse(pipeline.trim() || "[]")
@@ -199,11 +200,17 @@ export function AggregationTab({
         parsed,
         limit.trim() ? Number(limit) : undefined,
         controller.signal,
+        skipValue,
       )
       setDocuments(res.documents)
       setDurationMs(res.durationMs)
+      setPage({
+        skip: res.skip ?? skipValue,
+        limit: res.limit ?? res.documents.length,
+        hasMore: Boolean(res.hasMore),
+      })
       setRan(true)
-      pushRecentPipeline(pipeline)
+      if (record) pushRecentPipeline(pipeline)
     } catch (err) {
       if (isAbortError(err)) return
       toast.error(err instanceof Error ? err.message : t("agg.failed"))
@@ -213,6 +220,13 @@ export function AggregationTab({
         setLoading(false)
       }
     }
+  }
+
+  const run = () => void execute(0, true)
+
+  const movePage = (direction: -1 | 1) => {
+    const size = page.limit > 0 ? page.limit : 50
+    void execute(Math.max(0, page.skip + direction * size), false)
   }
 
   const columns = React.useMemo(() => collectColumns(documents), [documents])
@@ -384,6 +398,17 @@ export function AggregationTab({
         emptyText={t("agg.empty")}
         loading={loading}
         onCancel={cancel}
+        pagination={
+          ran
+            ? {
+                skip: page.skip,
+                count: documents.length,
+                hasMore: page.hasMore,
+                onPrev: () => movePage(-1),
+                onNext: () => movePage(1),
+              }
+            : undefined
+        }
         dictionaries={columnPrefs.dictionaries}
         renderers={columnPrefs.renderers}
         colors={columnPrefs.colors}

@@ -325,10 +325,11 @@ export const api = {
     pipeline: unknown[],
     limit?: number,
     signal?: AbortSignal,
+    skip?: number,
   ) =>
     request<AggregateResult>(
       `/connections/${id}/databases/${enc(db)}/collections/${enc(col)}/aggregate`,
-      { method: "POST", body: JSON.stringify({ pipeline, limit }), signal },
+      { method: "POST", body: JSON.stringify({ pipeline, limit, skip }), signal },
     ),
   explain: (id: string, db: string, col: string, req: ExplainRequest) =>
     request<Record<string, unknown>>(
@@ -377,10 +378,17 @@ export const api = {
     ),
 
   // SQL -------------------------------------------------------------------------
-  runSQL: (id: string, db: string, query: string, limit?: number, signal?: AbortSignal) =>
+  runSQL: (
+    id: string,
+    db: string,
+    query: string,
+    limit?: number,
+    signal?: AbortSignal,
+    skip?: number,
+  ) =>
     request<SQLResult>(`/connections/${id}/databases/${enc(db)}/sql`, {
       method: "POST",
-      body: JSON.stringify({ query, limit }),
+      body: JSON.stringify({ query, limit, skip }),
       signal,
     }),
   runScript: (id: string, db: string, script: string, limit?: number, signal?: AbortSignal) =>

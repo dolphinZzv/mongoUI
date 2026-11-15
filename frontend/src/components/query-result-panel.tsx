@@ -1,4 +1,15 @@
-import { Ban, BarChart3, Braces, Copy, Download, FileJson, FileSpreadsheet, Table2 } from "lucide-react"
+import {
+  Ban,
+  BarChart3,
+  Braces,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Download,
+  FileJson,
+  FileSpreadsheet,
+  Table2,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -41,6 +52,13 @@ interface QueryResultPanelProps {
   emptyText: string
   loading?: boolean
   onCancel?: () => void
+  pagination?: {
+    skip: number
+    count: number
+    hasMore: boolean
+    onPrev: () => void
+    onNext: () => void
+  }
   dictionaries?: ColumnDictionaries
   renderers?: ColumnRenderers
   colors?: ColumnColorRules
@@ -64,6 +82,7 @@ export function QueryResultPanel({
   emptyText,
   loading = false,
   onCancel,
+  pagination,
   dictionaries,
   renderers,
   colors,
@@ -111,6 +130,35 @@ export function QueryResultPanel({
         >
           <BarChart3 /> {t("result.chart")}
         </Button>
+        {pagination && ran && pagination.count > 0 ? (
+          <div className="flex items-center gap-0.5" data-testid="query-pagination">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={pagination.onPrev}
+              disabled={pagination.skip <= 0 || loading}
+              title={t("docs.prev")}
+              aria-label={t("docs.prev")}
+              data-testid="query-prev"
+            >
+              <ChevronLeft />
+            </Button>
+            <span className="text-muted-foreground min-w-16 text-center text-[11px] tabular-nums">
+              {pagination.skip + 1}–{pagination.skip + pagination.count}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={pagination.onNext}
+              disabled={!pagination.hasMore || loading}
+              title={t("docs.next")}
+              aria-label={t("docs.next")}
+              data-testid="query-next"
+            >
+              <ChevronRight />
+            </Button>
+          </div>
+        ) : null}
         <span className="bg-border mx-1 h-5 w-px" />
         <Button
           variant="ghost"

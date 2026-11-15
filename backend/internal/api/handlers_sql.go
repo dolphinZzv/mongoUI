@@ -20,6 +20,9 @@ type sqlRequest struct {
 	Query string `json:"query"`
 	// Limit optionally overrides the SQL LIMIT / default cap.
 	Limit int64 `json:"limit"`
+	// Skip optionally overrides the SQL OFFSET for result pagination. A pointer
+	// distinguishes an explicit page 0 from "use the query's OFFSET".
+	Skip *int64 `json:"skip"`
 }
 
 // runSQL translates a SQL SELECT into a MongoDB find or aggregation and runs it
@@ -62,6 +65,9 @@ func (a *API) runSQL(w http.ResponseWriter, r *http.Request) {
 		limit = maxLimit
 	}
 	skip := query.Skip
+	if req.Skip != nil {
+		skip = *req.Skip
+	}
 	if skip < 0 {
 		skip = 0
 	}
@@ -157,6 +163,7 @@ func (a *API) runSQL(w http.ResponseWriter, r *http.Request) {
 		"total":      total,
 		"skip":       skip,
 		"limit":      limit,
+		"hasMore":    skip+int64(len(docs)) < total,
 		"columns":    query.Columns,
 		"mql":        generatedMQL(query),
 		"durationMs": durationMs,

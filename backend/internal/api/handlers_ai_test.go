@@ -80,6 +80,7 @@ func TestAISettingsEndpoints(t *testing.T) {
 }
 
 func TestGenerateAIFilterEndpoint(t *testing.T) {
+	t.Setenv("MONGOUI_ALLOW_PRIVATE_AI", "1")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		body := "{\"choices\":[{\"message\":{\"content\":\"```json\\n{\\\"status\\\":\\\"active\\\",\\\"age\\\":{\\\"$gte\\\":18}}\\n```\"}}]}"
@@ -116,6 +117,7 @@ func TestAIFilterRequiresConfiguration(t *testing.T) {
 }
 
 func TestAITestEndpoint(t *testing.T) {
+	t.Setenv("MONGOUI_ALLOW_PRIVATE_AI", "1")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{}"}}]}`))

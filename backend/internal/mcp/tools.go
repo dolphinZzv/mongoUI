@@ -166,6 +166,9 @@ func (s *Server) callToolWithScopes(name string, args map[string]any, scopes, co
 		if args == nil {
 			args = map[string]any{}
 		}
+		// Internal metadata used by proposal creation. It is never exposed to
+		// clients and is removed before persisting proposal arguments.
+		args["_actor"] = audit.Actor
 		targetConnection := ""
 		if raw, ok := args["connectionId"]; ok {
 			id, _ := raw.(string)

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -374,5 +375,37 @@ func TestSavedQueriesPersistAndConflict(t *testing.T) {
 	}
 	if got := reloaded.GetSavedQueries(scope); len(got) != 0 {
 		t.Fatalf("queries should be removed: %#v", got)
+	}
+}
+
+func TestConcurrentSettingsPersistKeepsValidJSON(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	s, err := LoadSettings(path, DefaultMCPSettings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 40; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if i%2 == 0 {
+				_ = s.SetMCP(MCPSettings{Enabled: true, Read: i%4 == 0, Write: true})
+			} else {
+				_ = s.SetUpdate(UpdateSettings{Auto: i%3 == 0, IntervalMinutes: 10 + i})
+			}
+		}(i)
+	}
+	wg.Wait()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("settings file is not valid JSON: %v\n%s", err, data)
+	}
+	if _, err := LoadSettings(path, DefaultMCPSettings()); err != nil {
+		t.Fatalf("reload: %v", err)
 	}
 }

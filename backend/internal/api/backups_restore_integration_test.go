@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"net/http"
 	"os"
@@ -44,8 +45,16 @@ func TestRestoreBackupIntegration(t *testing.T) {
 	api.backups.dir = t.TempDir()
 	api.backups.tasks = []BackupTask{task}
 	api.backups.mu.Unlock()
-	content := `[{"name":"Alice","n":1},{"name":"Bob","n":2}]`
-	if err := os.WriteFile(filepath.Join(api.backups.dir, "manual."+dbName+".items.json"), []byte(content), 0o600); err != nil {
+	if _, err := client.Database(dbName).Collection("items").InsertOne(ctx, map[string]any{"name": "stale"}); err != nil {
+		t.Fatal(err)
+	}
+	content := []byte(`[{"name":"Alice","n":1},{"name":"Bob","n":2}]`)
+	backupPath := filepath.Join(api.backups.dir, "manual."+dbName+".items.json")
+	if err := os.WriteFile(backupPath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(content)
+	if err := writeBackupChecksum(backupPath, sum[:]); err != nil {
 		t.Fatal(err)
 	}
 	handler := api.Router(nil)
@@ -57,8 +66,14 @@ func TestRestoreBackupIntegration(t *testing.T) {
 	if got := dataOf(t, env)["insertedCount"].(float64); got != 2 {
 		t.Fatalf("insertedCount = %v", got)
 	}
+	if got := dataOf(t, env)["verified"]; got != true {
+		t.Fatalf("verified = %v, want true", got)
+	}
 	count, err := client.Database(dbName).Collection("items").CountDocuments(ctx, map[string]any{})
 	if err != nil || count != 2 {
 		t.Fatalf("restored count = %d err=%v", count, err)
+	}
+	if err := client.Database(dbName).Collection("items").FindOne(ctx, map[string]any{"name": "stale"}).Err(); err == nil {
+		t.Fatal("drop restore left the old document behind")
 	}
 }

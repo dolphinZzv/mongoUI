@@ -71,6 +71,8 @@ interface ChartViewProps {
   className?: string
   /** Add a click-to-filter condition and refresh the chart in place. */
   onDrilldown?: (filter: Record<string, unknown>) => void
+  /** External refresh signal, used by the shared dashboard. */
+  refreshSignal?: number
   /** Push the chart's current filter back to the documents tab. */
   onApplyFilter?: () => void
 }
@@ -176,6 +178,7 @@ export function ChartView({
   className,
   onDrilldown,
   onApplyFilter,
+  refreshSignal = 0,
 }: ChartViewProps) {
   const { t, locale } = useI18n()
   const { ref, width } = useElementWidth<HTMLDivElement>()
@@ -377,6 +380,7 @@ export function ChartView({
     group: config.group,
     bucket: effectiveConfig.timeBucket,
     refreshToken,
+    refreshSignal,
   })
 
   React.useEffect(() => {

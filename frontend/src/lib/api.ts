@@ -500,7 +500,7 @@ export const api = {
     request<{ started: boolean }>(`/backups/${enc(id)}/run`, { method: "POST" }),
   listBackupFiles: (id: string) => request<{ files: BackupFile[] }>(`/backups/${enc(id)}/files`),
   restoreBackup: (id: string, file: string, drop: boolean) =>
-    request<{ insertedCount: number }>(`/backups/${enc(id)}/restore`, {
+    request<{ insertedCount: number; verified?: boolean }>(`/backups/${enc(id)}/restore`, {
       method: "POST",
       body: JSON.stringify({ file, drop }),
     }),

@@ -166,12 +166,13 @@ type SMTPSettings struct {
 }
 
 type Settings struct {
-	mu      sync.RWMutex
-	path    string
-	cipher  *Cipher
-	MCP     MCPSettings    `json:"mcp"`
-	Update  UpdateSettings `json:"update"`
-	Aliases AliasSettings  `json:"aliases"`
+	mu        sync.RWMutex
+	persistMu sync.Mutex
+	path      string
+	cipher    *Cipher
+	MCP       MCPSettings    `json:"mcp"`
+	Update    UpdateSettings `json:"update"`
+	Aliases   AliasSettings  `json:"aliases"`
 	// AIByUser holds one BYOK profile per account ID. Auth-disabled installs
 	// use the "local" key.
 	AIByUser map[string]AISettings `json:"aiByUser,omitempty"`
@@ -771,6 +772,10 @@ func (s *Settings) SetUpdate(update UpdateSettings) error {
 }
 
 func (s *Settings) persist() error {
+	// Serialize file writes: two concurrent settings updates must not write the
+	// same .tmp path and race each other's rename.
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

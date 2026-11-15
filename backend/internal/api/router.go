@@ -2,9 +2,13 @@ package api
 
 import (
 	"errors"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -34,6 +38,9 @@ type API struct {
 	backups         *backupManager
 	automation      *automation.Manager
 	automationStore *automation.Store
+
+	feedbackMu   sync.Mutex
+	feedbackLast map[string]time.Time
 }
 
 // New builds an API instance. mcpHandler, when non-nil, is mounted at /mcp;
@@ -50,7 +57,7 @@ func New(store *config.Store, mgr *mongoclient.Manager, uiEmbedded bool, version
 	if store != nil {
 		dataDir = store.Dir()
 	}
-	api := &API{store: store, mgr: mgr, uiEmbedded: uiEmbedded, version: version, mcpHandler: mcpHandler, auth: authManager, settings: s, audit: newAuditLog(dataDir)}
+	api := &API{store: store, mgr: mgr, uiEmbedded: uiEmbedded, version: version, mcpHandler: mcpHandler, auth: authManager, settings: s, audit: newAuditLog(dataDir), feedbackLast: map[string]time.Time{}}
 	api.automationStore = automation.NewStore(s, nil)
 	api.backups = newBackupManager(dataDir, api)
 	return api
@@ -85,6 +92,10 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(securityHeaders)
+	// Reject cross-site state-changing requests. CORS only controls which
+	// responses a browser may read; it does not stop a malicious page from
+	// sending a simple text/plain POST to a local, auth-disabled instance.
+	r.Use(csrfGuard)
 	// Cross-origin access is opt-in. Without MONGOUI_ALLOW_ORIGIN the API is
 	// same-origin only (no CORS headers), which stops a random website from
 	// reading or writing this server through the user's browser.
@@ -252,6 +263,58 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// csrfGuard rejects unsafe cross-origin requests. Requests without an Origin
+// header (CLI clients, server-to-server calls) are allowed; browsers send Origin
+// on every cross-origin unsafe request.
+func csrfGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
+			next.ServeHTTP(w, r)
+			return
+		}
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if origin != "" && !originMatchesRequest(r, origin) {
+			fail(w, http.StatusForbidden, errors.New("cross-origin request rejected; use MONGOUI_ALLOW_ORIGIN to allow it"))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func originMatchesRequest(r *http.Request, origin string) bool {
+	if strings.EqualFold(origin, "null") {
+		return false
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	// Same hostname is enough even when a dev/reverse proxy changed the port or
+	// a TLS terminator changed the scheme. A hostile site cannot serve content
+	// from the same hostname on another port.
+	if strings.EqualFold(u.Hostname(), requestHostname(r)) {
+		return true
+	}
+	for _, allowed := range allowOrigins() {
+		allowedURL, err := url.Parse(strings.TrimRight(strings.TrimSpace(allowed), "/"))
+		if err == nil && allowedURL.Host != "" &&
+			strings.EqualFold(allowedURL.Scheme, u.Scheme) &&
+			strings.EqualFold(allowedURL.Host, u.Host) {
+			return true
+		}
+	}
+	return false
+}
+
+func requestHostname(r *http.Request) string {
+	host := r.Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return host
 }
 
 // allowOrigins reads MONGOUI_ALLOW_ORIGIN (comma separated). Empty means

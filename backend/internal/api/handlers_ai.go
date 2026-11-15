@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -311,17 +310,7 @@ func normalizeAI(cfg config.AISettings) (config.AISettings, error) {
 }
 
 func validHTTPURL(value string) error {
-	parsed, err := url.Parse(value)
-	if err != nil {
-		return err
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return errors.New("URL must start with http:// or https://")
-	}
-	if parsed.Host == "" {
-		return errors.New("URL must include a host")
-	}
-	return nil
+	return ai.ValidateURL(value)
 }
 
 func buildAIFilterPrompt(in aiFilterInput) string {

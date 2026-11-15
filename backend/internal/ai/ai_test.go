@@ -4,12 +4,14 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"mongoui/internal/config"
 )
 
 func TestGenerateOpenAI(t *testing.T) {
+	t.Setenv("MONGOUI_ALLOW_PRIVATE_AI", "1")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat/completions" {
 			t.Fatalf("path = %s", r.URL.Path)
@@ -36,6 +38,7 @@ func TestGenerateOpenAI(t *testing.T) {
 }
 
 func TestGenerateOpenAIResponses(t *testing.T) {
+	t.Setenv("MONGOUI_ALLOW_PRIVATE_AI", "1")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/responses" {
 			t.Fatalf("path = %s", r.URL.Path)
@@ -60,6 +63,7 @@ func TestGenerateOpenAIResponses(t *testing.T) {
 }
 
 func TestGenerateGemini(t *testing.T) {
+	t.Setenv("MONGOUI_ALLOW_PRIVATE_AI", "1")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/models/gemini-test:generateContent" {
 			t.Fatalf("path = %s", r.URL.Path)
@@ -87,6 +91,7 @@ func TestGenerateGemini(t *testing.T) {
 }
 
 func TestGenerateADK(t *testing.T) {
+	t.Setenv("MONGOUI_ALLOW_PRIVATE_AI", "1")
 	var sessionCalled, runCalled, deleteCalled bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -121,5 +126,30 @@ func TestGenerateADK(t *testing.T) {
 	}
 	if !sessionCalled || !runCalled || !deleteCalled {
 		t.Fatalf("ADK lifecycle incomplete: session=%v run=%v delete=%v", sessionCalled, runCalled, deleteCalled)
+	}
+}
+
+func TestValidateURLRejectsPrivateEndpoints(t *testing.T) {
+	t.Setenv("MONGOUI_ALLOW_PRIVATE_AI", "0")
+	for _, endpoint := range []string{
+		"http://127.0.0.1:8080",
+		"http://localhost:11434",
+		"http://169.254.169.254/latest/meta-data",
+		"http://10.0.0.1",
+	} {
+		if err := ValidateURL(endpoint); err == nil {
+			t.Errorf("ValidateURL(%q) allowed a private endpoint", endpoint)
+		}
+	}
+	if err := ValidateURL("https://api.openai.com/v1"); err != nil {
+		t.Fatalf("public URL rejected: %v", err)
+	}
+}
+
+func TestSafeTransportRejectsPrivateAddress(t *testing.T) {
+	t.Setenv("MONGOUI_ALLOW_PRIVATE_AI", "0")
+	_, err := httpClient.Get("http://127.0.0.1:1")
+	if err == nil || !strings.Contains(err.Error(), "private or loopback") {
+		t.Fatalf("expected private-address rejection, got %v", err)
 	}
 }

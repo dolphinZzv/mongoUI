@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -38,6 +40,7 @@ const (
 )
 
 type auditEntry struct {
+	ID           string    `json:"id,omitempty" bson:"id,omitempty"`
 	Time         string    `json:"time" bson:"time"`
 	Actor        string    `json:"actor,omitempty" bson:"actor,omitempty"`
 	TokenID      string    `json:"tokenId,omitempty" bson:"tokenId,omitempty"`
@@ -55,6 +58,7 @@ type auditEntry struct {
 
 type auditLog struct {
 	mu      sync.Mutex
+	fileMu  sync.Mutex
 	entries []auditEntry
 	// path is empty when persistence is disabled (e.g. in tests).
 	path string
@@ -64,6 +68,9 @@ type auditLog struct {
 	webhookURL    string
 	webhookSecret string
 	webhookClient *http.Client
+	// webhookSem bounds the number of in-flight webhook deliveries so a slow
+	// SIEM endpoint cannot create an unbounded goroutine pile-up.
+	webhookSem chan struct{}
 }
 
 // newAuditLog creates a log persisted to <dataDir>/audit.jsonl. An empty
@@ -72,6 +79,7 @@ func newAuditLog(dataDir string) *auditLog {
 	log := &auditLog{
 		entries:       make([]auditEntry, 0, auditCapacity),
 		webhookClient: &http.Client{Timeout: 5 * time.Second},
+		webhookSem:    make(chan struct{}, 16),
 	}
 	if dataDir != "" {
 		log.path = filepath.Join(dataDir, auditFileName)
@@ -126,6 +134,9 @@ func (l *auditLog) load() {
 		}
 		var entry auditEntry
 		if json.Unmarshal([]byte(line), &entry) == nil {
+			if entry.ID == "" {
+				entry.ID = uuid.NewString()
+			}
 			l.entries = append(l.entries, entry)
 		}
 	}
@@ -135,35 +146,55 @@ func (l *auditLog) load() {
 }
 
 func (l *auditLog) add(entry auditEntry) {
+	if entry.ID == "" {
+		entry.ID = uuid.NewString()
+	}
 	if entry.Time == "" {
 		entry.Time = time.Now().UTC().Format(time.RFC3339)
 	}
 	entry.ExpireAt = time.Now().UTC().Add(90 * 24 * time.Hour)
+
+	// Never hold the mutex while talking to Mongo or the filesystem: those
+	// operations can take seconds and would serialize every audited request.
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	l.entries = append(l.entries, entry)
 	if len(l.entries) > auditCapacity {
 		l.entries = l.entries[len(l.entries)-auditCapacity:]
 	}
-	if l.coll != nil {
+	coll := l.coll
+	l.mu.Unlock()
+
+	if coll != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, err := l.coll.InsertOne(ctx, entry)
+		_, err := coll.InsertOne(ctx, entry)
 		cancel()
 		if err == nil {
 			l.forward(entry)
 			return
 		}
+		// Fall through to the local file. list() merges local entries back into
+		// coordinated results, so a coordination outage does not silently erase
+		// the audit trail.
 	}
 	l.persist(entry)
 	l.forward(entry)
 }
 
 func (l *auditLog) forward(entry auditEntry) {
-	url, secret, client := l.webhookURL, l.webhookSecret, l.webhookClient
-	if url == "" || client == nil {
+	l.mu.Lock()
+	url, secret, client, sem := l.webhookURL, l.webhookSecret, l.webhookClient, l.webhookSem
+	l.mu.Unlock()
+	if url == "" || client == nil || sem == nil {
+		return
+	}
+	select {
+	case sem <- struct{}{}:
+	default:
+		log.Printf("audit webhook: delivery queue is full; dropping event")
 		return
 	}
 	go func() {
+		defer func() { <-sem }()
 		body, err := json.Marshal(entry)
 		if err != nil {
 			return
@@ -196,11 +227,13 @@ func (l *auditLog) forward(entry auditEntry) {
 // persist appends the entry as one JSON line, rotating the file first when it
 // has grown past auditMaxBytes.
 func (l *auditLog) persist(entry auditEntry) {
+	l.fileMu.Lock()
+	defer l.fileMu.Unlock()
 	if l.path == "" {
 		return
 	}
 	if info, err := os.Stat(l.path); err == nil && info.Size() > auditMaxBytes {
-		l.rotate()
+		l.rotateLocked()
 	}
 	line, err := json.Marshal(entry)
 	if err != nil {
@@ -214,15 +247,19 @@ func (l *auditLog) persist(entry auditEntry) {
 	_, _ = file.Write(append(line, '\n'))
 }
 
-// rotate rewrites the file from the bounded in-memory buffer.
-func (l *auditLog) rotate() {
+// rotateLocked rewrites the file from the bounded in-memory buffer. The caller
+// must hold fileMu.
+func (l *auditLog) rotateLocked() {
 	tmp := l.path + ".tmp"
 	file, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}
+	l.mu.Lock()
+	entries := append([]auditEntry(nil), l.entries...)
+	l.mu.Unlock()
 	encoder := json.NewEncoder(file)
-	for _, entry := range l.entries {
+	for _, entry := range entries {
 		_ = encoder.Encode(entry)
 	}
 	_ = file.Close()
@@ -231,36 +268,80 @@ func (l *auditLog) rotate() {
 
 // list returns entries newest-first, optionally filtered by connection.
 func (l *auditLog) list(connectionID string, limit int) []auditEntry {
+	return l.listFiltered(connectionID, limit, nil)
+}
+
+// listFiltered is list with an additional visibility predicate. It merges the
+// local ring with the coordination collection so entries written during a
+// coordination outage are still visible.
+func (l *auditLog) listFiltered(connectionID string, limit int, allow func(auditEntry) bool) []auditEntry {
 	if limit <= 0 || limit > auditCapacity {
 		limit = 200
 	}
 	l.mu.Lock()
 	coll := l.coll
+	local := append([]auditEntry(nil), l.entries...)
 	l.mu.Unlock()
+
+	// Fetch more than the requested page when filtering because disallowed
+	// entries are removed after the query.
+	queryLimit := limit
+	if allow != nil {
+		queryLimit = auditCapacity
+	}
+	var combined []auditEntry
 	if coll != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
 		filter := bson.M{}
 		if connectionID != "" {
 			filter["connectionId"] = connectionID
 		}
-		cursor, err := coll.Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "time", Value: -1}}).SetLimit(int64(limit)))
+		cursor, err := coll.Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "time", Value: -1}}).SetLimit(int64(queryLimit)))
 		if err == nil {
-			defer cursor.Close(ctx)
-			var out []auditEntry
-			if err := cursor.All(ctx, &out); err == nil {
-				return out
+			if err := cursor.All(ctx, &combined); err != nil {
+				combined = nil
 			}
+			_ = cursor.Close(ctx)
 		}
+		cancel()
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
+
+	collSeen := map[string]bool{}
 	out := make([]auditEntry, 0, limit)
-	for i := len(l.entries) - 1; i >= 0 && len(out) < limit; i-- {
-		if connectionID != "" && l.entries[i].ConnectionID != connectionID {
-			continue
+	entryKey := func(entry auditEntry) string {
+		if entry.ID != "" {
+			return entry.ID
 		}
-		out = append(out, l.entries[i])
+		return entry.Time + "|" + entry.Method + "|" + entry.Path + "|" + entry.Actor + "|" + strconv.Itoa(entry.Status) + "|" + entry.Error
+	}
+	addEntry := func(entry auditEntry, fromColl bool) {
+		if connectionID != "" && entry.ConnectionID != connectionID {
+			return
+		}
+		if allow != nil && !allow(entry) {
+			return
+		}
+		key := entryKey(entry)
+		if fromColl {
+			if collSeen[key] {
+				return
+			}
+			collSeen[key] = true
+		} else if collSeen[key] {
+			// The coordination copy is authoritative; skip the local mirror.
+			return
+		}
+		out = append(out, entry)
+	}
+	for _, entry := range combined {
+		addEntry(entry, true)
+	}
+	for i := len(local) - 1; i >= 0; i-- {
+		addEntry(local[i], false)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Time > out[j].Time })
+	if len(out) > limit {
+		out = out[:limit]
 	}
 	return out
 }
@@ -324,10 +405,31 @@ func remoteIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
+func (a *API) auditVisible(r *http.Request) func(auditEntry) bool {
+	if a.auth == nil || a.auth.IsAdmin(r) {
+		return nil
+	}
+	return func(entry auditEntry) bool {
+		return entry.ConnectionID != "" && a.auth.CanAccessConnection(r, entry.ConnectionID)
+	}
+}
+
+func (a *API) auditConnectionAllowed(w http.ResponseWriter, r *http.Request, connectionID string) bool {
+	if connectionID == "" || a.auth == nil || a.auth.IsAdmin(r) || a.auth.CanAccessConnection(r, connectionID) {
+		return true
+	}
+	fail(w, http.StatusForbidden, errConnectionAccess)
+	return false
+}
+
 func (a *API) listAudit(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	connectionID := r.URL.Query().Get("connectionId")
+	if !a.auditConnectionAllowed(w, r, connectionID) {
+		return
+	}
 	ok(w, map[string]any{
-		"entries": a.audit.list(r.URL.Query().Get("connectionId"), limit),
+		"entries": a.audit.listFiltered(connectionID, limit, a.auditVisible(r)),
 	})
 }
 
@@ -336,7 +438,11 @@ func (a *API) exportAudit(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 || limit > auditCapacity {
 		limit = auditCapacity
 	}
-	entries := a.audit.list(r.URL.Query().Get("connectionId"), limit)
+	connectionID := r.URL.Query().Get("connectionId")
+	if !a.auditConnectionAllowed(w, r, connectionID) {
+		return
+	}
+	entries := a.audit.listFiltered(connectionID, limit, a.auditVisible(r))
 	format := strings.ToLower(r.URL.Query().Get("format"))
 	if format == "" {
 		format = "jsonl"

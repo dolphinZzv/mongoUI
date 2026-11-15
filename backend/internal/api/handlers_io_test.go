@@ -252,3 +252,42 @@ func TestExportFilenameSanitizesUnsafeCharacters(t *testing.T) {
 		t.Fatalf("filename = %q", got)
 	}
 }
+
+func TestParseBackupFileStreamsJSONAndCSV(t *testing.T) {
+	for _, tc := range []struct{ format, content string }{
+		{"json", "[\n  {\"a\": 1},\n  {\"b\": 2}\n]\n"},
+		{"json", "{\"a\":1}\n{\"b\":2}\n"},
+		{"csv", "a,b\n1,2\n3,4\n"},
+	} {
+		count := 0
+		err := parseBackupFile(strings.NewReader(tc.content), tc.format, func(doc bson.D) error {
+			if len(doc) == 0 {
+				t.Fatalf("%s: empty document", tc.format)
+			}
+			count++
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("%s: %v", tc.format, err)
+		}
+		if count != 2 {
+			t.Fatalf("%s: count = %d, want 2", tc.format, count)
+		}
+	}
+}
+
+func TestCSVSafeNeutralizesFormulas(t *testing.T) {
+	cases := map[string]string{
+		"=cmd|calc":   "'=cmd|calc",
+		"+cmd":        "'+cmd",
+		"@SUM(A1:A2)": "'@SUM(A1:A2)",
+		"-cmd":        "'-cmd",
+		"-12.5":       "-12.5",
+		"normal":      "normal",
+	}
+	for input, want := range cases {
+		if got := csvSafe(input); got != want {
+			t.Errorf("csvSafe(%q) = %q, want %q", input, got, want)
+		}
+	}
+}

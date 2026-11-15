@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -60,6 +61,7 @@ func TestProposalApplyAndRollbackIntegration(t *testing.T) {
 		"update":       map[string]any{"$set": map[string]any{"status": "new"}},
 		"many":         true,
 		"propose":      true,
+		"_actor":       "alice",
 	}
 	text, err := s.createProposal("mongoui_update", args)
 	if err != nil {
@@ -75,6 +77,9 @@ func TestProposalApplyAndRollbackIntegration(t *testing.T) {
 	p := proposals[0]
 	if p.Status != ProposalPending || p.Matches != 2 || p.Count != 2 || !p.Rollbackable {
 		t.Fatalf("proposal = %#v", p)
+	}
+	if p.CreatedBy != "alice" {
+		t.Fatalf("proposal creator = %q, want alice", p.CreatedBy)
 	}
 
 	if _, err := s.ApplyProposal(p.ID); err == nil {
@@ -239,5 +244,122 @@ func TestSchemaProposalApplyAndRollbackIntegration(t *testing.T) {
 		if index["name"] == "n_1" {
 			t.Fatalf("index n_1 still exists")
 		}
+	}
+}
+
+func TestProposalClaimIsAtomicAcrossInstances(t *testing.T) {
+	uri := os.Getenv("MONGOUI_TEST_MONGO_URI")
+	if uri == "" {
+		t.Skip("set MONGOUI_TEST_MONGO_URI to run the MongoDB integration tests")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Disconnect(context.Background())
+	db := client.Database(fmt.Sprintf("mongoui_claim_%d", time.Now().UnixNano()))
+	t.Cleanup(func() { _ = db.Drop(context.Background()) })
+	coll := db.Collection("proposals")
+
+	a := newProposalStore()
+	a.setCollection(coll)
+	p := a.create(&Proposal{
+		Tool: "mongoui_delete", Operation: "delete", ConnectionID: "c1",
+		Database: "d", Collection: "c", Summary: "Delete", Preview: []byte(`{"count":1}`),
+	})
+	if err := a.approve(p.ID, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	b := newProposalStore()
+	b.setCollection(coll)
+
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for _, store := range []*proposalStore{a, b} {
+		wg.Add(1)
+		go func(store *proposalStore) {
+			defer wg.Done()
+			<-start
+			_, err := store.claimApply(p.ID)
+			errs <- err
+		}(store)
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	successes := 0
+	for err := range errs {
+		if err == nil {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("claim successes = %d, want exactly 1", successes)
+	}
+}
+
+func TestProposalSingleDocumentTargetIsStable(t *testing.T) {
+	uri := os.Getenv("MONGOUI_TEST_MONGO_URI")
+	if uri == "" {
+		t.Skip("set MONGOUI_TEST_MONGO_URI to run the MongoDB integration tests")
+	}
+	store, err := config.NewStore(filepath.Join(t.TempDir(), "connections.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := store.Add(config.Connection{Name: "it", URI: uri})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr := mongoclient.NewManager()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := mgr.Connect(ctx, conn.ID, uri, nil); err != nil {
+		t.Fatal(err)
+	}
+	defer mgr.CloseAll()
+	client, _ := mgr.Get(conn.ID)
+	dbName := fmt.Sprintf("mongoui_single_%d", time.Now().UnixNano())
+	coll := client.Database(dbName).Collection("items")
+	t.Cleanup(func() { _ = client.Database(dbName).Drop(context.Background()) })
+	if _, err := coll.InsertMany(ctx, []any{
+		bson.M{"name": "a", "status": "old"},
+		bson.M{"name": "b", "status": "old"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s := New(store, mgr, "test", config.NewSettings(config.MCPSettings{Enabled: true, Read: true, Write: true}))
+	args := map[string]any{
+		"connectionId": conn.ID, "database": dbName, "collection": "items",
+		"filter": map[string]any{"status": "old"},
+		"update": map[string]any{"$set": map[string]any{"status": "new"}},
+		"many":   false, "propose": true,
+	}
+	if _, err := s.createProposal("mongoui_update", args); err != nil {
+		t.Fatal(err)
+	}
+	p := s.Proposals()[0]
+	if p.TargetID == nil || p.Count != 1 {
+		t.Fatalf("single proposal = %#v", p)
+	}
+	if err := s.ApproveProposal(p.ID, "tester"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ApplyProposal(p.ID); err != nil {
+		t.Fatal(err)
+	}
+	var changed []bson.M
+	cursor, err := coll.Find(ctx, bson.M{"status": "new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cursor.All(ctx, &changed); err != nil {
+		t.Fatal(err)
+	}
+	if len(changed) != 1 {
+		t.Fatalf("changed docs = %d, want 1", len(changed))
 	}
 }

@@ -26,6 +26,37 @@ const (
 // than the only line of defence.
 var feedbackRepoTarget = regexp.MustCompile(`^([A-Za-z0-9.-]+/)?[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 
+const feedbackCooldown = time.Minute
+
+// allowFeedback prevents one account (or one unauthenticated client) from
+// using the server's gh credential to open GitHub issues in a tight loop.
+func (a *API) allowFeedback(r *http.Request) bool {
+	key := remoteIP(r)
+	if a.auth != nil {
+		if actor, _ := a.auth.AuditActor(r); actor != "" {
+			key = "user:" + actor
+		}
+	}
+	now := time.Now()
+	a.feedbackMu.Lock()
+	defer a.feedbackMu.Unlock()
+	if a.feedbackLast == nil {
+		a.feedbackLast = map[string]time.Time{}
+	}
+	if last, ok := a.feedbackLast[key]; ok && now.Sub(last) < feedbackCooldown {
+		return false
+	}
+	a.feedbackLast[key] = now
+	if len(a.feedbackLast) > 1000 {
+		for item, at := range a.feedbackLast {
+			if now.Sub(at) > feedbackCooldown {
+				delete(a.feedbackLast, item)
+			}
+		}
+	}
+	return true
+}
+
 type feedbackInput struct {
 	Title string `json:"title"`
 	Body  string `json:"body"`
@@ -74,6 +105,10 @@ func (a *API) submitFeedback(w http.ResponseWriter, r *http.Request) {
 		issueBody += fmt.Sprintf("- User-Agent: %s\n", ua)
 	}
 
+	if !a.allowFeedback(r) {
+		fail(w, http.StatusTooManyRequests, errors.New("feedback was submitted recently; try again in a minute"))
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), feedbackTimeout)
 	defer cancel()
 	issueURL, err := createIssue(ctx, repo, title, issueBody)

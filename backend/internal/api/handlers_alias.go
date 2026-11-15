@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"unicode/utf8"
+
+	"mongoui/internal/config"
 )
 
 const aliasMaxLength = 80
@@ -17,9 +19,31 @@ type aliasInput struct {
 	Alias        string `json:"alias"`
 }
 
-// getAliases returns the server-wide shared database and collection aliases.
-func (a *API) getAliases(w http.ResponseWriter, _ *http.Request) {
-	ok(w, a.settings.GetAliases())
+// getAliases returns the shared database and collection aliases visible to the
+// caller. Aliases for other connections must not leak database/collection names.
+func (a *API) getAliases(w http.ResponseWriter, r *http.Request) {
+	aliases := a.settings.GetAliases()
+	if a.auth == nil || a.auth.IsAdmin(r) {
+		ok(w, aliases)
+		return
+	}
+	visible := config.AliasSettings{Databases: map[string]string{}, Collections: map[string]string{}}
+	for key, value := range aliases.Databases {
+		if a.aliasConnectionAllowed(r, key) {
+			visible.Databases[key] = value
+		}
+	}
+	for key, value := range aliases.Collections {
+		if a.aliasConnectionAllowed(r, key) {
+			visible.Collections[key] = value
+		}
+	}
+	ok(w, visible)
+}
+
+func (a *API) aliasConnectionAllowed(r *http.Request, key string) bool {
+	parts := strings.SplitN(key, "::", 2)
+	return len(parts) == 2 && parts[0] != "" && a.auth.CanAccessConnection(r, parts[0])
 }
 
 // updateAlias creates, updates or removes one shared alias. An empty alias
@@ -45,6 +69,10 @@ func (a *API) updateAlias(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.ConnectionID == "" || in.Database == "" {
 		badRequest(w, errors.New("connectionId and database are required"))
+		return
+	}
+	if a.auth != nil && !a.auth.CanAccessConnection(r, in.ConnectionID) {
+		fail(w, http.StatusForbidden, errConnectionAccess)
 		return
 	}
 	if in.Kind == "collection" && in.Collection == "" {

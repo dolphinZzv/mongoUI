@@ -302,6 +302,19 @@ func (m *Manager) setAlertState(id string, state AlertState) {
 	m.alerts[id] = state
 }
 
+// pipelineHasTerminalWrite reports whether an aggregation pipeline writes into
+// another collection. Alerts are read-only and must never do this.
+func pipelineHasTerminalWrite(stages []bson.D) bool {
+	for _, stage := range stages {
+		for _, e := range stage {
+			if e.Key == "$out" || e.Key == "$merge" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func evaluateAlert(ctx context.Context, client *mongo.Client, rule config.AlertRule) (float64, error) {
 	coll := client.Database(rule.Database).Collection(rule.Collection)
 	filter := bson.D{}
@@ -645,6 +658,26 @@ func (m *Manager) runRunbook(ctx context.Context, runbook config.Runbook) {
 	defer m.release("r:" + runbook.ID)
 	start := time.Now()
 	status := RunbookRun{At: start.UTC().Format(time.RFC3339), Status: "success"}
+	stmts, err := mongoscript.Parse(runbook.Script)
+	if err != nil {
+		status.Status = "error"
+		status.Error = err.Error()
+		m.appendRunbook(runbook.ID, status)
+		return
+	}
+	connection, found := m.store.Get(runbook.ConnectionID)
+	if !found {
+		status.Status = "error"
+		status.Error = "connection not found"
+		m.appendRunbook(runbook.ID, status)
+		return
+	}
+	if connection.ReadOnly && mongoscript.IsWrite(stmts) {
+		status.Status = "error"
+		status.Error = "connection is read-only; runbook write statements are disabled"
+		m.appendRunbook(runbook.ID, status)
+		return
+	}
 	client, err := m.clientFor(ctx, runbook.ConnectionID)
 	if err != nil {
 		status.Status = "error"
@@ -658,13 +691,6 @@ func (m *Manager) runRunbook(ctx context.Context, runbook config.Runbook) {
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	stmts, err := mongoscript.Parse(runbook.Script)
-	if err != nil {
-		status.Status = "error"
-		status.Error = err.Error()
-		m.appendRunbook(runbook.ID, status)
-		return
-	}
 	runner := &mongoscript.Runner{
 		DB:           client.Database(runbook.Database),
 		DefaultLimit: 100,

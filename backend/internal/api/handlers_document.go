@@ -212,17 +212,24 @@ func (a *API) deleteDocuments(w http.ResponseWriter, r *http.Request) {
 	ok(w, map[string]any{"deletedCount": res.DeletedCount})
 }
 
+// aggregateWrites reports whether a pipeline terminates in a write stage.
+func aggregateWrites(stages []bson.D) bool {
+	for _, stage := range stages {
+		for _, e := range stage {
+			if e.Key == "$out" || e.Key == "$merge" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 type aggregateRequest struct {
 	Pipeline json.RawMessage `json:"pipeline"`
 	Limit    int64           `json:"limit"`
 }
 
 func (a *API) aggregate(w http.ResponseWriter, r *http.Request) {
-	coll, err := a.dbCollection(r)
-	if err != nil {
-		a.dbErr(w, err)
-		return
-	}
 	var req aggregateRequest
 	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, err)
@@ -237,19 +244,18 @@ func (a *API) aggregate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// $out/$merge write into a collection: block them on read-only connections.
-	readOnly := a.readOnly(r)
-	terminal := false
-	for _, stage := range stages {
-		for _, e := range stage {
-			if e.Key == "$out" || e.Key == "$merge" {
-				if readOnly {
-					fail(w, http.StatusForbidden, errors.New("$out and $merge are disabled on read-only connections"))
-					return
-				}
-				terminal = true
-			}
-		}
+	// $out/$merge write into a collection. Enforce the same account and
+	// per-connection write roles as every other write endpoint instead of only
+	// looking at the connection's global read-only flag.
+	terminal := aggregateWrites(stages)
+	if terminal && !a.requireWrite(w, r) {
+		return
+	}
+
+	coll, err := a.dbCollection(r)
+	if err != nil {
+		a.dbErr(w, err)
+		return
 	}
 
 	pipeline := mongo.Pipeline(stages)

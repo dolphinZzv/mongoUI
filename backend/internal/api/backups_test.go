@@ -1,7 +1,9 @@
 package api
 
 import (
+	"crypto/sha256"
 	"net/http"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -28,5 +30,27 @@ func TestListBackupsEmptyReturnsArray(t *testing.T) {
 	}
 	if len(tasks) != 0 {
 		t.Fatalf("expected no tasks, got %#v", tasks)
+	}
+}
+
+func TestBackupChecksum(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "backup.json")
+	if err := os.WriteFile(path, []byte("[{\"a\":1}]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("[{\"a\":1}]\n"))
+	if err := writeBackupChecksum(path, sum[:]); err != nil {
+		t.Fatal(err)
+	}
+	verified, err := verifyBackupChecksum(path)
+	if err != nil || !verified {
+		t.Fatalf("valid checksum: verified=%v err=%v", verified, err)
+	}
+	if err := os.WriteFile(path, []byte("[{\"a\":2}]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verifyBackupChecksum(path); err == nil {
+		t.Fatal("modified backup passed checksum verification")
 	}
 }

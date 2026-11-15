@@ -2,9 +2,13 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,6 +31,7 @@ const (
 	backupMaxFilesPerTask = 5
 	backupLimit           = 100000
 	backupRunTimeout      = 5 * time.Minute
+	backupRestoreMaxBytes = 1 << 30
 )
 
 // BackupTask is a scheduled export of one collection to a file.
@@ -111,18 +116,50 @@ func (b *backupManager) loop() {
 	defer close(b.done)
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
-	b.runDue()
 	for {
 		select {
 		case <-b.stop:
 			return
 		case <-ticker.C:
-			if manager := b.api.automation; manager != nil && !manager.AcquireNamed(context.Background(), "backups") {
-				continue
-			}
-			b.runDue()
+			b.runDueWithLease()
 		}
 	}
+}
+
+// runDueWithLease holds and renews the coordination lease while tasks run. A
+// single backup can take minutes, which is longer than the 45s lease TTL, so
+// renewing only once per minute would let another instance run the same task.
+func (b *backupManager) runDueWithLease() {
+	manager := b.api.automation
+	if manager == nil {
+		b.runDue(context.Background())
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	if !manager.AcquireNamed(ctx, "backups") {
+		cancel()
+		return
+	}
+	renewDone := make(chan struct{})
+	go func() {
+		defer close(renewDone)
+		ticker := time.NewTicker(20 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if !manager.AcquireNamed(ctx, "backups") {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	b.runDue(ctx)
+	cancel()
+	<-renewDone
 }
 
 // Close stops the scheduler.
@@ -131,7 +168,7 @@ func (b *backupManager) Close() {
 	<-b.done
 }
 
-func (b *backupManager) runDue() {
+func (b *backupManager) runDue(ctx context.Context) {
 	b.mu.Lock()
 	now := time.Now()
 	due := make([]BackupTask, 0)
@@ -149,11 +186,14 @@ func (b *backupManager) runDue() {
 	}
 	b.mu.Unlock()
 	for _, task := range due {
-		b.run(task)
+		if ctx.Err() != nil {
+			return
+		}
+		b.run(ctx, task)
 	}
 }
 
-func (b *backupManager) run(task BackupTask) {
+func (b *backupManager) run(ctx context.Context, task BackupTask) {
 	// Skip if this task is already running (scheduler + manual trigger).
 	b.mu.Lock()
 	if b.running == nil {
@@ -171,7 +211,7 @@ func (b *backupManager) run(task BackupTask) {
 	file := ""
 	count := 0
 	func() {
-		ctx, cancel := context.WithTimeout(context.Background(), backupRunTimeout)
+		runCtx, cancel := context.WithTimeout(ctx, backupRunTimeout)
 		defer cancel()
 		if b.dir == "" {
 			status, errText = "error", "backup storage is unavailable"
@@ -198,7 +238,7 @@ func (b *backupManager) run(task BackupTask) {
 		}
 		name := fmt.Sprintf("%s.%s.%s.%s", task.ID, sanitizeName(task.Database), sanitizeName(task.Collection), time.Now().UTC().Format("20060102-150405"))
 		name = name + "." + ext
-		n, err := writeBackupFile(ctx, collection, task.Format, filter, filepath.Join(b.dir, name))
+		n, err := writeBackupFile(runCtx, collection, task.Format, filter, filepath.Join(b.dir, name))
 		if err != nil {
 			status, errText = "error", err.Error()
 			return
@@ -232,7 +272,7 @@ func (b *backupManager) prune(taskID string) {
 	}
 	names := make([]string, 0)
 	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasPrefix(entry.Name(), taskID+".") {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), taskID+".") && isBackupDataFile(entry.Name()) {
 			names = append(names, entry.Name())
 		}
 	}
@@ -242,7 +282,12 @@ func (b *backupManager) prune(taskID string) {
 	sort.Strings(names)
 	for _, name := range names[:len(names)-backupMaxFilesPerTask] {
 		_ = os.Remove(filepath.Join(b.dir, name))
+		_ = os.Remove(filepath.Join(b.dir, name+".sha256"))
 	}
+}
+
+func isBackupDataFile(name string) bool {
+	return strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".csv")
 }
 
 func sanitizeName(name string) string {
@@ -271,6 +316,7 @@ func writeBackupFile(ctx context.Context, collection *mongo.Collection, format s
 		}
 	}()
 
+	hasher := sha256.New()
 	if format == "csv" {
 		spool, err := spoolCSVDocuments(ctx, cursor)
 		if err != nil {
@@ -281,7 +327,7 @@ func writeBackupFile(ctx context.Context, collection *mongo.Collection, format s
 		if err != nil {
 			return 0, err
 		}
-		if err := writeCSVSpool(file, spool); err != nil {
+		if err := writeCSVSpool(io.MultiWriter(file, hasher), spool); err != nil {
 			_ = file.Close()
 			return 0, err
 		}
@@ -289,6 +335,9 @@ func writeBackupFile(ctx context.Context, collection *mongo.Collection, format s
 			return 0, err
 		}
 		if err := os.Rename(tmp, target); err != nil {
+			return 0, err
+		}
+		if err := writeBackupChecksum(target, hasher.Sum(nil)); err != nil {
 			return 0, err
 		}
 		cleanup = false
@@ -299,7 +348,7 @@ func writeBackupFile(ctx context.Context, collection *mongo.Collection, format s
 	if err != nil {
 		return 0, err
 	}
-	count, writeErr := writeJSONDocuments(ctx, file, cursor)
+	count, writeErr := writeJSONDocuments(ctx, io.MultiWriter(file, hasher), cursor)
 	closeErr := file.Close()
 	if writeErr != nil {
 		return 0, writeErr
@@ -310,8 +359,53 @@ func writeBackupFile(ctx context.Context, collection *mongo.Collection, format s
 	if err := os.Rename(tmp, target); err != nil {
 		return 0, err
 	}
+	if err := writeBackupChecksum(target, hasher.Sum(nil)); err != nil {
+		return 0, err
+	}
 	cleanup = false
 	return count, nil
+}
+
+func backupChecksumPath(target string) string { return target + ".sha256" }
+
+func writeBackupChecksum(target string, sum []byte) error {
+	path := backupChecksumPath(target)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(hex.EncodeToString(sum)+"\n"), 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// verifyBackupChecksum returns (verified, error). Older backups without a
+// sidecar are accepted with verified=false; a present but mismatched checksum
+// is an error.
+func verifyBackupChecksum(path string) (bool, error) {
+	expected, err := os.ReadFile(backupChecksumPath(path))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return false, err
+	}
+	got := hex.EncodeToString(hash.Sum(nil))
+	if !strings.EqualFold(strings.TrimSpace(string(expected)), got) {
+		return false, errors.New("backup checksum does not match; the file may be truncated or modified")
+	}
+	return true, nil
 }
 
 // --- HTTP handlers ----------------------------------------------------------
@@ -457,7 +551,7 @@ func (a *API) runBackup(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, errors.New("backup task not found"))
 		return
 	}
-	go a.backups.run(*task)
+	go a.backups.run(context.Background(), *task)
 	ok(w, map[string]any{"started": true})
 }
 
@@ -494,7 +588,7 @@ func (a *API) backupFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	prefix := id + "."
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasPrefix(entry.Name(), prefix) {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), prefix) || !isBackupDataFile(entry.Name()) {
 			continue
 		}
 		info, err := entry.Info()
@@ -539,7 +633,7 @@ func (a *API) downloadBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", "attachment; filename=\""+name+"\"")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
 	http.ServeContent(w, r, name, info.ModTime(), file)
 }
 
@@ -574,21 +668,32 @@ func (a *API) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.backups.dir == "" || !strings.HasPrefix(req.File, id+".") ||
-		strings.ContainsAny(req.File, "/\\") || strings.Contains(req.File, "..") {
+		strings.ContainsAny(req.File, "/\\") || strings.Contains(req.File, "..") ||
+		strings.HasSuffix(req.File, ".sha256") {
 		badRequest(w, errors.New("invalid backup file"))
 		return
 	}
-	content, err := os.ReadFile(filepath.Join(a.backups.dir, req.File))
+	path := filepath.Join(a.backups.dir, req.File)
+	info, err := os.Stat(path)
 	if err != nil {
 		fail(w, http.StatusNotFound, errors.New("backup file not found"))
 		return
 	}
-	docs, err := parseImportContent(task.Format, string(content))
+	if info.Size() > backupRestoreMaxBytes {
+		fail(w, http.StatusRequestEntityTooLarge, fmt.Errorf("backup file is too large to restore (max %d MiB)", backupRestoreMaxBytes>>20))
+		return
+	}
+	verified, err := verifyBackupChecksum(path)
 	if err != nil {
 		badRequest(w, err)
 		return
 	}
-	if len(docs) == 0 {
+	count, err := validateBackupFile(path, task.Format)
+	if err != nil {
+		badRequest(w, err)
+		return
+	}
+	if count == 0 {
 		badRequest(w, errors.New("backup contains no documents"))
 		return
 	}
@@ -597,38 +702,104 @@ func (a *API) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		a.dbErr(w, err)
 		return
 	}
-	coll := client.Database(task.Database).Collection(task.Collection)
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 	defer cancel()
+
 	if req.Drop {
-		if err := coll.Drop(ctx); err != nil && !isNamespaceNotFound(err) {
+		// Restore into a staging collection and atomically rename it over the
+		// target. A parse/insert failure leaves the existing collection intact.
+		stagingName := "__mongoui_restore_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+		staging := client.Database(task.Database).Collection(stagingName)
+		inserted, err := insertBackupFile(ctx, path, task.Format, staging)
+		if err != nil {
+			_ = staging.Drop(context.Background())
 			a.dbErr(w, err)
 			return
 		}
+		cmd := bson.D{
+			{Key: "renameCollection", Value: task.Database + "." + stagingName},
+			{Key: "to", Value: task.Database + "." + task.Collection},
+			{Key: "dropTarget", Value: true},
+		}
+		if err := client.Database("admin").RunCommand(ctx, cmd).Err(); err != nil {
+			_ = staging.Drop(context.Background())
+			a.dbErr(w, err)
+			return
+		}
+		ok(w, map[string]any{
+			"insertedCount": inserted,
+			"database":      task.Database,
+			"collection":    task.Collection,
+			"file":          req.File,
+			"dropped":       true,
+			"verified":      verified,
+		})
+		return
 	}
-	inserted := 0
-	for start := 0; start < len(docs); start += importBatchSize {
-		end := start + importBatchSize
-		if end > len(docs) {
-			end = len(docs)
-		}
-		batch := make([]any, 0, end-start)
-		for _, doc := range docs[start:end] {
-			batch = append(batch, doc)
-		}
-		if _, err := coll.InsertMany(ctx, batch); err != nil {
-			a.dbErr(w, err)
-			return
-		}
-		inserted += end - start
+
+	coll := client.Database(task.Database).Collection(task.Collection)
+	inserted, err := insertBackupFile(ctx, path, task.Format, coll)
+	if err != nil {
+		a.dbErr(w, fmt.Errorf("restored %d documents before failing: %w", inserted, err))
+		return
 	}
 	ok(w, map[string]any{
 		"insertedCount": inserted,
 		"database":      task.Database,
 		"collection":    task.Collection,
 		"file":          req.File,
-		"dropped":       req.Drop,
+		"dropped":       false,
+		"verified":      verified,
 	})
+}
+
+func validateBackupFile(path, format string) (int, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+	count := 0
+	err = parseBackupFile(file, format, func(doc bson.D) error {
+		if len(doc) == 0 {
+			return errors.New("backup contains an empty document")
+		}
+		count++
+		return nil
+	})
+	return count, err
+}
+
+func insertBackupFile(ctx context.Context, path, format string, coll *mongo.Collection) (int, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+	inserted := 0
+	batch := make([]any, 0, importBatchSize)
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		if _, err := coll.InsertMany(ctx, batch); err != nil {
+			return err
+		}
+		inserted += len(batch)
+		batch = batch[:0]
+		return nil
+	}
+	err = parseBackupFile(file, format, func(doc bson.D) error {
+		batch = append(batch, doc)
+		if len(batch) >= importBatchSize {
+			return flush()
+		}
+		return nil
+	})
+	if err != nil {
+		return inserted, err
+	}
+	return inserted, flush()
 }
 
 func (a *API) backupTask(id string) (BackupTask, bool) {

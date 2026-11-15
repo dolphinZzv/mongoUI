@@ -299,7 +299,11 @@ func writeCSVSpool(w io.Writer, spool *csvSpool) error {
 	defer file.Close()
 
 	cw := csv.NewWriter(w)
-	if err := cw.Write(spool.headers); err != nil {
+	headers := make([]string, len(spool.headers))
+	for i, header := range spool.headers {
+		headers[i] = csvSafe(header)
+	}
+	if err := cw.Write(headers); err != nil {
 		return err
 	}
 	dec := json.NewDecoder(file)
@@ -318,7 +322,7 @@ func writeCSVSpool(w io.Writer, spool *csvSpool) error {
 		m := doc.Map()
 		row := make([]string, len(spool.headers))
 		for i, header := range spool.headers {
-			row[i] = csvCell(m[header])
+			row[i] = csvSafe(csvCell(m[header]))
 		}
 		if err := cw.Write(row); err != nil {
 			return err
@@ -455,21 +459,125 @@ func parseCSVImport(content string) ([]bson.D, error) {
 	header := records[0]
 	docs := make([]bson.D, 0, len(records)-1)
 	for _, row := range records[1:] {
-		doc := bson.D{}
-		for i, name := range header {
-			name = strings.TrimSpace(name)
-			if name == "" {
-				continue
-			}
-			cell := ""
-			if i < len(row) {
-				cell = row[i]
-			}
-			doc = append(doc, bson.E{Key: name, Value: parseCSVCell(cell)})
-		}
-		docs = append(docs, doc)
+		docs = append(docs, csvDocument(header, row))
 	}
 	return docs, nil
+}
+
+func csvDocument(header, row []string) bson.D {
+	doc := bson.D{}
+	for i, name := range header {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		cell := ""
+		if i < len(row) {
+			cell = row[i]
+		}
+		doc = append(doc, bson.E{Key: name, Value: parseCSVCell(cell)})
+	}
+	return doc
+}
+
+// parseBackupFile streams a backup file through each instead of loading the
+// whole payload into memory. It accepts the JSON array written by
+// writeJSONDocuments, NDJSON, or CSV.
+func parseBackupFile(r io.Reader, format string, each func(bson.D) error) error {
+	switch format {
+	case "json":
+		return parseJSONBackupStream(r, each)
+	case "csv":
+		return parseCSVBackupStream(r, each)
+	default:
+		return errors.New(`format must be "json" or "csv"`)
+	}
+}
+
+func parseJSONBackupStream(r io.Reader, each func(bson.D) error) error {
+	br := bufio.NewReaderSize(r, 64<<10)
+	first, err := firstNonSpaceByte(br)
+	if err != nil {
+		return err
+	}
+	if first == '[' {
+		dec := json.NewDecoder(br)
+		if _, err := dec.Token(); err != nil {
+			return fmt.Errorf("invalid backup JSON: %w", err)
+		}
+		for dec.More() {
+			var raw json.RawMessage
+			if err := dec.Decode(&raw); err != nil {
+				return fmt.Errorf("invalid backup JSON: %w", err)
+			}
+			var doc bson.D
+			if err := bson.UnmarshalExtJSON(raw, false, &doc); err != nil {
+				return fmt.Errorf("invalid Extended JSON document: %w", err)
+			}
+			if err := each(doc); err != nil {
+				return err
+			}
+		}
+		_, err := dec.Token()
+		return err
+	}
+	scanner := bufio.NewScanner(br)
+	scanner.Buffer(make([]byte, 64<<10), 32<<20)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var doc bson.D
+		if err := bson.UnmarshalExtJSON([]byte(line), false, &doc); err != nil {
+			return fmt.Errorf("invalid Extended JSON line: %w", err)
+		}
+		if err := each(doc); err != nil {
+			return err
+		}
+	}
+	return scanner.Err()
+}
+
+func firstNonSpaceByte(br *bufio.Reader) (byte, error) {
+	for {
+		b, err := br.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		if b == ' ' || b == '\t' || b == '\r' || b == '\n' {
+			continue
+		}
+		if err := br.UnreadByte(); err != nil {
+			return 0, err
+		}
+		return b, nil
+	}
+}
+
+func parseCSVBackupStream(r io.Reader, each func(bson.D) error) error {
+	reader := csv.NewReader(r)
+	reader.FieldsPerRecord = -1
+	reader.TrimLeadingSpace = true
+	header, err := reader.Read()
+	if errors.Is(err, io.EOF) {
+		return errors.New("backup CSV is empty")
+	}
+	if err != nil {
+		return fmt.Errorf("invalid CSV: %w", err)
+	}
+	for {
+		row, err := reader.Read()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("invalid CSV: %w", err)
+		}
+		if err := each(csvDocument(header, row)); err != nil {
+			return err
+		}
+	}
 }
 
 var (
@@ -520,14 +628,18 @@ func documentsToCSV(docs []bson.D) (string, error) {
 	headers := csvHeaders(docs)
 	var buf bytes.Buffer
 	w := csv.NewWriter(&buf)
-	if err := w.Write(headers); err != nil {
+	safeHeaders := make([]string, len(headers))
+	for i, header := range headers {
+		safeHeaders[i] = csvSafe(header)
+	}
+	if err := w.Write(safeHeaders); err != nil {
 		return "", err
 	}
 	for _, doc := range docs {
 		m := doc.Map()
 		row := make([]string, len(headers))
 		for i, h := range headers {
-			row[i] = csvCell(m[h])
+			row[i] = csvSafe(csvCell(m[h]))
 		}
 		if err := w.Write(row); err != nil {
 			return "", err
@@ -566,6 +678,26 @@ func orderedCSVHeaders(headers []string) []string {
 		}
 	}
 	return headers
+}
+
+// csvSafe neutralises spreadsheet formula injection. Data (and audit fields)
+// can contain attacker-controlled strings beginning with =, +, @, tab or CR;
+// Excel/LibreOffice would otherwise execute them when the export is opened.
+func csvSafe(value string) string {
+	if value == "" {
+		return value
+	}
+	switch value[0] {
+	case '=', '+', '@', '\t', '\r':
+		return "'" + value
+	case '-':
+		// Preserve ordinary negative numbers; only prefix a leading dash that
+		// cannot be parsed as a number.
+		if len(value) == 1 || (value[1] < '0' || value[1] > '9') {
+			return "'" + value
+		}
+	}
+	return value
 }
 
 // csvCell renders a BSON value as a single CSV cell. Common scalar types are

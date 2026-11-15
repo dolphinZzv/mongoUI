@@ -132,6 +132,14 @@ func (a *API) updateAlerts(w http.ResponseWriter, r *http.Request) {
 				badRequest(w, errors.New("invalid alert pipeline: "+err.Error()))
 				return
 			}
+			for _, stage := range pipeline {
+				for _, e := range stage {
+					if e.Key == "$out" || e.Key == "$merge" {
+						badRequest(w, errors.New("alerts are read-only; $out and $merge are not allowed"))
+						return
+					}
+				}
+			}
 		}
 		if rule.WebhookSecret == "" {
 			rule.WebhookSecret = secrets[rule.ID]

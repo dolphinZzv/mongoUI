@@ -84,6 +84,12 @@ func (a *API) getConnection(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, config.ErrNotFound)
 		return
 	}
+	// Only administrators edit connection profiles, and only they need the
+	// stored URI/SSH credentials. Other accounts receive the same redacted view
+	// as the list endpoint so a read-only grant cannot leak database passwords.
+	if a.auth != nil && !a.auth.IsAdmin(r) {
+		c = redactConnection(c)
+	}
 	ok(w, connectionView{Connection: c, Connected: a.mgr.IsConnected(c.ID)})
 }
 
@@ -174,9 +180,9 @@ func (a *API) deleteConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) connect(w http.ResponseWriter, r *http.Request) {
-	if !a.requireAccountWrite(w, r) {
-		return
-	}
+	// Connecting is a read operation: read-only accounts and read-scoped PATs
+	// must be able to open a connection. The auth and connectionAccess
+	// middleware have already checked both authentication and access.
 	id := chi.URLParam(r, "id")
 	c, found := a.store.Get(id)
 	if !found {
@@ -189,13 +195,14 @@ func (a *API) connect(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadGateway, err)
 		return
 	}
+	if a.auth != nil && !a.auth.IsAdmin(r) {
+		c = redactConnection(c)
+	}
 	ok(w, connectionView{Connection: c, Connected: true})
 }
 
 func (a *API) disconnect(w http.ResponseWriter, r *http.Request) {
-	if !a.requireAccountWrite(w, r) {
-		return
-	}
+	// Disconnecting only changes local connection state, not data.
 	id := chi.URLParam(r, "id")
 	a.mgr.Disconnect(id)
 	ok(w, map[string]any{"id": id, "connected": false})

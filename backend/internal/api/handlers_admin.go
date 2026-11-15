@@ -52,27 +52,31 @@ func transformDocument(doc bson.D, fieldMap map[string]string, exclude map[strin
 // another. The target may live in another database or connection, and fields
 // can be renamed or dropped on the way.
 func (a *API) copyCollection(w http.ResponseWriter, r *http.Request) {
-	if !a.requireWrite(w, r) {
-		return
-	}
-	src, err := a.dbCollection(r)
-	if err != nil {
-		a.dbErr(w, err)
-		return
-	}
 	var req copyRequest
 	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, err)
 		return
 	}
 
+	sourceConnectionID := chi.URLParam(r, "id")
+	sourceDatabase := chi.URLParam(r, "db")
+	sourceCollection := chi.URLParam(r, "col")
+	targetConnectionID := strings.TrimSpace(req.TargetConnectionID)
+	if targetConnectionID == "" {
+		targetConnectionID = sourceConnectionID
+	}
+	// The source is only read; a read-only source is fine. The destination,
+	// however, must be writable for this account and not globally read-only.
+	if !a.requireWritableConnection(w, r, targetConnectionID) {
+		return
+	}
 	req.TargetDatabase = strings.TrimSpace(req.TargetDatabase)
 	req.TargetCollection = strings.TrimSpace(req.TargetCollection)
 	if req.TargetDatabase == "" || req.TargetCollection == "" {
 		badRequest(w, errors.New("targetDatabase and targetCollection are required"))
 		return
 	}
-	if req.TargetDatabase == src.Database().Name() && req.TargetCollection == src.Name() {
+	if req.TargetDatabase == sourceDatabase && req.TargetCollection == sourceCollection {
 		badRequest(w, errors.New("source and target are the same collection"))
 		return
 	}
@@ -81,18 +85,18 @@ func (a *API) copyCollection(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err)
 		return
 	}
-
+	src, err := a.dbCollection(r)
+	if err != nil {
+		a.dbErr(w, err)
+		return
+	}
 	client, err := a.client(r)
 	if err != nil {
 		a.dbErr(w, err)
 		return
 	}
 	targetClient := client
-	if targetConnectionID := strings.TrimSpace(req.TargetConnectionID); targetConnectionID != "" &&
-		targetConnectionID != chi.URLParam(r, "id") {
-		if !a.requireWritableConnection(w, r, targetConnectionID) {
-			return
-		}
+	if targetConnectionID != sourceConnectionID {
 		targetClient, err = a.mgr.Get(targetConnectionID)
 		if err != nil {
 			a.dbErr(w, err)

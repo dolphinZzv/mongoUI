@@ -397,6 +397,9 @@ export function BackupsDialog({ open, onOpenChange }: BackupsDialogProps) {
               restoreDrop,
             )
             toast.success(t("backups.restored", { count: result.insertedCount }))
+            if (result.verified === false) {
+              toast.warning(t("backups.restoreUnverified"))
+            }
             setRestoreTarget(null)
             await load()
             if (openTaskId === restoreTarget.task.id) {

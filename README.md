@@ -61,7 +61,7 @@ MongoUI 是一个用 Go + React 编写的 MongoDB 可视化管理工具。前端
 - **聚合管道**：在 Query 工作台里切换到聚合模式，多行 JSON 编辑器 + 常用模板，表格 / JSON / 图表结果视图；可切换源数据库 / 集合执行跨库管道，按源集合记住上次管道，支持最近 / 收藏 / 团队共享保存，一键复制为 `db.getSiblingDB(...).<c>.aggregate(...)`。
 - **执行计划（Explain）**：对 find / 聚合运行 `explain`，展示关键指标；当命中全表扫描时给出**索引建议并可一键创建**，超过 100ms 的查询会标记为慢查询。
 - **查询结果可视化**：把结果切换为柱状 / 折线 / 面积 / 饼图，自选 X 轴与数值聚合，纯 SVG 实现、无额外依赖。
-- **共享 Dashboard**：图表视图保存在服务端并可标记为 pinned；`/dashboard` 会把所有已连接、已授权的固定图表汇总成跨连接团队 Dashboard，连接概览则展示单连接视图。支持链接分享、时间范围与图表级自动刷新。
+- **共享 Dashboard**：图表视图保存在服务端并可标记为 pinned；`/dashboard` 会把所有已连接、已授权的固定图表汇总成跨连接团队 Dashboard，连接概览则展示单连接视图。支持链接分享、全局筛选（叠加在每张图表的筛选之上）、时间范围、全局/图表级自动刷新。
 - **全库搜索**：在一个数据库的集合中按「值」或「字段名」模糊搜索，给出每个集合的命中数与样例；使用 `$facet` 单次扫描、受限并发与部分结果提示，避免全库扫描串行拖慢数据库。
 - **导出为 SQL / mongosh**：把当前查询导出为 SQL `SELECT` 或 `db.<c>.find(...)` 片段，方便沉淀为脚本。
 
@@ -81,7 +81,7 @@ MongoUI 是一个用 Go + React 编写的 MongoDB 可视化管理工具。前端
 - **多账号与角色**：账号密码和 / 或 TOTP 登录，分 `管理员 / 读写 / 只读` 角色；只读账号的写操作在服务端被拒。管理员还可为每个账号配置**连接级权限**：每个连接可单独设为只读 / 读写（空表示全部继承账号角色），PAT 继承同一限制。
 - **个人访问令牌（PAT）**：为 API 客户端签发带作用域（`read` / `write` / `admin`）的令牌，权限不会超过账号当前角色。
 - **单点登录（OIDC）**：接入任意 OpenID Connect 提供方，支持发现、PKCE、JWKS 校验与「用户组 → 角色」映射，可限制邮箱域名 / 邮箱。
-- **定时备份与恢复**：按计划把集合导出为 JSON/CSV 文件，保留最近若干份，并记录上次运行状态；历史文件可一键恢复（可选先清空目标集合），恢复同样受只读连接限制。
+- **定时备份与恢复**：按计划把集合导出为 JSON/CSV 文件，保留最近若干份，并记录上次运行状态；备份同时生成 SHA-256 校验和。历史文件可一键流式恢复（可选先写 staging 集合并原子替换目标），恢复同样受只读连接限制。
 - **定时数据报表**：按计划对集合执行只读 find / 聚合，把结果（最多 500 行）通过 Webhook 或 SMTP 邮件发送，作为轻量团队日报 / 周报。
 - **内置反馈**：右下角 Feedback 入口通过服务端 `gh` CLI 创建 GitHub Issue，支持关闭并从设置菜单重新打开。
 - **登录（账号密码 / TOTP）**、后退 / 前进与刷新可恢复的 URL 状态。
@@ -386,6 +386,7 @@ curl -H "Authorization: Bearer moui_pat_xxx" -H "Content-Type: application/json"
 | — | `MONGOUI_AUDIT_WEBHOOK_URL` | 空 | 把新审计事件 POST 到 SIEM / Webhook；可选 HMAC 签名 |
 | — | `MONGOUI_AUDIT_WEBHOOK_SECRET` | 空 | 审计 Webhook 的 HMAC-SHA256 密钥（`X-Mongoui-Signature`） |
 | — | `MONGOUI_ALLOW_PRIVATE_WEBHOOKS` | 关 | 允许 Webhook 指向内网/回环地址（默认拦截，防 SSRF） |
+| — | `MONGOUI_ALLOW_PRIVATE_AI` | 关 | 允许 AI BYOK 地址指向内网/回环（默认拦截，防 SSRF；本地 Ollama 等场景可开启） |
 | — | `MONGOUI_RESTART_AFTER_UPDATE` | 关 | 更新后干净退出以便服务管理器重启（`service` 安装时自动设置） |
 
 ```bash
@@ -497,7 +498,9 @@ gh auth login --with-token < token.txt
 
 - **凭据加密**：连接串（含账号密码）与 SSH 密码 / 私钥在 `connections.json` 中以 **AES-256-GCM** 存储（`enc:v1:` 前缀）。主密钥来自 `MONGOUI_SECRET_KEY`，未设置时首次启动自动生成 `<data>/secret.key`（权限 `0600`）。**请务必备份主密钥或 `secret.key`，丢失后将无法解密连接配置。** 旧版明文配置会在启动时自动加密。
 - **只读模式**：在网页端、HTTP API 与 MCP 写工具中均**服务端强制生效**（对只读连接的写操作返回 403，包括聚合里的 `$out` / `$merge`）。
-- **默认同源**：跨域默认关闭；如需让其他源访问 API / MCP，请设置 `MONGOUI_ALLOW_ORIGIN`（逗号分隔）。
+- **默认同源**：跨域默认关闭；如需让其他源访问 API / MCP，请设置 `MONGOUI_ALLOW_ORIGIN`（逗号分隔）。所有写请求和 `/mcp` 还会校验 `Origin`，默认拒绝跨站请求，避免未启用登录时被恶意网页 CSRF。
+- **只读语义**：连接级只读会同时拦截 API 写操作、聚合 `$out/$merge`、MCP 写工具、定时 runbook 写脚本和告警写管道；只读账号仍可建立连接和浏览数据。
+- **审计/凭据**：审计按连接权限过滤；非管理员读取连接详情时自动脱敏 URI 密码与 SSH 私钥。
 - **请求约束**：请求体限制 32MB，聚合结果默认限量，服务端设置读 / 写 / 空闲超时，并返回 `X-Content-Type-Options` / `X-Frame-Options` / `Referrer-Policy` 等响应头。
 - **凭据脱敏**：连接列表接口对 URI 密码与 SSH 凭据脱敏（密码显示为 `xxxxxxxx`、SSH 密钥清空）；完整凭据仅在编辑弹窗按单个连接获取。
 - **登录**：首次启动引导设置账号密码或 TOTP，之后所有 `/api/*` 需要登录会话或 PAT（`/api/health` 除外）。连续失败会按账号 + IP 限速；会话带版本号，改密 / 重置 / 退出所有设备会撤销旧会话。可额外启用 **OIDC 单点登录**（授权码 + PKCE + JWKS 校验），其回调同样受签名 Cookie 会话保护。

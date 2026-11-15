@@ -10,8 +10,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -27,7 +29,87 @@ const (
 	defaultGeminiModel   = "gemini-2.5-flash"
 )
 
-var httpClient = &http.Client{Timeout: 90 * time.Second}
+var httpClient = &http.Client{
+	Timeout:   90 * time.Second,
+	Transport: safeTransport(),
+}
+
+// ValidateURL performs the cheap, network-free part of outbound URL validation.
+// DNS names are additionally checked at dial time so a hostname cannot be used
+// to reach loopback/private addresses (SSRF / DNS rebinding).
+func ValidateURL(raw string) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return err
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return errors.New("URL must start with http:// or https://")
+	}
+	if parsed.Host == "" {
+		return errors.New("URL must include a host")
+	}
+	if allowPrivateAI() {
+		return nil
+	}
+	host := parsed.Hostname()
+	if strings.EqualFold(host, "localhost") {
+		return errors.New("URL must not point to localhost; set MONGOUI_ALLOW_PRIVATE_AI=1 to allow local providers")
+	}
+	if ip := net.ParseIP(host); ip != nil && privateIP(ip) {
+		return errors.New("URL must not point to a private or loopback address; set MONGOUI_ALLOW_PRIVATE_AI=1 to allow local providers")
+	}
+	return nil
+}
+
+func allowPrivateAI() bool {
+	return os.Getenv("MONGOUI_ALLOW_PRIVATE_AI") == "1"
+}
+
+func privateIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast()
+}
+
+func safeTransport() *http.Transport {
+	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	return &http.Transport{
+		Proxy:               http.ProxyFromEnvironment,
+		ForceAttemptHTTP2:   true,
+		MaxIdleConns:        100,
+		IdleConnTimeout:     90 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			if allowPrivateAI() {
+				return dialer.DialContext(ctx, network, address)
+			}
+			host, port, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, err
+			}
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, err
+			}
+			for _, candidate := range ips {
+				if privateIP(candidate.IP) {
+					return nil, fmt.Errorf("AI endpoint resolved to a private or loopback address (%s); set MONGOUI_ALLOW_PRIVATE_AI=1 to allow local providers", candidate.IP)
+				}
+			}
+			var lastErr error
+			for _, candidate := range ips {
+				conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(candidate.IP.String(), port))
+				if err == nil {
+					return conn, nil
+				}
+				lastErr = err
+			}
+			if lastErr != nil {
+				return nil, lastErr
+			}
+			return nil, fmt.Errorf("AI endpoint %q resolved to no usable addresses", host)
+		},
+	}
+}
 
 // GenerateFilter asks the configured provider to turn prompt into a MongoDB
 // filter. The response is returned as raw model text; the caller validates and

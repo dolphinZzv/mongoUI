@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -97,6 +98,145 @@ func TestCORSIsSameOriginByDefault(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("cross-origin allowed by default: %q", got)
+	}
+}
+
+func TestCrossOriginWriteIsRejected(t *testing.T) {
+	api, _ := newTestAPI(t)
+	handler := api.Router(nil)
+	body := `{"name":"evil","uri":"mongodb://localhost:27017"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/connections", strings.NewReader(body))
+	req.Header.Set("Content-Type", "text/plain")
+	req.Header.Set("Origin", "https://evil.example")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin write = %d, want 403: %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/connections", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://example.com")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("same-origin write = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Dev/reverse proxies may change the upstream port; the hostname still
+	// matches, so this is the user's own origin.
+	req = httptest.NewRequest(http.MethodPost, "/api/connections", strings.NewReader(body))
+	req.Host = "example.com:8080"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://example.com:5174")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("same-host different-port write = %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestReadOnlyConnectionRejectsAggregateWrite(t *testing.T) {
+	api, store := newTestAPI(t)
+	conn, err := store.Add(config.Connection{Name: "ro", URI: "mongodb://x", ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := api.Router(nil)
+	body := `{"pipeline":[{"$match":{}},{"$out":"copy"}]}`
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/connections/"+conn.ID+"/databases/db/collections/c/aggregate",
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("read-only aggregate $out = %d, want 403: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestConnectionCredentialsRedactedForNonAdmin(t *testing.T) {
+	store, err := config.NewStore(filepath.Join(t.TempDir(), "connections.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := store.Add(config.Connection{
+		Name: "prod", URI: "mongodb://user:secret@host:27017",
+		SSH: &config.SSHConfig{Enabled: true, Host: "bastion", User: "ops", PrivateKey: "PRIVATE"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, err := auth.New(t.TempDir(), nil, []byte("test-master-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.SetupWithPassword("admin", "admin password"); err != nil {
+		t.Fatal(err)
+	}
+	user, err := manager.CreatePasswordUser("viewer", auth.RoleReadOnly, "viewer password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.UpdateUserConnections(user.ID, []string{conn.ID}); err != nil {
+		t.Fatal(err)
+	}
+	handler := New(store, mongoclient.NewManager(), true, "test", nil, manager).Router(nil)
+	cookie := loginCookie(t, handler, "viewer", "viewer password")
+	req := httptest.NewRequest(http.MethodGet, "/api/connections/"+conn.ID, nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET connection = %d: %s", rec.Code, rec.Body.String())
+	}
+	var envelope struct {
+		Data config.Connection `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(envelope.Data.URI, "secret") {
+		t.Fatalf("URI password leaked: %s", envelope.Data.URI)
+	}
+	if envelope.Data.SSH != nil && envelope.Data.SSH.PrivateKey != "" {
+		t.Fatal("SSH private key leaked")
+	}
+}
+
+func TestReadOnlyAccountCanConnect(t *testing.T) {
+	store, err := config.NewStore(filepath.Join(t.TempDir(), "connections.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := store.Add(config.Connection{Name: "ro", URI: "mongodb://%"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, err := auth.New(t.TempDir(), nil, []byte("test-master-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.SetupWithPassword("admin", "admin password"); err != nil {
+		t.Fatal(err)
+	}
+	user, err := manager.CreatePasswordUser("viewer", auth.RoleReadOnly, "viewer password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.UpdateUserConnections(user.ID, []string{conn.ID}); err != nil {
+		t.Fatal(err)
+	}
+	handler := New(store, mongoclient.NewManager(), true, "test", nil, manager).Router(nil)
+	cookie := loginCookie(t, handler, "viewer", "viewer password")
+	req := httptest.NewRequest(http.MethodPost, "/api/connections/"+conn.ID+"/connect", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	// The fake URI cannot connect, but the request must not be rejected by an
+	// account write check (which would be 403).
+	if rec.Code == http.StatusForbidden {
+		t.Fatalf("read-only account was forbidden from connecting: %s", rec.Body.String())
 	}
 }
 

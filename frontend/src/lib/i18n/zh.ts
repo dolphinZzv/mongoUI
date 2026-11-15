@@ -23,6 +23,7 @@ const zh: Record<string, string> = {
   "common.undo": "撤销",
   "common.yes": "是",
   "common.no": "否",
+  "tabs.all": "全部标签",
   "tabs.close": "关闭标签",
   "tabs.closeAll": "关闭全部标签",
   "common.copyFailed": "复制失败，请手动选择文本复制",

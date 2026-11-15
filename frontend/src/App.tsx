@@ -714,6 +714,7 @@ export default function App() {
           </header>
           <CollectionTabs
             tabs={tabs}
+            connections={connections}
             activeKey={activeTabKey}
             onActivate={activateTab}
             onClose={closeTab}

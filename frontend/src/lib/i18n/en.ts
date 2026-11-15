@@ -23,6 +23,7 @@ const en: Record<string, string> = {
   "common.undo": "Undo",
   "common.yes": "Yes",
   "common.no": "No",
+  "tabs.all": "Open tabs",
   "tabs.close": "Close tab",
   "tabs.closeAll": "Close all tabs",
   "common.copyFailed": "Copy failed — select the text and copy manually",

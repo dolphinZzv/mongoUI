@@ -38,6 +38,7 @@ interface CollectionViewProps {
   docs?: DocsQueryState
   onDocsChange?: (docs: DocsQueryState) => void
   onTabChange?: (tab: string) => void
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 export function CollectionView({
@@ -49,6 +50,7 @@ export function CollectionView({
   docs,
   onDocsChange,
   onTabChange,
+  onDirtyChange,
 }: CollectionViewProps) {
   const [copied, setCopied] = React.useState(false)
   const [copyOpen, setCopyOpen] = React.useState(false)
@@ -141,6 +143,7 @@ export function CollectionView({
             initialDocs={docs}
             initialChartOpen={chartTab}
             onDocsChange={onDocsChange}
+            onDirtyChange={onDirtyChange}
           />
         </TabsContent>
         <TabsContent value="query" className="min-h-0 flex-1">

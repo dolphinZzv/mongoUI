@@ -95,6 +95,7 @@ export default function App() {
   const [profileOpen, setProfileOpen] = React.useState(false)
   const [feedbackOpen, setFeedbackOpen] = React.useState(false)
   const [tabs, setTabs] = React.useState<CollectionTab[]>(() => readTabs())
+  const [dirtyTabs, setDirtyTabs] = React.useState<Set<string>>(new Set())
   // Last closed tab, for Alt+Shift+T (reopen).
   const lastClosedTabRef = React.useRef<CollectionTab | null>(null)
   const [editingConnection, setEditingConnection] = React.useState<Connection | null>(null)
@@ -382,6 +383,25 @@ export default function App() {
     writeTabs(tabs)
   }, [tabs])
 
+  const setTabDirty = React.useCallback((key: string | null, dirty: boolean) => {
+    if (!key) return
+    setDirtyTabs((prev) => {
+      if (prev.has(key) === dirty) return prev
+      const next = new Set(prev)
+      if (dirty) next.add(key)
+      else next.delete(key)
+      return next
+    })
+  }, [])
+
+  React.useEffect(() => {
+    setDirtyTabs((prev) => {
+      const next = new Set([...prev].filter((key) => tabs.some((tab) => tab.key === key)))
+      if (next.size === prev.size) return prev
+      return next
+    })
+  }, [tabs])
+
   // Drop tabs whose connection no longer exists.
   React.useEffect(() => {
     if (loading) return
@@ -448,6 +468,15 @@ export default function App() {
   const closeTabsRight = (target: CollectionTab) => {
     const index = tabs.findIndex((tab) => tab.key === target.key)
     closeTabSet((_, tabIndex) => tabIndex <= index)
+  }
+
+  const toggleTabPin = (target: CollectionTab) => {
+    setTabs((prev) => {
+      const next = prev.map((tab) =>
+        tab.key === target.key ? { ...tab, pinned: !tab.pinned } : tab,
+      )
+      return [...next].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)))
+    })
   }
 
   const reorderTab = (sourceKey: string, targetKey: string, position: "before" | "after") => {
@@ -580,6 +609,7 @@ export default function App() {
             docs={docs}
             onDocsChange={handleDocsChange}
             onTabChange={handleTabChange}
+            onDirtyChange={(dirty) => setTabDirty(tabKey(selection), dirty)}
           />
         </React.Suspense>
       )
@@ -757,6 +787,7 @@ export default function App() {
             tabs={tabs}
             connections={connections}
             activeKey={activeTabKey}
+            dirtyKeys={dirtyTabs}
             onActivate={activateTab}
             onClose={closeTab}
             onCloseAll={closeAllTabs}
@@ -764,6 +795,7 @@ export default function App() {
             onCloseLeft={closeTabsLeft}
             onCloseRight={closeTabsRight}
             onReorder={reorderTab}
+            onTogglePin={toggleTabPin}
           />
           <main className="min-h-0 flex-1">{renderContent()}</main>
         </div>

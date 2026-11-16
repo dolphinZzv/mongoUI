@@ -1,6 +1,6 @@
 import * as React from "react"
 import { createPortal } from "react-dom"
-import { Check, Layers3, X } from "lucide-react"
+import { Check, Layers3, Pin, PinOff, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -21,6 +21,7 @@ interface CollectionTabsProps {
   tabs: CollectionTab[]
   connections: Connection[]
   activeKey: string | null
+  dirtyKeys: Set<string>
   onActivate: (tab: CollectionTab) => void
   onClose: (tab: CollectionTab) => void
   onCloseAll: () => void
@@ -28,6 +29,7 @@ interface CollectionTabsProps {
   onCloseLeft: (tab: CollectionTab) => void
   onCloseRight: (tab: CollectionTab) => void
   onReorder: (sourceKey: string, targetKey: string, position: "before" | "after") => void
+  onTogglePin: (tab: CollectionTab) => void
 }
 
 /** A horizontal strip of open collection tabs. */
@@ -35,6 +37,7 @@ export function CollectionTabs({
   tabs,
   connections,
   activeKey,
+  dirtyKeys,
   onActivate,
   onClose,
   onCloseAll,
@@ -42,6 +45,7 @@ export function CollectionTabs({
   onCloseLeft,
   onCloseRight,
   onReorder,
+  onTogglePin,
 }: CollectionTabsProps) {
   const { t } = useI18n()
   const aliases = useAliases()
@@ -83,6 +87,7 @@ export function CollectionTabs({
   if (tabs.length === 0) return null
 
   const connectionByID = new Map(connections.map((connection) => [connection.id, connection]))
+  const dragTab = dragKey ? tabs.find((tab) => tab.key === dragKey) : undefined
   const labels = new Map<string, number>()
   for (const tab of tabs) {
     const key = `${tab.database}::${tab.collection}`
@@ -126,6 +131,7 @@ export function CollectionTabs({
               }}
               onDragOver={(event) => {
                 if (!dragKey || dragKey === tab.key) return
+                if (Boolean(dragTab?.pinned) !== Boolean(tab.pinned)) return
                 event.preventDefault()
                 event.dataTransfer.dropEffect = "move"
                 const rect = event.currentTarget.getBoundingClientRect()
@@ -182,6 +188,9 @@ export function CollectionTabs({
                 className="size-1.5 shrink-0 rounded-full"
                 style={{ backgroundColor: connection?.color || "var(--primary)" }}
               />
+              {tab.pinned ? (
+                <Pin className="text-muted-foreground size-3 shrink-0" aria-hidden />
+              ) : null}
               <button
                 type="button"
                 onClick={() => onActivate(tab)}
@@ -196,6 +205,13 @@ export function CollectionTabs({
                 <span className="text-muted-foreground"> / </span>
                 <span className="font-medium">{colName}</span>
               </button>
+              {dirtyKeys.has(tab.key) ? (
+                <span
+                  aria-label={t("tabs.unapplied")}
+                  title={t("tabs.unapplied")}
+                  className="size-1.5 shrink-0 rounded-full bg-amber-500"
+                />
+              ) : null}
               <button
                 type="button"
                 aria-label={t("tabs.close")}
@@ -266,6 +282,19 @@ export function CollectionTabs({
               style={{ left: menu.x, top: menu.y }}
               onPointerDown={(event) => event.stopPropagation()}
             >
+              <button
+                type="button"
+                role="menuitem"
+                className="hover:bg-accent flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm"
+                onClick={() => {
+                  onTogglePin(menu.tab)
+                  setMenu(null)
+                }}
+              >
+                {menu.tab.pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+                {menu.tab.pinned ? t("tabs.unpin") : t("tabs.pin")}
+              </button>
+              <div className="bg-border my-1 h-px" />
               <button
                 type="button"
                 role="menuitem"

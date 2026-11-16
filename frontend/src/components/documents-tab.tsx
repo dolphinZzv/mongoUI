@@ -68,6 +68,8 @@ interface DocumentsTabProps {
   initialChartOpen?: boolean
   /** Persist the current query/pagination so a refresh restores it. */
   onDocsChange?: (docs: DocsQueryState) => void
+  /** Report an unapplied MQL draft for the collection tab marker. */
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 
@@ -111,6 +113,7 @@ export function DocumentsTab({
   initialDocs,
   initialChartOpen,
   onDocsChange,
+  onDirtyChange,
 }: DocumentsTabProps) {
   const { t } = useI18n()
   const [showOptions, setShowOptions] = React.useState(false)
@@ -271,6 +274,15 @@ export function DocumentsTab({
     pushRecent,
     onBeforeLoad: handleBeforeLoad,
     onLoaded: handleLoaded,
+  })
+
+  const draftStorageKey = `mongoui-filter-draft:${connectionId}:${database}:${collection}`
+  const [initialFilterDraft] = React.useState(() => {
+    try {
+      return localStorage.getItem(draftStorageKey) ?? filter
+    } catch {
+      return filter
+    }
   })
 
   const openChart = React.useCallback(() => {
@@ -1262,6 +1274,9 @@ export function DocumentsTab({
             setFilter("{}")
             void load({ skip: 0, filter: "{}" })
           }}
+          initialDraft={initialFilterDraft}
+          draftStorageKey={draftStorageKey}
+          onDirtyChange={onDirtyChange}
           onFixWithAI={async (query, error) => {
             const result = await api.fixMQL({
               query,

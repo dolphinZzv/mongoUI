@@ -10,6 +10,7 @@ export interface CollectionTab {
   connectionId: string
   database: string
   collection: string
+  pinned?: boolean
   tab?: string
   docs?: DocsQueryState
 }

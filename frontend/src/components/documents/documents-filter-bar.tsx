@@ -26,6 +26,12 @@ export interface DocumentsFilterBarProps {
   onClear: () => void
   /** Ask the configured BYOK model to repair an invalid MQL draft. */
   onFixWithAI: (query: string, error: string) => Promise<string>
+  /** Restored draft, e.g. when returning to a collection tab. */
+  initialDraft?: string
+  /** localStorage scope for the unapplied MQL draft. */
+  draftStorageKey?: string
+  /** Report whether the draft differs from the applied filter. */
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 /**
@@ -45,14 +51,34 @@ export function DocumentsFilterBar({
   onOpenBuilder,
   onClear,
   onFixWithAI,
+  initialDraft,
+  draftStorageKey,
+  onDirtyChange,
 }: DocumentsFilterBarProps) {
   const { t } = useI18n()
-  const [draft, setDraft] = React.useState(value)
+  const [draft, setDraft] = React.useState(initialDraft ?? value)
+  const lastValueRef = React.useRef(value)
   const [fixing, setFixing] = React.useState(false)
 
+  // Only re-seed from the applied filter when it actually changes. This keeps
+  // a restored draft intact when the collection tab is remounted.
   React.useEffect(() => {
+    if (value === lastValueRef.current) return
+    lastValueRef.current = value
     setDraft(value)
   }, [value])
+
+  React.useEffect(() => {
+    if (draftStorageKey) {
+      try {
+        if (draft.trim() === value.trim()) localStorage.removeItem(draftStorageKey)
+        else localStorage.setItem(draftStorageKey, draft)
+      } catch {
+        /* storage may be unavailable */
+      }
+    }
+    onDirtyChange?.(draft.trim() !== value.trim())
+  }, [draft, value, draftStorageKey, onDirtyChange])
 
   const draftError = jsonObjectError(draft)
   const error = draftError ?? queryError

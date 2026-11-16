@@ -424,6 +424,47 @@ export default function App() {
     }
   }
 
+  const closeTabSet = (keep: (tab: CollectionTab, index: number) => boolean) => {
+    const next = tabs.filter((tab, index) => keep(tab, index))
+    if (next.length === tabs.length) return
+    const activeRemoved = !next.some((tab) => tab.key === activeTabKey)
+    setTabs(next)
+    if (!activeRemoved) return
+    const activeIndex = tabs.findIndex((tab) => tab.key === activeTabKey)
+    const neighbour = next[Math.min(Math.max(0, activeIndex), next.length - 1)]
+    if (neighbour) activateTab(neighbour)
+    else navigate({ kind: "welcome" }, undefined, { replace: true })
+  }
+
+  const closeOtherTabs = (target: CollectionTab) => {
+    closeTabSet((tab) => tab.key === target.key)
+  }
+
+  const closeTabsLeft = (target: CollectionTab) => {
+    const index = tabs.findIndex((tab) => tab.key === target.key)
+    closeTabSet((_, tabIndex) => tabIndex >= index)
+  }
+
+  const closeTabsRight = (target: CollectionTab) => {
+    const index = tabs.findIndex((tab) => tab.key === target.key)
+    closeTabSet((_, tabIndex) => tabIndex <= index)
+  }
+
+  const reorderTab = (sourceKey: string, targetKey: string, position: "before" | "after") => {
+    if (sourceKey === targetKey) return
+    setTabs((prev) => {
+      const from = prev.findIndex((tab) => tab.key === sourceKey)
+      const target = prev.findIndex((tab) => tab.key === targetKey)
+      if (from < 0 || target < 0) return prev
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      let insert = next.findIndex((tab) => tab.key === targetKey)
+      if (position === "after") insert += 1
+      next.splice(insert, 0, moved)
+      return next
+    })
+  }
+
   // Keyboard tab navigation: Alt+[ / Alt+] cycle, Alt+1..9 jump, Alt+Shift+W
   // closes and Alt+Shift+T reopens the last closed collection. Uses event.code
   // so it works on layouts where Alt changes the produced character.
@@ -719,6 +760,10 @@ export default function App() {
             onActivate={activateTab}
             onClose={closeTab}
             onCloseAll={closeAllTabs}
+            onCloseOthers={closeOtherTabs}
+            onCloseLeft={closeTabsLeft}
+            onCloseRight={closeTabsRight}
+            onReorder={reorderTab}
           />
           <main className="min-h-0 flex-1">{renderContent()}</main>
         </div>

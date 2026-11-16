@@ -1,4 +1,5 @@
 import * as React from "react"
+import { createPortal } from "react-dom"
 import { Check, Layers3, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -23,6 +24,10 @@ interface CollectionTabsProps {
   onActivate: (tab: CollectionTab) => void
   onClose: (tab: CollectionTab) => void
   onCloseAll: () => void
+  onCloseOthers: (tab: CollectionTab) => void
+  onCloseLeft: (tab: CollectionTab) => void
+  onCloseRight: (tab: CollectionTab) => void
+  onReorder: (sourceKey: string, targetKey: string, position: "before" | "after") => void
 }
 
 /** A horizontal strip of open collection tabs. */
@@ -33,10 +38,40 @@ export function CollectionTabs({
   onActivate,
   onClose,
   onCloseAll,
+  onCloseOthers,
+  onCloseLeft,
+  onCloseRight,
+  onReorder,
 }: CollectionTabsProps) {
   const { t } = useI18n()
   const aliases = useAliases()
   const tabRefs = React.useRef(new Map<string, HTMLDivElement>())
+  const [dragKey, setDragKey] = React.useState<string | null>(null)
+  const [dropTarget, setDropTarget] = React.useState<{
+    key: string
+    position: "before" | "after"
+  } | null>(null)
+  const [menu, setMenu] = React.useState<{
+    x: number
+    y: number
+    tab: CollectionTab
+  } | null>(null)
+
+  React.useEffect(() => {
+    if (!menu) return
+    const close = () => setMenu(null)
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close()
+    }
+    window.addEventListener("pointerdown", close)
+    window.addEventListener("keydown", onKey)
+    window.addEventListener("scroll", close, true)
+    return () => {
+      window.removeEventListener("pointerdown", close)
+      window.removeEventListener("keydown", onKey)
+      window.removeEventListener("scroll", close, true)
+    }
+  }, [menu])
 
   // Keep the active tab visible when it was opened from search, a shortcut or
   // the sidebar while the strip is scrolled to another part of the list.
@@ -79,18 +114,69 @@ export function CollectionTabs({
                 if (node) tabRefs.current.set(tab.key, node)
                 else tabRefs.current.delete(tab.key)
               }}
-              className={cn(
-                "group flex max-w-56 shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-xs",
-                active
-                  ? "bg-background border-border text-foreground shadow-xs"
-                  : "text-muted-foreground hover:bg-background/60 border-transparent",
-              )}
+              draggable
+              onDragStart={(event) => {
+                setDragKey(tab.key)
+                event.dataTransfer.effectAllowed = "move"
+                event.dataTransfer.setData("text/plain", tab.key)
+              }}
+              onDragEnd={() => {
+                setDragKey(null)
+                setDropTarget(null)
+              }}
+              onDragOver={(event) => {
+                if (!dragKey || dragKey === tab.key) return
+                event.preventDefault()
+                event.dataTransfer.dropEffect = "move"
+                const rect = event.currentTarget.getBoundingClientRect()
+                setDropTarget({
+                  key: tab.key,
+                  position: event.clientX < rect.left + rect.width / 2 ? "before" : "after",
+                })
+              }}
+              onDragLeave={(event) => {
+                if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+                setDropTarget((current) => (current?.key === tab.key ? null : current))
+              }}
+              onDrop={(event) => {
+                event.preventDefault()
+                if (dragKey && dropTarget?.key === tab.key) {
+                  onReorder(dragKey, tab.key, dropTarget.position)
+                }
+                setDragKey(null)
+                setDropTarget(null)
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault()
+                setMenu({
+                  x: Math.min(event.clientX, window.innerWidth - 208),
+                  y: Math.min(event.clientY, window.innerHeight - 190),
+                  tab,
+                })
+              }}
               onAuxClick={(event) => {
                 if (event.button !== 1) return
                 event.preventDefault()
                 onClose(tab)
               }}
+              data-dragging={dragKey === tab.key ? "true" : undefined}
+              className={cn(
+                "group relative flex max-w-56 shrink-0 cursor-grab items-center gap-1.5 rounded-md border px-2 py-1 text-xs active:cursor-grabbing",
+                active
+                  ? "bg-background border-border text-foreground shadow-xs"
+                  : "text-muted-foreground hover:bg-background/60 border-transparent",
+                dragKey === tab.key && "opacity-40",
+              )}
             >
+              {dropTarget?.key === tab.key ? (
+                <span
+                  aria-hidden
+                  className={cn(
+                    "bg-primary absolute inset-y-0 z-10 w-0.5 rounded",
+                    dropTarget.position === "before" ? "-left-1" : "-right-1",
+                  )}
+                />
+              ) : null}
               <span
                 aria-hidden
                 className="size-1.5 shrink-0 rounded-full"
@@ -171,6 +257,68 @@ export function CollectionTabs({
       >
         <X />
       </Button>
+      {menu
+        ? createPortal(
+            <div
+              role="menu"
+              data-testid="tab-context-menu"
+              className="bg-popover text-popover-foreground fixed z-50 min-w-48 rounded-md border p-1 shadow-md"
+              style={{ left: menu.x, top: menu.y }}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className="hover:bg-accent flex w-full items-center rounded-sm px-2 py-1.5 text-left text-sm"
+                onClick={() => {
+                  onClose(menu.tab)
+                  setMenu(null)
+                }}
+              >
+                {t("tabs.close")}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="hover:bg-accent flex w-full items-center rounded-sm px-2 py-1.5 text-left text-sm"
+                disabled={tabs.length <= 1}
+                onClick={() => {
+                  onCloseOthers(menu.tab)
+                  setMenu(null)
+                }}
+              >
+                {t("tabs.closeOthers")}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="hover:bg-accent flex w-full items-center rounded-sm px-2 py-1.5 text-left text-sm disabled:opacity-40"
+                disabled={tabs.findIndex((tab) => tab.key === menu.tab.key) <= 0}
+                onClick={() => {
+                  onCloseLeft(menu.tab)
+                  setMenu(null)
+                }}
+              >
+                {t("tabs.closeLeft")}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="hover:bg-accent flex w-full items-center rounded-sm px-2 py-1.5 text-left text-sm disabled:opacity-40"
+                disabled={
+                  tabs.findIndex((tab) => tab.key === menu.tab.key) >= tabs.length - 1
+                }
+                onClick={() => {
+                  onCloseRight(menu.tab)
+                  setMenu(null)
+                }}
+              >
+                {t("tabs.closeRight")}
+              </button>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   )
 }

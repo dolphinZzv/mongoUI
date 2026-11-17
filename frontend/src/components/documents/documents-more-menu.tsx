@@ -1,4 +1,4 @@
-import { Activity, BarChart3, Braces, Code2, Copy, Download, Ellipsis, Lightbulb, Radio, ShieldCheck, Upload } from "lucide-react"
+import { Activity, BarChart3, Braces, Code2, Copy, Download, Ellipsis, Lightbulb, Radio, Rows3, ShieldCheck, Upload } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -23,6 +23,10 @@ interface DocumentsMoreMenuProps {
   onLiveTail: () => void
   onIndexAdvisor: () => void
   onDataQuality: () => void
+  /** Open the sort & projection editor. */
+  onSortProjection: () => void
+  /** Highlight the entry when a custom sort or projection is active. */
+  sortProjectionActive: boolean
 }
 
 /** The overflow menu of secondary document actions. */
@@ -39,6 +43,8 @@ export function DocumentsMoreMenu({
   onLiveTail,
   onIndexAdvisor,
   onDataQuality,
+  onSortProjection,
+  sortProjectionActive,
 }: DocumentsMoreMenuProps) {
   const { t } = useI18n()
 
@@ -50,6 +56,13 @@ export function DocumentsMoreMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuItem onSelect={onSortProjection}>
+          <Rows3 /> {t("docs.sortProjection")}
+          {sortProjectionActive ? (
+            <span className="bg-primary ml-auto size-1.5 rounded-full" aria-hidden />
+          ) : null}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem disabled={readOnly} onSelect={onImport}>
           <Upload /> {t("transfer.importAction")}
         </DropdownMenuItem>

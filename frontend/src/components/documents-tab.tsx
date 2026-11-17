@@ -1,12 +1,10 @@
 import * as React from "react"
 import {
   BarChart3,
-  ChevronDown,
   Columns3,
   LineChart,
   Pin,
   PinOff,
-  Rows3,
   X,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -24,9 +22,8 @@ import { ColumnColorsDialog } from "@/components/documents/column-colors-dialog"
 import { DocumentsChartPane } from "@/components/documents/documents-chart-pane"
 import { DocumentsResults } from "@/components/documents/documents-results"
 import { DocumentsMoreMenu } from "@/components/documents/documents-more-menu"
+import { SortProjectionDialog } from "@/components/documents/sort-projection-dialog"
 import { ViewsMenu } from "@/components/documents/views-menu"
-import { Label } from "@/components/ui/label"
-import { JsonEditor } from "@/components/json-editor"
 import { api } from "@/lib/api"
 import { useRecentQueries } from "@/hooks/useRecentQueries"
 import { useDocumentsQuery } from "@/hooks/useDocumentsQuery"
@@ -51,7 +48,6 @@ import {
   toNumeric,
   type ChartConfig,
 } from "@/lib/chart"
-import { cn } from "@/lib/utils"
 import type { ExplainRequest, MongoDocument } from "@/lib/types"
 
 /** Fallback width of the leading row-select column (Tailwind `w-10`). */
@@ -116,7 +112,7 @@ export function DocumentsTab({
   onDirtyChange,
 }: DocumentsTabProps) {
   const { t } = useI18n()
-  const [showOptions, setShowOptions] = React.useState(false)
+  const [sortProjectionOpen, setSortProjectionOpen] = React.useState(false)
   const rootRef = React.useRef<HTMLDivElement>(null)
   const [selected, setSelected] = React.useState<Set<string>>(new Set())
   const [editing, setEditing] = React.useState<EditingState | null>(null)
@@ -1361,18 +1357,6 @@ export function DocumentsTab({
             </span>
           </Button>
           <div className="bg-border mx-1 h-5 w-px shrink-0" />
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 gap-1"
-            onClick={() => setShowOptions((prev) => !prev)}
-            title={t("docs.sortProjection")}
-            aria-label={t("docs.sortProjection")}
-          >
-            <Rows3 />
-            <span className="hidden lg:inline">{t("docs.sortProjection")}</span>
-            <ChevronDown className={cn("transition-transform", showOptions && "rotate-180")} />
-          </Button>
           <DocumentsMoreMenu
             readOnly={readOnly}
             hasDocuments={documents.length > 0}
@@ -1396,6 +1380,8 @@ export function DocumentsTab({
             onLiveTail={() => setLiveOpen(true)}
             onIndexAdvisor={() => setAdvisorOpen(true)}
             onDataQuality={() => setQualityOpen(true)}
+            onSortProjection={() => setSortProjectionOpen(true)}
+            sortProjectionActive={sortActive || projectionActive}
           />
         </div>
 
@@ -1436,28 +1422,6 @@ export function DocumentsTab({
           </div>
         ) : null}
 
-        {showOptions ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-1">
-              <Label className="text-xs">{t("docs.sort")}</Label>
-              <JsonEditor
-                value={sort}
-                onChange={setSort}
-                placeholder='{ "createdAt": -1 }'
-                className="min-h-[4rem]"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">{t("docs.projection")}</Label>
-              <JsonEditor
-                value={projection}
-                onChange={setProjection}
-                placeholder='{ "name": 1, "email": 1 }'
-                className="min-h-[4rem]"
-              />
-            </div>
-          </div>
-        ) : null}
         {loading ? <AsyncProgress active label={t("docs.loading")} /> : null}
       </div>
 
@@ -1734,6 +1698,18 @@ export function DocumentsTab({
           setChartOpen(false)
           setChartConfig(undefined)
           void load({ skip: 0, filter: nextFilter })
+        }}
+      />
+
+      <SortProjectionDialog
+        open={sortProjectionOpen}
+        onOpenChange={setSortProjectionOpen}
+        sort={sort}
+        projection={projection}
+        onApply={(nextSort, nextProjection) => {
+          setSort(nextSort)
+          setProjection(nextProjection)
+          void load({ skip: 0, sort: nextSort, projection: nextProjection })
         }}
       />
     </div>

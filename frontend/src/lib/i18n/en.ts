@@ -527,6 +527,7 @@ const en: Record<string, string> = {
   "docs.skip": "Skip",
   "docs.filterPlaceholder": "Filter, e.g. { \"age\": { \"$gt\": 18 } }",
   "docs.sortProjection": "Sort & projection",
+  "docs.sortProjectionDesc": "Define the sort and projection as JSON, then run to rerun the query.",
   "docs.readonlyTip": "Connection is read-only",
   "docs.selected": "{{count}} selected",
   "docs.clear": "Clear",

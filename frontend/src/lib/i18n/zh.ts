@@ -526,6 +526,7 @@ const zh: Record<string, string> = {
   "docs.skip": "跳过",
   "docs.filterPlaceholder": "过滤，例如 { \"age\": { \"$gt\": 18 } }",
   "docs.sortProjection": "排序与投影",
+  "docs.sortProjectionDesc": "用 JSON 定义排序与投影，运行后立即重新查询。",
   "docs.readonlyTip": "连接为只读",
   "docs.selected": "已选 {{count}} 条",
   "docs.clear": "清除",

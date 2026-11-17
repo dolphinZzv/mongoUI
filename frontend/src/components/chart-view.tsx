@@ -18,6 +18,7 @@ import {
   buildChartPipeline,
   buildScatterData,
   chartDataFromRows,
+  isDateOperatorUnsupported,
   CHART_COLORS,
   formatAxisValue,
   formatChartValue,
@@ -218,6 +219,9 @@ export function ChartView({
   const suppressClickRef = React.useRef(false)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  // Set when the server rejects $dateTrunc (< MongoDB 5.0); the pipeline is
+  // rebuilt with 3.6-era date operators instead of failing the whole chart.
+  const [legacyDates, setLegacyDates] = React.useState(false)
   const [lastUpdated, setLastUpdated] = React.useState<number | null>(null)
   const viewsKey = storageKey ? `mongoui-chart-views:${storageKey}` : ""
   const [views, setViews] = React.useState<SavedChartView[]>(() => readSavedViews(viewsKey))
@@ -229,6 +233,11 @@ export function ChartView({
   const [pinView, setPinView] = React.useState(false)
   const columnsKey = columns.join("|")
   const serverMode = Boolean(connectionId && database && collection)
+
+  // A different server may support the modern operator, so retry it first.
+  React.useEffect(() => {
+    setLegacyDates(false)
+  }, [connectionId])
 
   React.useEffect(() => {
     const onChange = () => {
@@ -380,6 +389,7 @@ export function ChartView({
     aggregate: config.aggregate,
     group: config.group,
     bucket: effectiveConfig.timeBucket,
+    legacyDates,
     refreshToken,
     refreshSignal,
   })
@@ -405,7 +415,9 @@ export function ChartView({
           setRows(null)
           setLastUpdated(Date.now())
         } else {
-          const pipeline = buildChartPipeline(effectiveConfig, liveFilter, temporalX)
+          const pipeline = buildChartPipeline(effectiveConfig, liveFilter, temporalX, {
+            legacyDates,
+          })
           const res = await api.aggregate(
             connectionId!,
             database!,
@@ -421,7 +433,13 @@ export function ChartView({
         }
       } catch (err) {
         if (isAbortError(err) || controller.signal.aborted) return
-        setError(err instanceof Error ? err.message : t("chart.loadFailed"))
+        const message = err instanceof Error ? err.message : t("chart.loadFailed")
+        if (!legacyDates && isDateOperatorUnsupported(message)) {
+          // Retry once with operators older servers understand.
+          setLegacyDates(true)
+          return
+        }
+        setError(message)
       } finally {
         if (!controller.signal.aborted) setLoading(false)
       }

@@ -835,33 +835,98 @@ export function withLiveWindow(
   return { $and: [filter, window] }
 }
 
+/** The time zone used by the server-side date expressions. */
+export function chartTimeZone(config: ChartConfig): string {
+  return config.timeZone === "local"
+    ? Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+    : "UTC"
+}
+
+/**
+ * True when an aggregation error looks like a server that predates
+ * `$dateTrunc` (MongoDB < 5.0 and API-compatible engines). The caller retries
+ * with {@link buildChartPipeline}'s legacy date mode once.
+ */
+export function isDateOperatorUnsupported(message: string): boolean {
+  return /\$dateTrunc/i.test(message) || /Unrecognized expression/i.test(message)
+}
+
+/**
+ * `$dateTrunc` equivalent that only uses operators available since MongoDB
+ * 3.6: `$convert`, `$dateFromParts`, `$year`/`$month`/`$dayOfMonth` and
+ * `$subtract`. It returns the exact bucket start, so one grouped row still maps
+ * to exactly one chart category.
+ */
+function legacyDateTrunc(x: string, unit: ChartTimeBucket, timeZoned: string): unknown {
+  // $convert tolerates BSON dates, ISO strings and epoch numbers.
+  const date = {
+    $convert: { input: `$${x}`, to: "date", onError: null, onNull: null },
+  }
+  const parts = { date, timezone: timeZoned }
+  const midnight = (year: unknown, month: unknown, day: unknown) => ({
+    $dateFromParts: { year, month, day, timezone: timeZoned },
+  })
+  switch (unit) {
+    case "week": {
+      // Shift back to the Monday of the week, then rebuild that day at local
+      // midnight so every document in a week shares one grouping key.
+      // $dayOfWeek is 1 (Sunday) .. 7 (Saturday); Monday needs a 0-day shift.
+      const sinceMonday = { $mod: [{ $add: [{ $dayOfWeek: parts }, 5] }, 7] }
+      const monday = { $subtract: [date, { $multiply: [sinceMonday, 86_400_000] }] }
+      const shifted = { date: monday, timezone: timeZoned }
+      return midnight(
+        { $year: shifted },
+        { $month: shifted },
+        { $dayOfMonth: shifted },
+      )
+    }
+    case "quarter": {
+      const month = { $month: parts }
+      const start = {
+        $add: [
+          { $multiply: [{ $floor: { $divide: [{ $subtract: [month, 1] }, 3] } }, 3] },
+          1,
+        ],
+      }
+      return midnight({ $year: parts }, start, 1)
+    }
+    case "month":
+      return midnight({ $year: parts }, { $month: parts }, 1)
+    case "year":
+      return midnight({ $year: parts }, 1, 1)
+    default:
+      return midnight({ $year: parts }, { $month: parts }, { $dayOfMonth: parts })
+  }
+}
+
 /** Aggregation pipeline that produces the same shape as buildChartData remotely. */
 export function buildChartPipeline(
   config: ChartConfig,
   filter: unknown,
   temporal: boolean,
+  options: { legacyDates?: boolean } = {},
 ): unknown[] {
   const { x, y, aggregate, group, type } = config
   const unit = temporal && config.timeBucket !== "none" && aggregate !== "none"
     ? config.timeBucket
     : "none"
   const groupField = type === "pie" || type === "scatter" ? "" : group
+  const timeZone = chartTimeZone(config)
   const xExpr =
     unit === "none"
       ? `$${x}`
-      : {
-          $dateTrunc: {
-            // $convert tolerates BSON dates, ISO strings and epoch numbers; a
-            // plain field reference would fail for string timestamps.
-            date: { $convert: { input: `$${x}`, to: "date", onError: null, onNull: null } },
-            unit,
-            startOfWeek: "monday",
-            timezone:
-              config.timeZone === "local"
-                ? Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
-                : "UTC",
-          },
-        }
+      : options.legacyDates
+        ? legacyDateTrunc(x, unit, timeZone)
+        : {
+            $dateTrunc: {
+              // $convert tolerates BSON dates, ISO strings and epoch numbers; a
+              // plain field reference would fail for string timestamps.
+              date: { $convert: { input: `$${x}`, to: "date", onError: null, onNull: null } },
+              unit,
+              startOfWeek: "monday",
+              timezone: timeZone,
+            },
+          }
   const accumulators: Record<string, unknown> = {}
   if (aggregate === "count" || y.length === 0) {
     accumulators.v0 = { $sum: 1 }

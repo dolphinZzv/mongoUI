@@ -8,6 +8,7 @@ import {
   formatAxisValue,
   formatChartValue,
   formatXAxisLabel,
+  isDateOperatorUnsupported,
   withLiveWindow,
   normalizeChartConfig,
   resolveTimeBucket,
@@ -155,6 +156,40 @@ describe("buildChartPipeline", () => {
     expect(group._id.x.$dateTrunc.unit).toBe("month")
     expect(group._id.x.$dateTrunc.timezone).toBe("UTC")
     expect(group._id.x.$dateTrunc.date.$convert.to).toBe("date")
+  })
+
+  it("falls back to 3.6-era date operators when $dateTrunc is unavailable", () => {
+    const pipeline = buildChartPipeline(
+      config({ x: "createdAt", aggregate: "count", timeBucket: "month", timeZone: "utc" }),
+      {},
+      true,
+      { legacyDates: true },
+    ) as Record<string, any>[]
+    const x = pipeline[0].$group._id.x
+    expect(x.$dateTrunc).toBeUndefined()
+    expect(x.$dateFromParts.timezone).toBe("UTC")
+    expect(x.$dateFromParts.month.$month.date.$convert.to).toBe("date")
+  })
+
+  it("uses Monday-based weeks in the legacy pipeline", () => {
+    const pipeline = buildChartPipeline(
+      config({ x: "createdAt", aggregate: "count", timeBucket: "week", timeZone: "utc" }),
+      {},
+      true,
+      { legacyDates: true },
+    ) as Record<string, any>[]
+    const x = pipeline[0].$group._id.x
+    const weekStart = x.$dateFromParts.year.$year.date.$subtract[1]
+    // Monday (dayOfWeek 2) must shift by 0 days, Sunday (1) by 6.
+    expect(weekStart.$multiply[0].$mod[0].$add).toEqual([{ $dayOfWeek: expect.anything() }, 5])
+    expect(weekStart.$multiply[0].$mod[1]).toBe(7)
+  })
+
+  it("detects servers that reject $dateTrunc", () => {
+    expect(isDateOperatorUnsupported("(InvalidPipelineOperator) Unrecognized expression '$dateTrunc'")).toBe(
+      true,
+    )
+    expect(isDateOperatorUnsupported("not authorized")).toBe(false)
   })
 })
 

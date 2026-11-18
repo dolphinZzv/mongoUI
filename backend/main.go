@@ -23,6 +23,7 @@ import (
 	"mongoui/internal/auth"
 	"mongoui/internal/automation"
 	"mongoui/internal/autoupdate"
+	"mongoui/internal/catchreport"
 	"mongoui/internal/config"
 	"mongoui/internal/daemon"
 	"mongoui/internal/mcp"
@@ -133,6 +134,7 @@ func main() {
 		log.Fatalf("failed to load settings: %v", err)
 	}
 	settings.SetCipher(cipher)
+	catchreport.SetEnabled(settings.GetErrorTracking())
 	// Legacy -mcp-readonly flag: keep it working by forcing the read group on
 	// and the write group off. The UI remains the primary way to configure MCP.
 	if *mcpReadOnly {
@@ -221,6 +223,9 @@ func main() {
 	automation.LogStartup(automationLease != nil)
 	apiServer.SetAutomation(automationManager, automationStore)
 	handler := apiServer.Router(webHandler)
+	catch := catchreport.NewFromEnv()
+	catch.Startup("MongoUI API started")
+	handler = catch.Wrap(handler)
 
 	if (*tlsCert == "") != (*tlsKey == "") {
 		log.Printf("warning: both -tls-cert and -tls-key are required for HTTPS; serving plain HTTP")

@@ -118,6 +118,7 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 				"uiEmbedded": a.uiEmbedded,
 			})
 		})
+		r.Get("/telemetry", a.getTelemetrySettings)
 
 		if a.auth != nil {
 			// Audit auth writes too: failed logins, password changes and token
@@ -177,6 +178,7 @@ func (a *API) Router(webHandler http.Handler) http.Handler {
 
 			r.Get("/mcp", a.getMCPSettings)
 			r.Put("/mcp", a.updateMCPSettings)
+			r.Put("/telemetry", a.updateTelemetrySettings)
 
 			r.Get("/update", a.getUpdate)
 			r.Put("/update", a.updateUpdateSettings)

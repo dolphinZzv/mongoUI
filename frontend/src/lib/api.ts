@@ -519,6 +519,14 @@ export const api = {
   updateMcpSettings: (input: Partial<MCPSettings>) =>
     request<MCPSettings>("/mcp", { method: "PUT", body: JSON.stringify(input) }),
 
+  // error tracking --------------------------------------------------------------
+  telemetrySettings: () => request<{ errorTracking: boolean }>("/telemetry", { cache: "no-store" }),
+  updateTelemetrySettings: (errorTracking: boolean) =>
+    request<{ errorTracking: boolean }>("/telemetry", {
+      method: "PUT",
+      body: JSON.stringify({ errorTracking }),
+    }),
+
   // self-update -----------------------------------------------------------------
   getUpdate: () => request<UpdateState>("/update"),
   updateUpdateSettings: (input: Partial<UpdateSettings>) =>

@@ -193,6 +193,8 @@ type Settings struct {
 	Runbooks map[string]Runbook    `json:"runbooks,omitempty"`
 	Reports  map[string]ReportRule `json:"reports,omitempty"`
 	SMTP     SMTPSettings          `json:"smtp,omitempty"`
+	// ErrorTracking controls Catch reporting for both the API and the SPA.
+	ErrorTracking bool `json:"errorTracking"`
 }
 
 // SavedQuery is a reusable SQL statement or aggregation pipeline.
@@ -217,6 +219,7 @@ var ErrSavedQueriesConflict = errors.New("saved queries were changed by someone 
 // when no path has been configured.
 func NewSettings(mcp MCPSettings) *Settings {
 	return &Settings{
+		ErrorTracking:       true,
 		MCP:                 mcp,
 		Update:              DefaultUpdateSettings(),
 		Aliases:             emptyAliases(),
@@ -287,6 +290,24 @@ func LoadSettings(path string, def MCPSettings) (*Settings, error) {
 		s.LegacyAI = nil
 	}
 	return s, nil
+}
+
+// GetErrorTracking reports whether Catch error tracking is enabled.
+func (s *Settings) GetErrorTracking() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ErrorTracking
+}
+
+// SetErrorTracking persists the Catch error tracking switch.
+func (s *Settings) SetErrorTracking(enabled bool) error {
+	s.mu.Lock()
+	s.ErrorTracking = enabled
+	s.mu.Unlock()
+	if s.path == "" {
+		return nil
+	}
+	return s.persist()
 }
 
 // GetMCP returns a copy of the current MCP settings.

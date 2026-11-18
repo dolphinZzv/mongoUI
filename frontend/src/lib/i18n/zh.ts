@@ -299,6 +299,8 @@ const zh: Record<string, string> = {
   "aiApprovals.status.failed": "失败",
   "aiApprovals.status.rejected": "已拒绝",
   "aiApprovals.status.rolled_back": "已回滚",
+  "settings.errorTracking": "错误跟踪",
+  "settings.errorTrackingDesc": "将前端和 API 错误上报到 Catch。修改后会自动刷新页面。",
   "settings.usersDesc": "邀请用户并分配角色。",
   "settings.backupsDesc": "配置集合导出计划与保留策略。",
   "settings.aiApprovalsDesc": "审查并批准 Agent 提交的写操作。",

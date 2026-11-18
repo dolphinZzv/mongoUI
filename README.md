@@ -606,3 +606,10 @@ React 19 · TypeScript · [Vite](https://vitejs.dev/) · Tailwind CSS v4 · [Rad
 ## 许可证
 
 本项目基于 [MIT License](LICENSE) 开源。
+
+
+### 错误跟踪
+
+MongoUI 可以把前端与 API 错误上报到 Catch。配置 `CATCH_URL` / `CATCH_KEY`（后端）和 `VITE_CATCH_URL` / `VITE_CATCH_INGEST_KEY`（前端构建时）后默认开启。
+
+管理员可在 **设置 → 管理 → 错误跟踪** 中关闭；关闭后前端不再加载 Catch SDK，后端也会立即停止上报。设置保存在 `<data>/settings.json` 的 `errorTracking` 字段，重启后仍然生效。

@@ -300,6 +300,8 @@ const en: Record<string, string> = {
   "aiApprovals.status.failed": "Failed",
   "aiApprovals.status.rejected": "Rejected",
   "aiApprovals.status.rolled_back": "Rolled back",
+  "settings.errorTracking": "Error tracking",
+  "settings.errorTrackingDesc": "Send frontend and API errors to Catch. Reloads the page when changed.",
   "settings.usersDesc": "Invite users and assign roles.",
   "settings.backupsDesc": "Schedule collection exports and retention.",
   "settings.aiApprovalsDesc": "Review and approve agent-proposed writes.",

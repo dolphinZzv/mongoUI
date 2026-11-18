@@ -121,6 +121,8 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
   const [oidcOpen, setOidcOpen] = React.useState(false)
   const [tokensOpen, setTokensOpen] = React.useState(false)
   const [passwordOpen, setPasswordOpen] = React.useState(false)
+  const [errorTracking, setErrorTracking] = React.useState<boolean | null>(null)
+  const [savingErrorTracking, setSavingErrorTracking] = React.useState(false)
   const aliasStore = useAliasStore()
   const agentEnabled = useAgentEnabled()
   const agentTools = React.useMemo(() => agentToolList(), [])
@@ -155,6 +157,28 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
     items.push({ id: "feedback", label: t("settings.section.feedback"), icon: <MessageSquare /> })
     return items
   }, [authEnabled, username, isAdmin, role, t])
+
+  React.useEffect(() => {
+    if (!open || section !== "admin" || !isAdmin) return
+    let cancelled = false
+    void api.telemetrySettings()
+      .then((value) => { if (!cancelled) setErrorTracking(value.errorTracking) })
+      .catch(() => { if (!cancelled) setErrorTracking(null) })
+    return () => { cancelled = true }
+  }, [open, section, isAdmin])
+
+  const toggleErrorTracking = async (enabled: boolean) => {
+    setSavingErrorTracking(true)
+    try {
+      const value = await api.updateTelemetrySettings(enabled)
+      setErrorTracking(value.errorTracking)
+      // Catch SDK handlers are installed at load time; reload so disabling or
+      // enabling takes effect immediately for this browser session.
+      window.setTimeout(() => window.location.reload(), 250)
+    } finally {
+      setSavingErrorTracking(false)
+    }
+  }
 
   React.useEffect(() => {
     if (sections.some((item) => item.id === section)) return
@@ -517,6 +541,17 @@ export function SettingsDialog({ authEnabled, onFeedback }: SettingsDialogProps)
                         />
                       </>
                     ) : null}
+                    <SettingRow
+                      title={t("settings.errorTracking")}
+                      description={t("settings.errorTrackingDesc")}
+                      control={
+                        <Switch
+                          checked={errorTracking ?? true}
+                          disabled={savingErrorTracking}
+                          onCheckedChange={(value) => void toggleErrorTracking(value)}
+                        />
+                      }
+                    />
                     <ActionRow
                       icon={<ShieldCheck />}
                       title={t("aiApprovals.title")}
